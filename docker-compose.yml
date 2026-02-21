@@ -9,6 +9,7 @@ services:
       - DATA_DIR=/app/data
       - API_HOST=0.0.0.0
       - API_PORT=8000
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

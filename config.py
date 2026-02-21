@@ -5,9 +5,12 @@ Supports multi-pair, trailing stops, transaction costs, websockets,
 notifications, trade database, and all intelligence modules.
 """
 
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+_log = logging.getLogger(__name__)
 
 # Use explicit path so .env is found regardless of working directory
 load_dotenv(Path(__file__).parent / ".env")
@@ -63,6 +66,7 @@ class Config:
     API_PORT = int(os.getenv("API_PORT", "8000"))
     ENABLE_API = os.getenv("ENABLE_API", "true").lower() == "true"
     API_AUTH_KEY = os.getenv("API_AUTH_KEY", "")  # API key for authentication (empty = no auth)
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 
     # Data directory (for Docker volume mounts)
     DATA_DIR = os.getenv("DATA_DIR", ".")
@@ -159,11 +163,98 @@ class Config:
     @classmethod
     def validate(cls):
         cls._resolve_paths()
+
+        # ── Hard failures (ValueError → agent won't start) ────────────
+
         if not cls.is_paper_mode() and (not cls.API_KEY or not cls.API_SECRET):
             raise ValueError(
                 "API_KEY and API_SECRET are required for live trading. "
                 "Set TRADING_MODE=paper for simulation."
             )
+
+        if cls.INITIAL_CAPITAL <= 0:
+            raise ValueError(
+                f"INITIAL_CAPITAL must be > 0, got {cls.INITIAL_CAPITAL}"
+            )
+
+        if not (0 < cls.STOP_LOSS_PCT < 1):
+            raise ValueError(
+                f"STOP_LOSS_PCT must be between 0 and 1 (exclusive), got {cls.STOP_LOSS_PCT}"
+            )
+
+        if not (0 < cls.TAKE_PROFIT_PCT < 1):
+            raise ValueError(
+                f"TAKE_PROFIT_PCT must be between 0 and 1 (exclusive), got {cls.TAKE_PROFIT_PCT}"
+            )
+
+        if cls.STOP_LOSS_PCT >= cls.TAKE_PROFIT_PCT:
+            raise ValueError(
+                f"STOP_LOSS_PCT ({cls.STOP_LOSS_PCT}) must be < TAKE_PROFIT_PCT ({cls.TAKE_PROFIT_PCT}). "
+                "Stop loss should be tighter than take profit."
+            )
+
+        total_cost = cls.FEE_PCT + cls.SLIPPAGE_PCT
+        if total_cost >= cls.STOP_LOSS_PCT:
+            raise ValueError(
+                f"FEE_PCT ({cls.FEE_PCT}) + SLIPPAGE_PCT ({cls.SLIPPAGE_PCT}) = {total_cost} "
+                f"must be < STOP_LOSS_PCT ({cls.STOP_LOSS_PCT}). "
+                "Transaction costs would consume the entire stop loss."
+            )
+
+        max_allocation = cls.MAX_POSITION_PCT * cls.MAX_OPEN_POSITIONS
+        if max_allocation > 1.0:
+            raise ValueError(
+                f"MAX_POSITION_PCT ({cls.MAX_POSITION_PCT}) × MAX_OPEN_POSITIONS ({cls.MAX_OPEN_POSITIONS}) "
+                f"= {max_allocation:.2f}, which exceeds 1.0. Capital would be overallocated."
+            )
+
+        if not (0 < cls.MIN_CONFIDENCE <= 1.0):
+            raise ValueError(
+                f"MIN_CONFIDENCE must be between 0 (exclusive) and 1.0 (inclusive), got {cls.MIN_CONFIDENCE}"
+            )
+
+        if cls.AGENT_INTERVAL_SECONDS < 10:
+            raise ValueError(
+                f"AGENT_INTERVAL_SECONDS must be >= 10, got {cls.AGENT_INTERVAL_SECONDS}. "
+                "Lower values risk exchange rate limits and IP bans."
+            )
+
+        # ── Soft warnings (log but don't crash) ──────────────────────
+
+        if cls.TELEGRAM_BOT_TOKEN and not cls.TELEGRAM_CHAT_ID:
+            _log.warning(
+                "TELEGRAM_BOT_TOKEN is set but TELEGRAM_CHAT_ID is missing. "
+                "Telegram notifications will silently fail."
+            )
+        if cls.TELEGRAM_CHAT_ID and not cls.TELEGRAM_BOT_TOKEN:
+            _log.warning(
+                "TELEGRAM_CHAT_ID is set but TELEGRAM_BOT_TOKEN is missing. "
+                "Telegram notifications will silently fail."
+            )
+
+        if cls.MIN_CONFIDENCE < 0.4:
+            _log.warning(
+                "MIN_CONFIDENCE is very low (%.2f). "
+                "The agent may generate many low-quality signals.",
+                cls.MIN_CONFIDENCE,
+            )
+
+        if total_cost > cls.STOP_LOSS_PCT * 0.5:
+            _log.warning(
+                "Transaction costs (%.4f) exceed 50%% of STOP_LOSS_PCT (%.4f). "
+                "Most stopped-out trades will be net negative.",
+                total_cost, cls.STOP_LOSS_PCT,
+            )
+
+        if max_allocation > 0.8:
+            _log.warning(
+                "MAX_POSITION_PCT × MAX_OPEN_POSITIONS = %.2f. "
+                "Over 80%% capital allocation leaves little reserve for drawdowns.",
+                max_allocation,
+            )
+
+        # ── Config summary ───────────────────────────────────────────
+
         print(f"  Mode:     {cls.TRADING_MODE.upper()}")
         print(f"  Exchange: {cls.EXCHANGE_ID}")
         print(f"  Pair:     {cls.TRADING_PAIR}")

@@ -89,13 +89,11 @@ def create_app(lifespan=None) -> FastAPI:
     # Authentication middleware (must be added before CORS)
     app.add_middleware(APIKeyAuthMiddleware)
 
-    # CORS — allow the React dashboard on localhost:3000
+    # CORS — origins from env (CORS_ORIGINS), defaults to localhost:3000
+    origins = [o.strip() for o in Config.CORS_ORIGINS.split(",") if o.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ],
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Content-Type", "X-API-Key"],

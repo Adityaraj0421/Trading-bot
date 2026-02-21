@@ -12,7 +12,7 @@ X-API-Key: <your-key>
 
 Public paths (no auth required): `/health`, `/docs`, `/openapi.json`, `/redoc`, `/telegram/webhook`
 
-WebSocket connections authenticate via query parameter: `ws://localhost:8000/ws?api_key=<your-key>`
+WebSocket connections authenticate via first message after connecting (see WebSocket section below)
 
 ---
 
@@ -355,9 +355,15 @@ Telegram bot status.
 
 ## WebSocket
 
-### `ws://localhost:8000/ws?api_key=<key>`
+### `ws://localhost:8000/ws`
 
 Real-time event stream. The server pushes events as they occur.
+
+**Authentication:** After connecting, send an auth message as the first message:
+```json
+{"type": "auth", "api_key": "<your-key>"}
+```
+The server waits up to 5 seconds for the auth message. If no auth is received or the key is invalid, the connection is closed with code 4001. When `API_AUTH_KEY` is not set, auth is skipped.
 
 **Message format:**
 ```json

@@ -40,8 +40,8 @@ export function useAgentWebSocket() {
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
 
-    // Build URL with auth
-    const url = API_KEY ? `${WS_URL}/ws?api_key=${API_KEY}` : `${WS_URL}/ws`;
+    // No API key in URL — auth happens via first message after connecting
+    const url = `${WS_URL}/ws`;
 
     try {
       const ws = new WebSocket(url);
@@ -49,6 +49,12 @@ export function useAgentWebSocket() {
 
       ws.onopen = () => {
         if (!mountedRef.current) return;
+
+        // Send auth as first message (keeps key out of URL/logs/history)
+        if (API_KEY) {
+          ws.send(JSON.stringify({ type: "auth", api_key: API_KEY }));
+        }
+
         setState("connected");
         reconnectDelay.current = 1000; // Reset backoff on success
 
