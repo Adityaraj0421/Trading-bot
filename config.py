@@ -161,7 +161,7 @@ class Config:
         return cls.TRADING_MODE.lower() == "paper"
 
     @classmethod
-    def validate(cls):
+    def validate(cls) -> None:
         cls._resolve_paths()
 
         # ── Hard failures (ValueError → agent won't start) ────────────

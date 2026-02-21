@@ -16,7 +16,7 @@ import sqlite3
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any
 from contextlib import contextmanager
 from config import Config
 
@@ -26,7 +26,7 @@ _log = logging.getLogger(__name__)
 class TradeDB:
     """SQLite-backed trade and performance database."""
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or os.path.join(
             getattr(Config, "DATA_DIR", "."), "trades.db"
         )
@@ -49,7 +49,7 @@ class TradeDB:
         finally:
             conn.close()
 
-    def close(self):
+    def close(self) -> None:
         """Close the database (no-op since we use per-query connections)."""
         _log.info("TradeDB closed: %s", self.db_path)
 
@@ -145,11 +145,11 @@ class TradeDB:
                   confidence, sl, tp, trailing))
             return cursor.lastrowid
 
-    def record_trade_close(self, trade_id: int = None, symbol: str = None,
-                           side: str = None, exit_price: float = 0,
+    def record_trade_close(self, trade_id: int | None = None, symbol: str | None = None,
+                           side: str | None = None, exit_price: float = 0,
                            pnl_gross: float = 0, pnl_net: float = 0,
                            fees: float = 0, slippage: float = 0,
-                           reason: str = "", hold_bars: int = 0):
+                           reason: str = "", hold_bars: int = 0) -> None:
         """Record a trade closing."""
         with self._conn() as conn:
             if trade_id:
@@ -176,7 +176,7 @@ class TradeDB:
                       datetime.now().isoformat(), reason, hold_bars,
                       symbol, side))
 
-    def get_open_trades(self) -> list[dict]:
+    def get_open_trades(self) -> list[dict[str, Any]]:
         """Get all currently open trades."""
         with self._conn() as conn:
             rows = conn.execute(
@@ -184,8 +184,8 @@ class TradeDB:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def get_trade_history(self, limit: int = 100, strategy: str = None,
-                          since: str = None) -> list[dict]:
+    def get_trade_history(self, limit: int = 100, strategy: str | None = None,
+                          since: str | None = None) -> list[dict[str, Any]]:
         """Get trade history with optional filters."""
         query = "SELECT * FROM trades WHERE status='closed'"
         params = []
@@ -208,7 +208,7 @@ class TradeDB:
 
     def record_equity(self, equity: float, capital: float,
                       unrealized_pnl: float, open_positions: int,
-                      cycle: int):
+                      cycle: int) -> None:
         """Record an equity snapshot."""
         with self._conn() as conn:
             conn.execute("""
@@ -218,7 +218,7 @@ class TradeDB:
             """, (datetime.now().isoformat(), equity, capital,
                   unrealized_pnl, open_positions, cycle))
 
-    def get_equity_curve(self, since: str = None, limit: int = 1000) -> list[dict]:
+    def get_equity_curve(self, since: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
         """Get equity curve data."""
         query = "SELECT * FROM equity_snapshots"
         params = []
@@ -235,7 +235,7 @@ class TradeDB:
     # --- Events ---
 
     def record_event(self, event_type: str, description: str,
-                     severity: str = "info", data: dict = None):
+                     severity: str = "info", data: dict[str, Any] | None = None) -> None:
         """Record a system event."""
         with self._conn() as conn:
             conn.execute("""
@@ -244,7 +244,7 @@ class TradeDB:
             """, (datetime.now().isoformat(), event_type, severity,
                   description, json.dumps(data or {})))
 
-    def get_events(self, event_type: str = None, limit: int = 100) -> list[dict]:
+    def get_events(self, event_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """Get system events."""
         query = "SELECT * FROM events"
         params = []
@@ -260,7 +260,7 @@ class TradeDB:
 
     # --- Daily Summaries ---
 
-    def generate_daily_summary(self, date: str = None) -> dict:
+    def generate_daily_summary(self, date: str | None = None) -> dict[str, Any]:
         """Generate or retrieve a daily summary."""
         date = date or datetime.now().strftime("%Y-%m-%d")
 
@@ -318,7 +318,7 @@ class TradeDB:
 
     # --- Analytics ---
 
-    def get_strategy_performance(self) -> dict:
+    def get_strategy_performance(self) -> dict[str, dict[str, Any]]:
         """Get performance breakdown by strategy."""
         with self._conn() as conn:
             rows = conn.execute("""
@@ -338,7 +338,7 @@ class TradeDB:
             """).fetchall()
             return {r["strategy_name"]: dict(r) for r in rows}
 
-    def get_regime_performance(self) -> dict:
+    def get_regime_performance(self) -> dict[str, dict[str, Any]]:
         """Get performance breakdown by market regime."""
         with self._conn() as conn:
             rows = conn.execute("""
@@ -354,7 +354,7 @@ class TradeDB:
             """).fetchall()
             return {r["regime"]: dict(r) for r in rows}
 
-    def get_total_stats(self) -> dict:
+    def get_total_stats(self) -> dict[str, Any]:
         """Get overall trading statistics."""
         with self._conn() as conn:
             row = conn.execute("""

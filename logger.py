@@ -11,6 +11,7 @@ import os
 from collections import deque
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from typing import Any
 from config import Config
 
 
@@ -21,14 +22,14 @@ class StructuredLogger:
     2. File: JSON-lines for machine parsing / monitoring (rotated at 20MB, 5 backups)
     """
 
-    def __init__(self, name: str = "trading_agent"):
+    def __init__(self, name: str = "trading_agent") -> None:
         self.name = name
         self._setup_console_logger()
         self._setup_file_logger()
         # v7.0: bounded in-memory event buffer (was unbounded list)
-        self.events: deque = deque(maxlen=2000)
+        self.events: deque[dict[str, Any]] = deque(maxlen=2000)
 
-    def _setup_console_logger(self):
+    def _setup_console_logger(self) -> None:
         self.console = logging.getLogger(f"{self.name}.console")
         self.console.setLevel(getattr(logging, Config.LOG_LEVEL, logging.INFO))
         if not self.console.handlers:
@@ -38,7 +39,7 @@ class StructuredLogger:
             ))
             self.console.addHandler(handler)
 
-    def _setup_file_logger(self):
+    def _setup_file_logger(self) -> None:
         self.file_logger = logging.getLogger(f"{self.name}.file")
         self.file_logger.setLevel(logging.DEBUG)
         if not self.file_logger.handlers:
@@ -52,7 +53,7 @@ class StructuredLogger:
             handler.setFormatter(logging.Formatter("%(message)s"))
             self.file_logger.addHandler(handler)
 
-    def _log_event(self, event_type: str, data: dict, level: str = "INFO"):
+    def _log_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> dict[str, Any]:
         event = {
             "timestamp": datetime.now().isoformat(),
             "type": event_type,
@@ -65,14 +66,14 @@ class StructuredLogger:
 
     # --- Specific event loggers ---
 
-    def log_cycle_start(self, cycle: int, price: float, pair: str):
+    def log_cycle_start(self, cycle: int, price: float, pair: str) -> None:
         self._log_event("cycle_start", {
             "cycle": cycle, "price": price, "pair": pair,
         })
         self.console.info(f"Cycle #{cycle} | {pair} = ${price:,.2f}")
 
     def log_signal(self, signal: str, confidence: float, source: str,
-                   regime: str = "", strategy: str = ""):
+                   regime: str = "", strategy: str = "") -> None:
         self._log_event("signal", {
             "signal": signal, "confidence": confidence,
             "source": source, "regime": regime, "strategy": strategy,
@@ -80,7 +81,7 @@ class StructuredLogger:
 
     def log_trade_open(self, symbol: str, side: str, price: float,
                        quantity: float, sl: float, tp: float,
-                       trailing: float, strategy: str = ""):
+                       trailing: float, strategy: str = "") -> None:
         self._log_event("trade_open", {
             "symbol": symbol, "side": side, "price": price,
             "quantity": quantity, "stop_loss": sl, "take_profit": tp,
@@ -94,7 +95,7 @@ class StructuredLogger:
     def log_trade_close(self, symbol: str, side: str, entry: float,
                         exit_price: float, pnl_net: float, pnl_gross: float,
                         fees: float, reason: str, hold_bars: int,
-                        strategy: str = ""):
+                        strategy: str = "") -> None:
         level = "INFO" if pnl_net >= 0 else "WARNING"
         self._log_event("trade_close", {
             "symbol": symbol, "side": side,
@@ -111,7 +112,7 @@ class StructuredLogger:
         )
 
     def log_regime_change(self, old_regime: str, new_regime: str,
-                          confidence: float):
+                          confidence: float) -> None:
         self._log_event("regime_change", {
             "old_regime": old_regime, "new_regime": new_regime,
             "confidence": confidence,
@@ -119,7 +120,7 @@ class StructuredLogger:
         self.console.info(f"Regime: {old_regime} -> {new_regime} ({confidence:.0%})")
 
     def log_model_train(self, accuracy: float, samples: int,
-                        drift_detected: bool = False):
+                        drift_detected: bool = False) -> None:
         level = "WARNING" if drift_detected else "INFO"
         self._log_event("model_train", {
             "accuracy": accuracy, "samples": samples,
@@ -130,14 +131,14 @@ class StructuredLogger:
         else:
             self.console.info(f"Model trained: accuracy={accuracy:.2%}, samples={samples}")
 
-    def log_error(self, component: str, error: str):
+    def log_error(self, component: str, error: str) -> None:
         self._log_event("error", {
             "component": component, "error": error,
         }, level="ERROR")
         self.console.error(f"[{component}] {error}")
 
     def log_portfolio(self, capital: float, positions: int, total_pnl: float,
-                      fees: float, win_rate: float):
+                      fees: float, win_rate: float) -> None:
         self._log_event("portfolio", {
             "capital": round(capital, 2),
             "open_positions": positions,
@@ -146,7 +147,7 @@ class StructuredLogger:
             "win_rate": round(win_rate, 4),
         })
 
-    def get_recent_events(self, event_type: str = None, limit: int = 50) -> list:
+    def get_recent_events(self, event_type: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         """Query recent events, optionally filtered by type."""
         events = list(self.events)
         if event_type:

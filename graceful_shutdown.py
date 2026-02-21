@@ -18,7 +18,7 @@ import sys
 import logging
 import threading
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Callable
 
 _log = logging.getLogger(__name__)
 
@@ -26,9 +26,9 @@ _log = logging.getLogger(__name__)
 class GracefulShutdown:
     """Manages clean shutdown of all agent components."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._shutdown_requested = False
-        self._callbacks: list[tuple[str, Callable]] = []
+        self._callbacks: list[tuple[str, Callable[[], None]]] = []
         self._lock = threading.Lock()
 
         # Register signal handlers (only works in the main thread;
@@ -43,19 +43,19 @@ class GracefulShutdown:
     def shutdown_requested(self) -> bool:
         return self._shutdown_requested
 
-    def register_callback(self, name: str, callback: Callable):
+    def register_callback(self, name: str, callback: Callable[[], None]) -> None:
         """Register a shutdown callback. Called in LIFO order."""
         self._callbacks.append((name, callback))
         _log.debug("Registered shutdown callback: %s", name)
 
-    def _signal_handler(self, signum, frame):
+    def _signal_handler(self, signum: int, frame: Any) -> None:
         """Handle OS signals."""
         sig_name = signal.Signals(signum).name
         _log.info("Received %s, initiating graceful shutdown...", sig_name)
         print(f"\n  [Shutdown] Received {sig_name}, shutting down gracefully...")
         self.initiate_shutdown(reason=f"Signal {sig_name}")
 
-    def initiate_shutdown(self, reason: str = "Manual", close_positions: bool = False):
+    def initiate_shutdown(self, reason: str = "Manual", close_positions: bool = False) -> None:
         """Begin graceful shutdown sequence."""
         with self._lock:
             if self._shutdown_requested:
@@ -89,7 +89,7 @@ class RateLimiter:
     """
 
     def __init__(self, max_requests_per_minute: int = 1200,
-                 max_orders_per_minute: int = 10):
+                 max_orders_per_minute: int = 10) -> None:
         self._max_rpm = max_requests_per_minute
         self._max_opm = max_orders_per_minute
         self._request_times: list[float] = []
@@ -104,13 +104,13 @@ class RateLimiter:
         """Check if we can place an order."""
         return self._check_limit(self._order_times, self._max_opm)
 
-    def record_request(self):
+    def record_request(self) -> None:
         """Record a general API request."""
         with self._lock:
             import time
             self._request_times.append(time.time())
 
-    def record_order(self):
+    def record_order(self) -> None:
         """Record an order placement."""
         with self._lock:
             import time
@@ -127,14 +127,14 @@ class RateLimiter:
                 times.pop(0)
             return len(times) < max_count
 
-    def wait_if_needed(self, is_order: bool = False):
+    def wait_if_needed(self, is_order: bool = False) -> None:
         """Block until rate limit allows the next request."""
         import time
         check = self.can_order if is_order else self.can_request
         while not check():
             time.sleep(0.1)
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, int]:
         """Get current rate limit status."""
         import time
         now = time.time()
