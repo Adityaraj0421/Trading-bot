@@ -22,6 +22,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from collections import defaultdict
+from typing import Any
 
 from indicators import Indicators
 from model import TradingModel, Signal
@@ -80,13 +81,13 @@ class Backtester:
 
     def __init__(
         self,
-        initial_capital: float = None,
+        initial_capital: float | None = None,
         fee_pct: float = 0.001,         # 0.1% maker/taker fee (Binance default)
         slippage_pct: float = 0.0005,   # 0.05% slippage estimate
         trailing_stop_pct: float = 0.015,  # 1.5% trailing stop activation
         max_hold_bars: int = 100,        # Force close after 100 bars
-        min_confidence: float = None,
-        symbol: str = None,             # v7.0: explicit symbol for multi-pair
+        min_confidence: float | None = None,
+        symbol: str | None = None,             # v7.0: explicit symbol for multi-pair
     ):
         self.initial_capital = initial_capital or Config.INITIAL_CAPITAL
         self.fee_pct = fee_pct
@@ -101,8 +102,8 @@ class Backtester:
         self.positions: list[BacktestPosition] = []
         self.trades: list[BacktestTrade] = []
         self.equity_curve: list[float] = []
-        self.equity_timestamps: list = []
-        self.signals_log: list[dict] = []
+        self.equity_timestamps: list[Any] = []
+        self.signals_log: list[dict[str, Any]] = []
 
         # Per-strategy tracking
         self.strategy_trades: dict[str, list[BacktestTrade]] = defaultdict(list)
@@ -129,8 +130,9 @@ class Backtester:
     def _calculate_fees(self, price: float, quantity: float) -> float:
         return price * quantity * self.fee_pct
 
-    def _open_position(self, bar_idx, timestamp, price, signal, confidence,
-                       strat_sig, regime_name):
+    def _open_position(self, bar_idx: int, timestamp: Any, price: float,
+                       signal: str, confidence: float,
+                       strat_sig: Any, regime_name: str) -> None:
         side = "long" if signal == "BUY" else "short"
         risk_amount = self.capital * Config.MAX_POSITION_PCT
         actual_entry = self._apply_slippage(price, side, is_entry=True)
@@ -164,7 +166,8 @@ class Backtester:
         )
         self.positions.append(pos)
 
-    def _close_position(self, pos, bar_idx, timestamp, price, reason):
+    def _close_position(self, pos: BacktestPosition, bar_idx: int,
+                        timestamp: Any, price: float, reason: str) -> None:
         actual_exit = self._apply_slippage(price, pos.side, is_entry=False)
         exit_fee = self._calculate_fees(actual_exit, pos.quantity)
 
@@ -199,7 +202,7 @@ class Backtester:
         self.capital += actual_exit * pos.quantity - exit_fee
         self.positions.remove(pos)
 
-    def _check_positions(self, bar_idx, timestamp, row):
+    def _check_positions(self, bar_idx: int, timestamp: Any, row: Any) -> None:
         price = row["close"]
         high = row["high"]
         low = row["low"]
@@ -239,7 +242,7 @@ class Backtester:
                     self._close_position(pos, bar_idx, timestamp, price, "max_duration")
 
     def run(self, df: pd.DataFrame, train_split: float = 0.3,
-            retrain_every: int = 50, verbose: bool = True) -> dict:
+            retrain_every: int = 50, verbose: bool = True) -> dict[str, Any]:
         """
         Run backtest on historical OHLCV data.
 
@@ -377,7 +380,7 @@ class Backtester:
             self.print_report(results)
         return results
 
-    def _combine(self, strat_sig, ml_signal, ml_conf):
+    def _combine(self, strat_sig: Any, ml_signal: str, ml_conf: float) -> tuple[str, float]:
         s = strat_sig.signal
         sc = strat_sig.confidence
         if s == ml_signal:
@@ -389,7 +392,7 @@ class Backtester:
         else:
             return s, sc * 0.4
 
-    def _compute_metrics(self) -> dict:
+    def _compute_metrics(self) -> dict[str, Any]:
         equity = np.array(self.equity_curve)
         if len(equity) < 2:
             return {"error": "no_data"}
@@ -482,7 +485,7 @@ class Backtester:
             "exit_reasons": dict(exit_reasons),
         }
 
-    def print_report(self, results: dict = None):
+    def print_report(self, results: dict[str, Any] | None = None) -> None:
         if results is None:
             results = self._compute_metrics()
 
@@ -530,7 +533,7 @@ class Backtester:
 
         print("=" * 60)
 
-    def plot_equity_curve(self, filepath: str = "equity_curve.html"):
+    def plot_equity_curve(self, filepath: str = "equity_curve.html") -> None:
         """Generate an interactive HTML equity curve chart."""
         if not self.equity_curve:
             print("No equity data to plot")

@@ -34,7 +34,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from datetime import datetime
-from typing import Optional
+from typing import Any
 from enum import Enum
 
 _log = logging.getLogger(__name__)
@@ -53,9 +53,9 @@ class MetaConfig:
     kelly_fraction: float = 0.25
     retrain_hours: float = 6.0
     min_confidence: float = 0.3
-    regime_adjustments: dict = field(default_factory=dict)
+    regime_adjustments: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "strategy_weight": round(self.strategy_weight, 4),
             "ml_weight": round(self.ml_weight, 4),
@@ -97,7 +97,7 @@ class TradeObservation:
     regime: str
     timestamp: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "pnl": self.pnl,
             "signal_source": self.signal_source,
@@ -136,8 +136,8 @@ class ABExperiment:
     status: ExperimentStatus = ExperimentStatus.RUNNING
 
     # Trade PnL tracking
-    control_pnls: list = field(default_factory=list)
-    treatment_pnls: list = field(default_factory=list)
+    control_pnls: list[float] = field(default_factory=list)
+    treatment_pnls: list[float] = field(default_factory=list)
 
     # Capital allocation (shifts toward winner)
     control_allocation: float = 0.70    # 70% to proven config
@@ -149,7 +149,7 @@ class ABExperiment:
     treatment_sharpe: float = 0.0
     conclusion: str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.experiment_id,
             "status": self.status.value,
@@ -187,9 +187,9 @@ class ABTestEngine:
     MAX_CONCURRENT_EXPERIMENTS = 1  # One experiment at a time
     ALLOCATION_SHIFT_RATE = 0.05   # Shift allocation toward interim winner
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._experiments: list[ABExperiment] = []
-        self._active_experiment: Optional[ABExperiment] = None
+        self._active_experiment: ABExperiment | None = None
         self._experiment_counter: int = 0
         self._total_adopted: int = 0
         self._total_rejected: int = 0
@@ -228,7 +228,7 @@ class ABTestEngine:
                   exp.experiment_id, description)
         return exp
 
-    def record_trade(self, pnl: float, obs: TradeObservation) -> dict:
+    def record_trade(self, pnl: float, obs: TradeObservation) -> dict[str, Any]:
         """
         Record a trade outcome for the active experiment.
 
@@ -283,7 +283,7 @@ class ABTestEngine:
 
         return result
 
-    def get_active_config(self) -> tuple[MetaConfig, float]:
+    def get_active_config(self) -> tuple[MetaConfig | None, float]:
         """
         Get the config to use and its allocation weight.
 
@@ -295,14 +295,14 @@ class ABTestEngine:
                     self._active_experiment.control_allocation)
         return None, 1.0
 
-    def get_treatment_config(self) -> tuple[Optional[MetaConfig], float]:
+    def get_treatment_config(self) -> tuple[MetaConfig | None, float]:
         """Get treatment config and its allocation, if experiment active."""
         if self._active_experiment:
             return (self._active_experiment.treatment_config,
                     self._active_experiment.treatment_allocation)
         return None, 0.0
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Dashboard status."""
         return {
             "active_experiment": self._active_experiment.to_dict()
@@ -316,7 +316,7 @@ class ABTestEngine:
 
     # ── Internal: Statistical Testing ────────────────────────────────
 
-    def _evaluate_experiment(self, exp: ABExperiment) -> Optional[str]:
+    def _evaluate_experiment(self, exp: ABExperiment) -> str | None:
         """
         Run Welch's t-test to evaluate experiment outcome.
 
@@ -467,7 +467,7 @@ class ABTestEngine:
 
         return False
 
-    def _update_allocation(self, exp: ABExperiment):
+    def _update_allocation(self, exp: ABExperiment) -> None:
         """
         Adaptively shift capital allocation toward interim winner.
 
@@ -535,7 +535,7 @@ class ABTestEngine:
         scale = max(0.3, min(2.0, weight_ratio))
         return actual_pnl * scale
 
-    def _force_conclude(self):
+    def _force_conclude(self) -> None:
         """Force-conclude the active experiment as inconclusive."""
         if self._active_experiment:
             self._active_experiment.status = ExperimentStatus.INCONCLUSIVE
@@ -557,16 +557,16 @@ class MetaLearner:
     Public interface is backward-compatible with v1.0.
     """
 
-    def __init__(self, window_size: int = 200):
+    def __init__(self, window_size: int = 200) -> None:
         self.window_size = window_size
-        self.observations: deque = deque(maxlen=window_size)
+        self.observations: deque[TradeObservation] = deque(maxlen=window_size)
         self.config = MetaConfig()
-        self._regime_observations: dict[str, deque] = defaultdict(
+        self._regime_observations: dict[str, deque[TradeObservation]] = defaultdict(
             lambda: deque(maxlen=100)
         )
         self.learning_count: int = 0
-        self.last_learn_time: Optional[datetime] = None
-        self._drift_events: deque = deque(maxlen=50)
+        self.last_learn_time: datetime | None = None
+        self._drift_events: deque[dict[str, Any]] = deque(maxlen=50)
         self._initial_retrain_hours: float = 6.0
 
         # v2.0: A/B Testing Engine
@@ -579,7 +579,7 @@ class MetaLearner:
 
     def observe_trade(self, pnl: float, strategy_signal: str, ml_signal: str,
                       final_signal: str, strategy_confidence: float,
-                      ml_confidence: float, regime: str):
+                      ml_confidence: float, regime: str) -> None:
         """Record a trade outcome with full context."""
         if strategy_signal == ml_signal:
             source = "both"
@@ -614,7 +614,7 @@ class MetaLearner:
             elif conclusion == "inconclusive":
                 self._handle_inconclusive()
 
-    def learn(self) -> dict:
+    def learn(self) -> dict[str, Any]:
         """
         v2.0: Run learning algorithms and propose changes as A/B experiment.
 
@@ -679,7 +679,7 @@ class MetaLearner:
             "experiment_id": exp.experiment_id,
         }
 
-    def learn_immediate(self) -> dict:
+    def learn_immediate(self) -> dict[str, Any]:
         """
         v1.0 compatibility: Learn and apply immediately (no A/B test).
 
@@ -723,7 +723,7 @@ class MetaLearner:
 
     # ── A/B Testing Internals ─────────────────────────────────────────
 
-    def _adopt_treatment(self):
+    def _adopt_treatment(self) -> None:
         """Treatment config won — adopt it as the new config."""
         exp = self._ab_engine._experiments[-1]
         self.config = exp.treatment_config.copy()
@@ -739,7 +739,7 @@ class MetaLearner:
         _log.info("[MetaLearner] New config adopted! Sharpe: %.2f → %.2f",
                   exp.control_sharpe, exp.treatment_sharpe)
 
-    def _handle_rejection(self):
+    def _handle_rejection(self) -> None:
         """Treatment config lost — keep current config, adjust learning rate."""
         self._consecutive_rejections += 1
         self._adoption_history.append({
@@ -756,7 +756,7 @@ class MetaLearner:
                       "learning rate → %.2f",
                       self._consecutive_rejections, self._learning_rate)
 
-    def _handle_inconclusive(self):
+    def _handle_inconclusive(self) -> None:
         """Experiment was inconclusive — no change."""
         self._adoption_history.append({
             "round": self.learning_count,
@@ -765,7 +765,7 @@ class MetaLearner:
 
     # ── Learning Algorithms (propose to config, don't modify self.config) ──
 
-    def _learn_signal_weights_proposed(self, target: MetaConfig) -> Optional[dict]:
+    def _learn_signal_weights_proposed(self, target: MetaConfig) -> dict[str, Any] | None:
         """Learn optimal strategy vs ML weights, write to target config."""
         strat_profits, ml_profits, both_profits = [], [], []
 
@@ -811,7 +811,7 @@ class MetaLearner:
             "ml_score": round(ml_score, 4),
         }
 
-    def _learn_position_sizing_proposed(self, target: MetaConfig) -> Optional[dict]:
+    def _learn_position_sizing_proposed(self, target: MetaConfig) -> dict[str, Any] | None:
         """Learn best position sizing method, write to target config."""
         if len(self.observations) < 20:
             return None
@@ -834,7 +834,7 @@ class MetaLearner:
         target.position_size_method = "fixed"
         return {"method": "fixed"}
 
-    def _learn_retraining_frequency(self) -> Optional[dict]:
+    def _learn_retraining_frequency(self) -> dict[str, Any] | None:
         """Adjust model retrain frequency (modifies self.config directly — safe)."""
         if len(self._drift_events) < 2:
             return None
@@ -854,7 +854,7 @@ class MetaLearner:
 
         return None
 
-    def _learn_regime_adjustments_proposed(self, target: MetaConfig) -> Optional[dict]:
+    def _learn_regime_adjustments_proposed(self, target: MetaConfig) -> dict[str, Any] | None:
         """Learn regime-specific adjustments, write to target config."""
         adjustments = {}
 
@@ -882,7 +882,7 @@ class MetaLearner:
             return adjustments
         return None
 
-    def _learn_confidence_threshold_proposed(self, target: MetaConfig) -> Optional[dict]:
+    def _learn_confidence_threshold_proposed(self, target: MetaConfig) -> dict[str, Any] | None:
         """Learn minimum confidence threshold, write to target config."""
         if len(self.observations) < 20:
             return None
@@ -912,7 +912,7 @@ class MetaLearner:
 
     # ── Original Public Methods (preserved) ───────────────────────────
 
-    def record_drift_event(self):
+    def record_drift_event(self) -> None:
         """Record a model drift event for retraining frequency learning."""
         self._drift_events.append({"timestamp": datetime.now()})
 
@@ -920,7 +920,7 @@ class MetaLearner:
         """Get current learned configuration."""
         return self.config
 
-    def get_signal_weights(self, regime: str = None) -> tuple[float, float]:
+    def get_signal_weights(self, regime: str | None = None) -> tuple[float, float]:
         """Get strategy/ML weights, optionally regime-adjusted."""
         sw = self.config.strategy_weight
         mw = self.config.ml_weight
@@ -938,11 +938,11 @@ class MetaLearner:
 
     # ── v2.0: Enhanced Status ─────────────────────────────────────────
 
-    def get_ab_status(self) -> dict:
+    def get_ab_status(self) -> dict[str, Any]:
         """A/B testing specific status."""
         return self._ab_engine.get_status()
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Full meta-learner status with A/B testing info."""
         return {
             "config": self.config.to_dict(),
@@ -962,7 +962,7 @@ class MetaLearner:
 
     # ── Serialization ─────────────────────────────────────────────────
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for state persistence."""
         return {
             "config": self.config.to_dict(),
@@ -974,7 +974,7 @@ class MetaLearner:
             "adoption_history": list(self._adoption_history),
         }
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """Restore from state."""
         self.learning_count = data.get("learning_count", 0)
         cfg = data.get("config", {})

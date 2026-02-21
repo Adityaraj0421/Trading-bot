@@ -10,6 +10,8 @@ v3.0: Trailing stop-loss, transaction cost awareness, max hold duration,
 
 import logging
 import threading
+from typing import Any
+
 import numpy as np
 from datetime import datetime, date
 from dataclasses import dataclass, field
@@ -34,7 +36,7 @@ class Position:
     lowest_price: float = 0.0    # Track low water mark (shorts)
     entry_bar: int = 0           # Bar count at entry (for max hold)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.highest_price == 0.0:
             self.highest_price = self.entry_price
         if self.lowest_price == 0.0:
@@ -51,7 +53,7 @@ class Position:
         return self.entry_price * self.quantity
 
     def update_trailing_stop(self, current_high: float, current_low: float,
-                             trail_pct_override: float = None):
+                             trail_pct_override: float | None = None) -> None:
         """Update trailing stop based on new price extremes."""
         trail_pct = trail_pct_override or Config.TRAILING_STOP_PCT
         if self.side == "long":
@@ -124,7 +126,7 @@ class RiskManager:
     DD_TIER2_PCT = 0.10            # -10%: reduce risk 50%, A-setups only
     DD_TIER3_PCT = 0.15            # -15%: halt trading 24h, review
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.capital = Config.INITIAL_CAPITAL
         self.positions: list[Position] = []
         self.trade_history: list[TradeRecord] = []
@@ -141,18 +143,18 @@ class RiskManager:
         # Thread safety: protects positions list and capital during check-and-open
         self._lock = threading.Lock()
 
-    def _reset_daily_pnl_if_needed(self):
+    def _reset_daily_pnl_if_needed(self) -> None:
         today = date.today()
         if today != self.daily_pnl_date:
             self.daily_pnl = 0.0
             self.daily_pnl_date = today
 
-    def set_bar(self, bar: int):
+    def set_bar(self, bar: int) -> None:
         """Set current bar number (for max hold tracking)."""
         self.current_bar = bar
 
     def can_open_position(self, signal: str, confidence: float,
-                          symbol: str = None) -> tuple[bool, str]:
+                          symbol: str | None = None) -> tuple[bool, str]:
         """
         Check if a new position is allowed.
         Thread-safe: acquires lock to prevent TOCTOU race conditions.
@@ -162,7 +164,7 @@ class RiskManager:
             return self._can_open_position_unlocked(signal, confidence, symbol)
 
     def _can_open_position_unlocked(self, signal: str, confidence: float,
-                                     symbol: str = None) -> tuple[bool, str]:
+                                     symbol: str | None = None) -> tuple[bool, str]:
         """Internal check without lock (called within locked context)."""
         symbol = symbol or Config.TRADING_PAIR
 
@@ -209,7 +211,7 @@ class RiskManager:
             return True, "OK", pos
 
     def calculate_position_size(self, entry_price: float,
-                                fee_pct: float = None,
+                                fee_pct: float | None = None,
                                 confidence: float = 0.6,
                                 strategy_name: str = "",
                                 regime: str = "",
@@ -401,14 +403,14 @@ class RiskManager:
             return 0.85  # Some diversification benefit
         return 1.0
 
-    def update_returns(self, bar_return: float):
+    def update_returns(self, bar_return: float) -> None:
         """Track recent returns for volatility calculation."""
         self._recent_returns.append(bar_return)
         # Keep rolling window
         if len(self._recent_returns) > self.VOL_LOOKBACK * 2:
             self._recent_returns = self._recent_returns[-self.VOL_LOOKBACK:]
 
-    def get_risk_status(self) -> dict:
+    def get_risk_status(self) -> dict[str, Any]:
         """Get detailed risk status including volatility metrics."""
         _, dd_tier = self._tiered_drawdown_scaling()
         self._peak_capital = max(self._peak_capital, self.capital)
@@ -437,8 +439,8 @@ class RiskManager:
 
     def calculate_stop_take(
         self, entry_price: float, side: str,
-        sl_pct: float = None, tp_pct: float = None, atr: float = None,
-        regime: str = "",
+        sl_pct: float | None = None, tp_pct: float | None = None,
+        atr: float | None = None, regime: str = "",
     ) -> tuple[float, float]:
         """
         v8.0: Regime-adaptive stop-loss and take-profit levels.
@@ -575,8 +577,8 @@ class RiskManager:
         return fee
 
     def check_positions(self, current_price: float,
-                        current_high: float = None,
-                        current_low: float = None) -> list[TradeRecord]:
+                        current_high: float | None = None,
+                        current_low: float | None = None) -> list[TradeRecord]:
         """
         Check all positions: update trailing stops, then check exits.
         Accepts high/low for intra-bar trailing stop updates.
@@ -595,7 +597,7 @@ class RiskManager:
                 closed.append(record)
         return closed
 
-    def get_summary(self) -> dict:
+    def get_summary(self) -> dict[str, Any]:
         return {
             "capital": round(self.capital, 2),
             "open_positions": len(self.positions),
@@ -613,7 +615,7 @@ class RiskManager:
         return round(wins / len(self.trade_history), 4)
 
     # --- State persistence ---
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize state for persistence."""
         return {
             "capital": self.capital,
@@ -636,7 +638,7 @@ class RiskManager:
             "trade_count": len(self.trade_history),
         }
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """Restore state from persistence."""
         self.capital = data["capital"]
         self.total_pnl = data["total_pnl"]

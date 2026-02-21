@@ -16,7 +16,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from collections import deque
 from datetime import datetime
-from typing import Optional
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -51,8 +51,8 @@ class HyperparamBound:
 @dataclass
 class TrialResult:
     """Result of one optimization trial."""
-    params: dict
-    metrics: dict
+    params: dict[str, Any]
+    metrics: dict[str, Any]
     timestamp: datetime = field(default_factory=datetime.now)
     total_return: float = 0.0
     sharpe: float = 0.0
@@ -60,7 +60,7 @@ class TrialResult:
     total_trades: int = 0
     score: float = 0.0  # Composite optimization score
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "params": self.params,
             "total_return": self.total_return,
@@ -110,15 +110,16 @@ class AutoOptimizer:
     API is backward-compatible with v1.0 (all methods preserved).
     """
 
-    def __init__(self, search_space: dict = None, max_trials: int = 100,
-                 storage_path: str = None):
+    def __init__(self, search_space: dict[str, HyperparamBound] | None = None,
+                 max_trials: int = 100,
+                 storage_path: str | None = None) -> None:
         self.search_space = search_space or DEFAULT_SEARCH_SPACE
         self.max_trials = max_trials
-        self.trials: deque = deque(maxlen=max_trials)
+        self.trials: deque[TrialResult] = deque(maxlen=max_trials)
         self.pareto_front: list[TrialResult] = []
-        self.best_result: Optional[TrialResult] = None
+        self.best_result: TrialResult | None = None
         self.optimization_count: int = 0
-        self.last_optimization: Optional[datetime] = None
+        self.last_optimization: datetime | None = None
         self.engine = "optuna" if _HAS_OPTUNA else "random"
 
         # Optuna study setup
@@ -132,7 +133,7 @@ class AutoOptimizer:
         print(f"  [Optimizer] Engine: {self.engine} | "
               f"Max trials: {max_trials}")
 
-    def _init_optuna_study(self):
+    def _init_optuna_study(self) -> None:
         """Initialize Optuna multi-objective study."""
         storage = None
         if self._storage_path:
@@ -159,7 +160,7 @@ class AutoOptimizer:
             load_if_exists=True,
         )
 
-    def _suggest_optuna_params(self, trial) -> dict:
+    def _suggest_optuna_params(self, trial: Any) -> dict[str, Any]:
         """Use Optuna trial to suggest parameters."""
         params = {}
         for name, bound in self.search_space.items():
@@ -173,7 +174,7 @@ class AutoOptimizer:
                 )
         return params
 
-    def suggest_params(self) -> dict:
+    def suggest_params(self) -> dict[str, Any]:
         """
         Suggest a new parameter set to try.
         Uses Optuna TPE sampler when available, falls back to random.
@@ -210,7 +211,7 @@ class AutoOptimizer:
             params[name] = bound.sample()
         return params
 
-    def suggest_nearby(self, base_params: dict, spread: float = 0.2) -> dict:
+    def suggest_nearby(self, base_params: dict[str, Any], spread: float = 0.2) -> dict[str, Any]:
         """Suggest params near a known-good set (local search)."""
         params = {}
         for name, bound in self.search_space.items():
@@ -222,7 +223,7 @@ class AutoOptimizer:
             params[name] = bound.dtype(new_val) if bound.dtype == int else round(new_val, 4)
         return params
 
-    def record_result(self, params: dict, metrics: dict):
+    def record_result(self, params: dict[str, Any], metrics: dict[str, Any]) -> None:
         """
         Record the result of a trial.
         Feeds back to Optuna study if available.
@@ -253,7 +254,7 @@ class AutoOptimizer:
         # Update Pareto front
         self._update_pareto(result)
 
-    def _tell_optuna(self, params: dict, result: TrialResult):
+    def _tell_optuna(self, params: dict[str, Any], result: TrialResult) -> None:
         """Report trial result back to Optuna study."""
         # Find matching pending trial
         trial_number = None
@@ -315,7 +316,7 @@ class AutoOptimizer:
 
         return round(score, 4)
 
-    def _update_pareto(self, new_result: TrialResult):
+    def _update_pareto(self, new_result: TrialResult) -> None:
         """
         Update Pareto front (non-dominated solutions).
         Objectives: maximize Sharpe, minimize drawdown, maximize trades.
@@ -350,7 +351,7 @@ class AutoOptimizer:
             self.pareto_front.sort(key=lambda r: r.score, reverse=True)
             self.pareto_front = self.pareto_front[:10]
 
-    def get_best_params(self) -> Optional[dict]:
+    def get_best_params(self) -> dict[str, Any] | None:
         """Get the best parameter set found so far."""
         # Optuna: get best from study (Sharpe objective)
         if _HAS_OPTUNA and self._study is not None:
@@ -364,7 +365,7 @@ class AutoOptimizer:
             return self.best_result.params
         return None
 
-    def get_pareto_front(self) -> list[dict]:
+    def get_pareto_front(self) -> list[dict[str, Any]]:
         """Get all Pareto-optimal solutions."""
         if _HAS_OPTUNA and self._study is not None:
             best_trials = self._study.best_trials
@@ -381,7 +382,7 @@ class AutoOptimizer:
 
         return [r.to_dict() for r in self.pareto_front]
 
-    def run_optimization_round(self, n_trials: int = 10) -> list[dict]:
+    def run_optimization_round(self, n_trials: int = 10) -> list[dict[str, Any]]:
         """
         Generate n trial parameter sets for external evaluation.
         Uses Optuna TPE suggestions when available.
@@ -409,7 +410,7 @@ class AutoOptimizer:
         self.last_optimization = datetime.now()
         return suggestions
 
-    def get_optimization_history(self) -> dict:
+    def get_optimization_history(self) -> dict[str, Any]:
         """
         Get optimization history and importance analysis.
         Only available with Optuna.
@@ -450,7 +451,7 @@ class AutoOptimizer:
             "history": history[-20:],  # Last 20 trials
         }
 
-    def apply_best_to_config(self) -> Optional[dict]:
+    def apply_best_to_config(self) -> dict[str, Any] | None:
         """Get best params formatted for Config application."""
         params = self.get_best_params()
         if not params:
@@ -468,7 +469,7 @@ class AutoOptimizer:
             "MODEL_RETRAIN_HOURS": params.get("retrain_hours"),
         }
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Optimizer status report."""
         status = {
             "engine": self.engine,
@@ -490,7 +491,7 @@ class AutoOptimizer:
 
         return status
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for state persistence."""
         return {
             "engine": self.engine,
@@ -500,7 +501,7 @@ class AutoOptimizer:
             "trials_count": len(self.trials),
         }
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """Restore from state."""
         self.optimization_count = data.get("optimization_count", 0)
         if data.get("best_result"):

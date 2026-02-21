@@ -18,6 +18,8 @@ Falls back to static REGIME_STRATEGY_MAP when not enough experience.
 """
 
 import logging
+from typing import Any
+
 import numpy as np
 from collections import deque
 from dataclasses import dataclass, field
@@ -49,11 +51,11 @@ class StrategyExperience:
 @dataclass
 class SelectionResult:
     """Result of strategy meta-selection."""
-    strategy_weights: dict    # {strategy_name: weight}
+    strategy_weights: dict[str, float]    # {strategy_name: weight}
     primary_strategy: str     # Highest-weighted strategy
     confidence: float         # How confident the selector is
     source: str               # "dqn" or "static_fallback"
-    q_values: dict = field(default_factory=dict)
+    q_values: dict[str, float] = field(default_factory=dict)
 
 
 # ── DQN Network ───────────────────────────────────────────────────
@@ -104,7 +106,7 @@ class StrategyMetaSelector:
     # Performance tracking
     PERF_WINDOW = 50      # Rolling window of strategy performance
 
-    def __init__(self, strategy_names: list[str], state_dim: int = 12):
+    def __init__(self, strategy_names: list[str], state_dim: int = 12) -> None:
         self.strategy_names = strategy_names
         self.n_strategies = len(strategy_names)
         self.state_dim = state_dim
@@ -194,7 +196,7 @@ class StrategyMetaSelector:
         )
 
     def record_reward(self, reward: float, next_state: np.ndarray,
-                      strategy_name: str = None):
+                      strategy_name: str | None = None) -> None:
         """
         Record the outcome of the last strategy selection.
 
@@ -226,7 +228,7 @@ class StrategyMetaSelector:
                     len(self._replay_buffer) >= self.MIN_EXPERIENCES):
                 self._train_step_dqn()
 
-    def get_strategy_performance(self) -> dict:
+    def get_strategy_performance(self) -> dict[str, Any]:
         """Return per-strategy performance stats."""
         stats = {}
         for name in self.strategy_names:
@@ -240,7 +242,7 @@ class StrategyMetaSelector:
             }
         return stats
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Dashboard-friendly status."""
         return {
             "mode": "dqn" if (self._has_dqn and
@@ -255,7 +257,7 @@ class StrategyMetaSelector:
 
     # ── Internal: DQN Training ────────────────────────────────────
 
-    def _train_step_dqn(self):
+    def _train_step_dqn(self) -> None:
         """Single training step with experience replay."""
         if len(self._replay_buffer) < self.BATCH_SIZE:
             return
@@ -292,7 +294,7 @@ class StrategyMetaSelector:
         self._soft_update_target()
         self._train_step += 1
 
-    def _soft_update_target(self):
+    def _soft_update_target(self) -> None:
         """Polyak averaging: target = τ * online + (1-τ) * target."""
         for tp, op in zip(self._target_net.parameters(),
                           self._q_net.parameters()):
@@ -301,7 +303,7 @@ class StrategyMetaSelector:
     # ── Internal: Action → Weights ────────────────────────────────
 
     def _action_to_weights(self, action: int,
-                           state: np.ndarray) -> dict:
+                           state: np.ndarray) -> dict[str, float]:
         """
         Convert a discrete action (strategy index) to a weight dict.
 
@@ -382,7 +384,7 @@ class StrategyMetaSelector:
 
     # ── Serialization ─────────────────────────────────────────────
 
-    def save_state(self) -> dict:
+    def save_state(self) -> dict[str, Any]:
         """Serialize selector state for persistence."""
         state = {
             "strategy_names": self.strategy_names,
@@ -398,7 +400,7 @@ class StrategyMetaSelector:
             }
         return state
 
-    def load_state(self, state: dict):
+    def load_state(self, state: dict[str, Any]) -> None:
         """Restore selector state."""
         self._epsilon = state.get("epsilon", self.EPSILON_START)
         self._total_selections = state.get("total_selections", 0)

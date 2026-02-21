@@ -25,6 +25,7 @@ import time
 import json
 import sys
 from datetime import datetime
+from typing import Any
 from config import Config
 from data_fetcher import DataFetcher
 from indicators import Indicators
@@ -62,7 +63,7 @@ from graceful_shutdown import GracefulShutdown, RateLimiter
 # Optional API integration
 _data_store = None
 
-def set_data_store(store, agent=None):
+def set_data_store(store: Any, agent: Any = None) -> None:
     """Allow the API server to inject a DataStore instance."""
     global _data_store
     _data_store = store
@@ -75,7 +76,7 @@ class TradingAgent:
     # Expected average confidence of a healthy ML model (for drift detection baseline)
     _DRIFT_BASELINE_CONFIDENCE = 0.7
 
-    def __init__(self, restore_state: bool = True):
+    def __init__(self, restore_state: bool = True) -> None:
         self._print_banner()
         Config.validate()
         print()
@@ -170,14 +171,14 @@ class TradingAgent:
         self.shutdown_handler = GracefulShutdown()
         self._register_shutdown_callbacks()
 
-    def _print_banner(self):
+    def _print_banner(self) -> None:
         print("=" * 60)
         print("  ADAPTIVE CRYPTO TRADING AGENT v7.0 (FULLY AUTONOMOUS)")
         print("  Self-Healing | Evolving | Meta-Learning | Auto-Optimizing")
         print("  WebSocket | Notifications | TradeDB | Graceful Shutdown")
         print("=" * 60)
 
-    def _register_shutdown_callbacks(self):
+    def _register_shutdown_callbacks(self) -> None:
         """Register cleanup callbacks for graceful shutdown."""
         # Stop WebSocket streamer
         if self.ws_streamer:
@@ -208,7 +209,7 @@ class TradingAgent:
             ),
         )
 
-    def _register_recovery_actions(self):
+    def _register_recovery_actions(self) -> None:
         """Register auto-recovery actions for each component."""
         healer = self.decision.healer
 
@@ -247,7 +248,7 @@ class TradingAgent:
                 self.arb_executor = ArbitrageExecutor()
         healer.register_recovery_action("arbitrage", recover_arbitrage)
 
-    def train_model(self, df_ind=None):
+    def train_model(self, df_ind: Any = None) -> bool:
         """Train ML model with drift baseline."""
         print("\n[Agent] Training ML model...")
         if df_ind is None:
@@ -273,7 +274,7 @@ class TradingAgent:
             self.decision.healer.record_error("model", e, ErrorSeverity.HIGH)
             return False
 
-    def _should_retrain(self, data_hash) -> bool:
+    def _should_retrain(self, data_hash: tuple[int, float]) -> bool:
         if self.last_train_time is None:
             return True
         if data_hash == self._last_data_hash:
@@ -293,7 +294,7 @@ class TradingAgent:
 
         return hours >= retrain_hours
 
-    def _fetch_intelligence(self) -> dict | None:
+    def _fetch_intelligence(self) -> dict[str, Any] | None:
         """Fetch intelligence signals if enabled, with rate limiting."""
         if self.intelligence is None:
             return None
@@ -313,7 +314,7 @@ class TradingAgent:
             self.decision.healer.record_error("intelligence", e, ErrorSeverity.LOW)
             return self._last_intelligence
 
-    def _scan_arbitrage(self) -> dict | None:
+    def _scan_arbitrage(self) -> dict[str, Any] | None:
         """Scan for arbitrage opportunities if enabled, with rate limiting."""
         if self.arb_detector is None:
             return None
@@ -344,7 +345,7 @@ class TradingAgent:
             self.decision.healer.record_error("arbitrage", e, ErrorSeverity.LOW)
             return self._last_arb_scan
 
-    def run_cycle(self):
+    def run_cycle(self) -> None:
         self.cycle_count += 1
         self.risk.set_bar(self.cycle_count)
         now = datetime.now().strftime("%H:%M:%S")
@@ -457,8 +458,10 @@ class TradingAgent:
             raise KeyboardInterrupt("Graceful shutdown requested")
 
     def _run_pair_cycle(self, pair: str, position_mult: float,
-                        intel_result=None, intel_adjustment: float = 1.0,
-                        intel_bias: str = "neutral", arb_result=None):
+                        intel_result: dict[str, Any] | None = None,
+                        intel_adjustment: float = 1.0,
+                        intel_bias: str = "neutral",
+                        arb_result: dict[str, Any] | None = None) -> None:
         """Run the full analysis + execution pipeline for a single trading pair."""
         if self.multi_pair:
             print(f"\n  --- {pair} ---")
@@ -678,9 +681,10 @@ class TradingAgent:
         # 10. Portfolio summary
         self._print_portfolio(self.risk.get_summary(), current_price)
 
-    def _combine_signals(self, strat_sig, ml_signal, ml_conf, regime: str = None,
+    def _combine_signals(self, strat_sig: Any, ml_signal: str, ml_conf: float,
+                         regime: str | None = None,
                          intel_adjustment: float = 1.0, intel_bias: str = "neutral",
-                         rl_signal: str = "HOLD", rl_confidence: float = 0.0):
+                         rl_signal: str = "HOLD", rl_confidence: float = 0.0) -> tuple[str, float]:
         """Combine strategy + ML + RL signals using learned weights + intelligence.
 
         v8.0: Added RL ensemble vote with 15% weight allocation.
@@ -740,9 +744,10 @@ class TradingAgent:
 
         return base_signal, base_conf
 
-    def _execute_trade(self, signal, confidence, price, df_ind, strat_sig,
+    def _execute_trade(self, signal: str, confidence: float, price: float,
+                       df_ind: Any, strat_sig: Any,
                        position_mult: float = 1.0, intel_adjustment: float = 1.0,
-                       pair: str = None):
+                       pair: str | None = None) -> None:
         pair = pair or Config.TRADING_PAIR
         allowed, reason = self.risk.can_open_position(signal, confidence, symbol=pair)
         if not allowed:
@@ -847,10 +852,13 @@ class TradingAgent:
                 quantity=quantity, strategy=strat_sig.strategy_name,
             )
 
-    def _print_status(self, price, regime_state, sentiment_state,
-                      strat_sig, ml_signal, ml_conf, final_signal, final_conf,
-                      htf_bias, pre_mtf_signal, pre_mtf_conf,
-                      intel_result=None, arb_result=None, pair: str = None):
+    def _print_status(self, price: float, regime_state: Any, sentiment_state: Any,
+                      strat_sig: Any, ml_signal: str, ml_conf: float,
+                      final_signal: str, final_conf: float,
+                      htf_bias: Any, pre_mtf_signal: str, pre_mtf_conf: float,
+                      intel_result: dict[str, Any] | None = None,
+                      arb_result: dict[str, Any] | None = None,
+                      pair: str | None = None) -> None:
         r = regime_state
         s = sentiment_state
         regime_icons = {
@@ -905,7 +913,7 @@ class TradingAgent:
         if drift["drift_detected"]:
             print(f"  [!] DRIFT: {drift['reason']}")
 
-    def _print_portfolio(self, summary, current_price):
+    def _print_portfolio(self, summary: dict[str, Any], current_price: float) -> None:
         fees_str = f" | Fees: ${summary.get('total_fees', 0):,.2f}" if summary.get('total_fees', 0) > 0 else ""
         print(
             f"\n  Capital: ${summary['capital']:,.2f} | "
@@ -915,7 +923,7 @@ class TradingAgent:
             f"Win: {summary['win_rate']:.0%}{fees_str}"
         )
 
-    def _push_to_data_store(self):
+    def _push_to_data_store(self) -> None:
         """Push cycle snapshot to DataStore if available."""
         if _data_store is None:
             return
@@ -1056,7 +1064,7 @@ class TradingAgent:
         print("=" * 50 + "\n")
         return all_ok
 
-    def run(self, cycles=None):
+    def run(self, cycles: int | None = None) -> None:
         # v7.0: Run preflight check before main loop
         self.preflight_check()
 
@@ -1151,7 +1159,7 @@ class TradingAgent:
                 self.shutdown_handler.initiate_shutdown(reason="Agent run completed")
             self._print_final_report()
 
-    def _print_final_report(self):
+    def _print_final_report(self) -> None:
         summary = self.risk.get_summary()
         print("\n" + "=" * 60)
         print("  FINAL PERFORMANCE REPORT v7.0 (FULLY AUTONOMOUS)")
@@ -1299,7 +1307,7 @@ class TradingAgent:
             print(f"  Trade log: trade_log.json | State: {Config.STATE_FILE}")
 
 
-def main():
+def main() -> None:
     agent = TradingAgent()
     cycles = None
     if len(sys.argv) > 1:

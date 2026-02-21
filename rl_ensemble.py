@@ -22,8 +22,10 @@ API preserved: predict(df_ind, regime) → (signal, confidence)
 """
 
 import ast
-import numpy as np
 import logging
+from typing import Any
+
+import numpy as np
 from collections import deque
 from dataclasses import dataclass
 
@@ -72,10 +74,11 @@ class ReplayBuffer:
     def __init__(self, capacity: int = 10_000):
         self.buffer: deque = deque(maxlen=capacity)
 
-    def push(self, state, action_idx, reward, next_state, done):
+    def push(self, state: np.ndarray, action_idx: int, reward: float,
+             next_state: np.ndarray, done: float) -> None:
         self.buffer.append((state, action_idx, reward, next_state, done))
 
-    def sample(self, batch_size: int):
+    def sample(self, batch_size: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         batch = [self.buffer[i] for i in indices]
         states, actions, rewards, next_states, dones = zip(*batch)
@@ -87,7 +90,7 @@ class ReplayBuffer:
             np.array(dones, dtype=np.float32),
         )
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.buffer)
 
 
@@ -111,7 +114,7 @@ if HAS_TORCH:
             self.value_stream = nn.Linear(hidden, 1)
             self.advantage_stream = nn.Linear(hidden, num_actions)
 
-        def forward(self, x):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             features = self.feature(x)
             value = self.value_stream(features)
             advantage = self.advantage_stream(features)
@@ -126,7 +129,7 @@ if HAS_TORCH:
 
         def __init__(self, agent_id: int, feature_indices: list[int],
                      lr: float = 1e-3, gamma: float = 0.95, epsilon: float = 0.2,
-                     tau: float = 0.005, batch_size: int = 32):
+                     tau: float = 0.005, batch_size: int = 32) -> None:
             self.agent_id = agent_id
             self.feature_indices = feature_indices
             self.state_dim = len(feature_indices)
@@ -147,11 +150,11 @@ if HAS_TORCH:
             self.total_trades = 0
             self.train_steps = 0
 
-        def _extract_state(self, features: dict) -> np.ndarray:
+        def _extract_state(self, features: dict[str, float]) -> np.ndarray:
             vals = [features.get(FEATURE_NAMES[i], 0.0) for i in self.feature_indices]
             return np.array(vals, dtype=np.float32)
 
-        def predict(self, features: dict) -> tuple[str, float]:
+        def predict(self, features: dict[str, float]) -> tuple[str, float]:
             state = self._extract_state(features)
             if np.random.random() < self.epsilon:
                 return ACTIONS[np.random.randint(NUM_ACTIONS)], 0.4
@@ -164,8 +167,8 @@ if HAS_TORCH:
             probs = F.softmax(q_values, dim=0).numpy()
             return ACTIONS[action_idx], float(probs[action_idx])
 
-        def update(self, features: dict, action: str, reward: float,
-                   next_features: dict = None):
+        def update(self, features: dict[str, float], action: str, reward: float,
+                   next_features: dict[str, float] | None = None) -> None:
             state = self._extract_state(features)
             action_idx = ACTIONS.index(action)
             done = next_features is None
@@ -182,7 +185,7 @@ if HAS_TORCH:
             if len(self.replay) >= self.batch_size * 2:
                 self._train_step()
 
-        def _train_step(self):
+        def _train_step(self) -> None:
             states, actions, rewards, next_states, dones = self.replay.sample(
                 self.batch_size
             )
@@ -243,7 +246,7 @@ if HAS_TORCH:
             self.actor = nn.Linear(hidden, num_actions)
             self.critic = nn.Linear(hidden, 1)
 
-        def forward(self, x):
+        def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
             shared = self.shared(x)
             return self.actor(shared), self.critic(shared)
 
@@ -256,7 +259,7 @@ if HAS_TORCH:
 
         def __init__(self, agent_id: int = 4, lr: float = 3e-4,
                      gamma: float = 0.99, clip_eps: float = 0.2,
-                     epochs: int = 4, batch_size: int = 32):
+                     epochs: int = 4, batch_size: int = 32) -> None:
             self.agent_id = agent_id
             self.gamma = gamma
             self.clip_eps = clip_eps
@@ -274,7 +277,7 @@ if HAS_TORCH:
             self.total_trades = 0
             self.train_steps = 0
 
-        def predict(self, features: dict) -> tuple[str, float]:
+        def predict(self, features: dict[str, float]) -> tuple[str, float]:
             state = np.array(
                 [features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32
             )
@@ -289,8 +292,8 @@ if HAS_TORCH:
             action_idx = torch.multinomial(probs, 1).item()
             return ACTIONS[action_idx], float(probs[action_idx])
 
-        def update(self, features: dict, action: str, reward: float,
-                   next_features: dict = None):
+        def update(self, features: dict[str, float], action: str, reward: float,
+                   next_features: dict[str, float] | None = None) -> None:
             state = np.array(
                 [features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32
             )
@@ -313,7 +316,7 @@ if HAS_TORCH:
             if len(self.trajectory) >= self.batch_size * 2:
                 self._train_ppo()
 
-        def _train_ppo(self):
+        def _train_ppo(self) -> None:
             if len(self.trajectory) < 4:
                 return
 
@@ -377,8 +380,8 @@ if HAS_TORCH:
 class QLearnerAgent:
     """Tabular Q-learning fallback agent (no PyTorch needed)."""
 
-    def __init__(self, agent_id: int, state_bins: dict,
-                 alpha: float = 0.1, gamma: float = 0.95, epsilon: float = 0.15):
+    def __init__(self, agent_id: int, state_bins: dict[str, list[float]],
+                 alpha: float = 0.1, gamma: float = 0.95, epsilon: float = 0.15) -> None:
         self.agent_id = agent_id
         self.state_bins = state_bins
         self.alpha = alpha
@@ -389,7 +392,7 @@ class QLearnerAgent:
         self.trade_history: deque[float] = deque(maxlen=100)
         self.total_trades = 0
 
-    def _discretize(self, features: dict) -> tuple:
+    def _discretize(self, features: dict[str, float]) -> tuple[int, ...]:
         state = []
         for name, bins in self.state_bins.items():
             val = features.get(name, 0.0)
@@ -401,7 +404,7 @@ class QLearnerAgent:
             self.q_table[state_key] = {a: 0.0 for a in self.actions}
         return self.q_table[state_key]
 
-    def predict(self, features: dict) -> tuple[str, float]:
+    def predict(self, features: dict[str, float]) -> tuple[str, float]:
         state_key = self._discretize(features)
         q_vals = self._get_q(state_key)
         if np.random.random() < self.epsilon:
@@ -416,8 +419,8 @@ class QLearnerAgent:
             confidence = 0.34
         return action, confidence
 
-    def update(self, features: dict, action: str, reward: float,
-               next_features: dict = None):
+    def update(self, features: dict[str, float], action: str, reward: float,
+               next_features: dict[str, float] | None = None) -> None:
         state_key = self._discretize(features)
         q_vals = self._get_q(state_key)
         max_next_q = 0.0
@@ -456,7 +459,7 @@ class RLEnsemble:
     Agents vote with Sharpe-weighted confidence. PPO meta-agent gets 1.5x weight.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._use_deep = HAS_TORCH
 
         if self._use_deep:
@@ -528,7 +531,7 @@ class RLEnsemble:
         }
         return float(mapping.get(regime, 0))
 
-    def _extract_features(self, df_ind, regime: str = "") -> dict:
+    def _extract_features(self, df_ind: Any, regime: str = "") -> dict[str, float]:
         last = df_ind.iloc[-1]
         return {
             "regime_code": self._encode_regime(regime),
@@ -545,7 +548,7 @@ class RLEnsemble:
             "rolling_vol_10": float(last.get("rolling_vol_10", 0.02)),
         }
 
-    def predict(self, df_ind, regime: str = "") -> tuple[str, float]:
+    def predict(self, df_ind: Any, regime: str = "") -> tuple[str, float]:
         """Get ensemble vote from all RL agents. Returns (signal, confidence)."""
         features = self._extract_features(df_ind, regime)
 
@@ -577,7 +580,7 @@ class RLEnsemble:
         confidence = min(0.85, votes[winner] / total_weight)
         return winner, confidence
 
-    def update_reward(self, reward: float, next_df_ind=None, regime: str = ""):
+    def update_reward(self, reward: float, next_df_ind: Any = None, regime: str = "") -> None:
         """Update all agents with the trade outcome."""
         if self._last_features is None:
             return
@@ -590,7 +593,7 @@ class RLEnsemble:
             action = self._last_actions.get(agent.agent_id, "HOLD")
             agent.update(self._last_features, action, reward, next_features)
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         stats = {"engine": "deep_rl" if self._use_deep else "tabular_q"}
         for agent in self.agents:
             name = f"agent_{agent.agent_id}"
@@ -609,7 +612,7 @@ class RLEnsemble:
             stats[name] = agent_stats
         return stats
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         data = {"version": "2.0", "engine": "deep_rl" if self._use_deep else "tabular_q"}
 
         if self._use_deep:
@@ -646,7 +649,7 @@ class RLEnsemble:
                 }
         return data
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict[str, Any]) -> None:
         version = data.get("version", "1.0")
 
         if version == "2.0" and self._use_deep and data.get("engine") == "deep_rl":

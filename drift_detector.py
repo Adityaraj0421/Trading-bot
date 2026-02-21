@@ -18,6 +18,8 @@ Original methods:
 """
 
 import logging
+from typing import Any
+
 import numpy as np
 from collections import deque
 from dataclasses import dataclass, field
@@ -72,11 +74,11 @@ class DriftDetector:
     BLEND_INCREMENT = 0.1  # Increase by 10% each validation cycle
     BLEND_MAX = 1.0
 
-    def __init__(self, window_size: int = 50):
+    def __init__(self, window_size: int = 50) -> None:
         self.window_size = window_size
-        self.predictions: deque = deque(maxlen=window_size)
-        self.actuals: deque = deque(maxlen=window_size)
-        self.confidences: deque = deque(maxlen=window_size * 2)
+        self.predictions: deque[str] = deque(maxlen=window_size)
+        self.actuals: deque[str | None] = deque(maxlen=window_size)
+        self.confidences: deque[float] = deque(maxlen=window_size * 2)
         self.baseline_accuracy: float = 0.0
         self.baseline_confidence: float = 0.0
         self.drift_count: int = 0
@@ -100,7 +102,7 @@ class DriftDetector:
 
     # ── Backward-Compatible Interface ─────────────────────────────
 
-    def record_prediction(self, predicted: str, confidence: float):
+    def record_prediction(self, predicted: str, confidence: float) -> None:
         """Record a new prediction (actual outcome filled in later)."""
         self.predictions.append(predicted)
         self.confidences.append(confidence)
@@ -112,7 +114,7 @@ class DriftDetector:
             (self._confidence_index, confidence)
         )
 
-    def record_outcome(self, actual_return: float, threshold: float = 0.01):
+    def record_outcome(self, actual_return: float, threshold: float = 0.01) -> None:
         """Fill in the actual outcome for the most recent unresolved prediction."""
         if actual_return > threshold:
             actual = "BUY"
@@ -126,12 +128,12 @@ class DriftDetector:
                 self.actuals[i] = actual
                 break
 
-    def set_baseline(self, accuracy: float, avg_confidence: float):
+    def set_baseline(self, accuracy: float, avg_confidence: float) -> None:
         """Set the baseline accuracy from initial training."""
         self.baseline_accuracy = accuracy
         self.baseline_confidence = avg_confidence
 
-    def check_drift(self) -> dict:
+    def check_drift(self) -> dict[str, Any]:
         """
         Backward-compatible: Check for model drift.
         Returns dict with original fields + new v2.0 fields.
@@ -154,7 +156,7 @@ class DriftDetector:
             "feature_alerts": report.feature_alerts,
         }
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset after retraining."""
         self.predictions.clear()
         self.actuals.clear()
@@ -167,7 +169,7 @@ class DriftDetector:
     # ── v2.0: Enhanced Interface ──────────────────────────────────
 
     def set_training_features(self, features: np.ndarray,
-                               feature_names: list[str]):
+                               feature_names: list[str]) -> None:
         """
         Store training feature distributions for KS testing.
         Call this after model training with the scaled feature matrix.
@@ -175,18 +177,18 @@ class DriftDetector:
         self._training_features = features.copy()
         self._feature_names = feature_names
 
-    def set_training_regime_dist(self, regime_distribution: dict):
+    def set_training_regime_dist(self, regime_distribution: dict[str, float]) -> None:
         """
         Store the regime distribution during training.
         e.g., {"trending_up": 0.3, "ranging": 0.5, "trending_down": 0.2}
         """
         self._training_regime_dist = regime_distribution
 
-    def record_features(self, feature_vector: np.ndarray):
+    def record_features(self, feature_vector: np.ndarray) -> None:
         """Record a single feature vector for distribution monitoring."""
         self._recent_features.append(feature_vector)
 
-    def record_live_regime(self, regime: str):
+    def record_live_regime(self, regime: str) -> None:
         """Track what regime the market is in during live trading."""
         self._live_regime_counts[regime] = self._live_regime_counts.get(regime, 0) + 1
 
@@ -308,7 +310,7 @@ class DriftDetector:
         """
         return self._blend_weight
 
-    def advance_blend(self, new_model_performing: bool):
+    def advance_blend(self, new_model_performing: bool) -> None:
         """
         Advance model blending after a validation cycle.
 

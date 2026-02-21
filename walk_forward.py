@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any
 from collections import defaultdict
 
 _log = logging.getLogger(__name__)
@@ -45,8 +45,8 @@ class WFOWindow:
     train_bars: int = 0
     test_bars: int = 0
     # Results populated after backtest
-    metrics: dict = field(default_factory=dict)
-    trades: list = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    trades: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
         self.train_bars = self.train_end - self.train_start
@@ -70,12 +70,12 @@ class WFOResult:
     mc_sharpe_p95: float = 0.0
     mc_p_value: float = 1.0  # Probability that result is due to chance
     # Per-fold details
-    fold_results: list = field(default_factory=list)
+    fold_results: list[dict[str, Any]] = field(default_factory=list)
     # Quality assessment
     is_robust: bool = False  # Passes all robustness checks
-    rejection_reasons: list = field(default_factory=list)
+    rejection_reasons: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "n_folds": self.n_folds,
             "total_oos_bars": self.total_oos_bars,
@@ -115,9 +115,9 @@ class WalkForwardValidator:
         mc_confidence: float = 0.95, # Confidence level for MC test
         min_oos_sharpe: float = 0.3, # Minimum OOS Sharpe to pass
         max_oos_drawdown: float = -20.0,  # Max drawdown % to pass
-        fee_pct: float = None,
-        slippage_pct: float = None,
-        symbol: str = None,
+        fee_pct: float | None = None,
+        slippage_pct: float | None = None,
+        symbol: str | None = None,
         verbose: bool = True,
     ):
         self.train_bars = train_bars
@@ -157,7 +157,7 @@ class WalkForwardValidator:
 
         return windows
 
-    def _backtest_fold(self, df_ind: pd.DataFrame, window: WFOWindow) -> dict:
+    def _backtest_fold(self, df_ind: pd.DataFrame, window: WFOWindow) -> dict[str, Any]:
         """
         Run a single fold: train on training window, then test on test window.
         Returns metrics dict + list of trade PnLs.
@@ -345,7 +345,7 @@ class WalkForwardValidator:
         )
         return {"metrics": metrics, "trades": trades}
 
-    def _combine(self, strat_sig, ml_signal, ml_conf):
+    def _combine(self, strat_sig: Any, ml_signal: str, ml_conf: float) -> tuple[str, float]:
         """Combine strategy and ML signals (mirrors backtester logic)."""
         s = strat_sig.signal
         sc = strat_sig.confidence
@@ -358,8 +358,8 @@ class WalkForwardValidator:
         else:
             return s, sc * 0.4
 
-    def _compute_fold_metrics(self, equity_curve: list, trades: list,
-                              initial_capital: float) -> dict:
+    def _compute_fold_metrics(self, equity_curve: list[float], trades: list[dict[str, Any]],
+                              initial_capital: float) -> dict[str, Any]:
         """Compute performance metrics for a single fold."""
         equity = np.array(equity_curve)
         if len(equity) < 2:
@@ -408,7 +408,7 @@ class WalkForwardValidator:
             "profit_factor": round(pf, 2),
         }
 
-    def monte_carlo_test(self, trades: list, n_simulations: int = None) -> dict:
+    def monte_carlo_test(self, trades: list[dict[str, Any]], n_simulations: int | None = None) -> dict[str, Any]:
         """
         Monte Carlo permutation test: shuffle trade order N times.
         Computes distribution of Sharpe ratios from shuffled trade sequences.
@@ -445,7 +445,7 @@ class WalkForwardValidator:
             "p_value": round(p_value, 4),
         }
 
-    def _pnl_sharpe(self, pnls: list) -> float:
+    def _pnl_sharpe(self, pnls: list[float]) -> float:
         """Compute Sharpe ratio from a sequence of trade PnLs."""
         if len(pnls) < 2:
             return 0.0
@@ -567,8 +567,8 @@ class WalkForwardValidator:
 
         return result
 
-    def _compute_aggregate_metrics(self, equity_curve: list,
-                                   trades: list) -> dict:
+    def _compute_aggregate_metrics(self, equity_curve: list[float],
+                                   trades: list[dict[str, Any]]) -> dict[str, Any]:
         """Compute aggregate metrics from all OOS folds."""
         equity = np.array(equity_curve)
         total_return = (equity[-1] / equity[0]) - 1
@@ -606,7 +606,7 @@ class WalkForwardValidator:
             "profit_factor": round(pf, 2),
         }
 
-    def _assess_robustness(self, result: WFOResult) -> tuple[bool, list]:
+    def _assess_robustness(self, result: WFOResult) -> tuple[bool, list[str]]:
         """
         Assess whether the strategy passes robustness checks.
         Returns (is_robust, list_of_rejection_reasons).
@@ -656,7 +656,7 @@ class WalkForwardValidator:
 
         return len(reasons) == 0, reasons
 
-    def _print_report(self, result: WFOResult, mc_results: dict):
+    def _print_report(self, result: WFOResult, mc_results: dict[str, Any]) -> None:
         """Print walk-forward validation report."""
         print("\n" + "=" * 60)
         print("  WALK-FORWARD VALIDATION RESULTS")
@@ -741,7 +741,7 @@ class PurgedKFoldCV:
         return splits
 
     def evaluate_model(self, model: TradingModel,
-                       df_ind: pd.DataFrame) -> dict:
+                       df_ind: pd.DataFrame) -> dict[str, Any]:
         """
         Evaluate ML model using purged k-fold CV.
         Returns average metrics across all folds.

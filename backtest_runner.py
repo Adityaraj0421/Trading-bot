@@ -11,6 +11,8 @@ v2.1: passes symbol through to Backtester, flattens strategy attribution
 
 import logging
 from datetime import datetime
+from typing import Any
+
 from backtester import Backtester
 from scenarios import generate_scenario, list_scenarios
 from data_fetcher import DataFetcher
@@ -23,12 +25,12 @@ _log = logging.getLogger(__name__)
 class BacktestRunner:
     """Orchestrates complex backtest runs."""
 
-    def __init__(self):
-        self.results: list[dict] = []
+    def __init__(self) -> None:
+        self.results: list[dict[str, Any]] = []
         self.fetcher = DataFetcher()
 
     @staticmethod
-    def _extract_strategy_stats(bt: Backtester) -> list[dict]:
+    def _extract_strategy_stats(bt: Backtester) -> list[dict[str, Any]]:
         """Pull per-strategy attribution from a finished backtester."""
         stats = []
         for strat_name, trades in bt.strategy_trades.items():
@@ -47,7 +49,7 @@ class BacktestRunner:
         return stats
 
     def run_scenario(self, scenario: str, periods: int = 500,
-                     base_price: float = 100000.0) -> dict:
+                     base_price: float = 100000.0) -> dict[str, Any]:
         """Run backtest on a synthetic market scenario."""
         df = generate_scenario(scenario, periods=periods, base_price=base_price)
         bt = Backtester(
@@ -70,8 +72,8 @@ class BacktestRunner:
         self.results.append(result)
         return result
 
-    def run_multi_pair(self, pairs: list[str] = None,
-                       limit: int = 500) -> list[dict]:
+    def run_multi_pair(self, pairs: list[str] | None = None,
+                       limit: int = 500) -> list[dict[str, Any]]:
         """Run backtests across multiple trading pairs."""
         pairs = pairs or Config.TRADING_PAIRS
         results = []
@@ -109,7 +111,7 @@ class BacktestRunner:
 
         return results
 
-    def run_all_scenarios(self) -> list[dict]:
+    def run_all_scenarios(self) -> list[dict[str, Any]]:
         """Run backtests on all predefined market scenarios."""
         results = []
         for scenario in list_scenarios():
@@ -117,8 +119,8 @@ class BacktestRunner:
             results.append(result)
         return results
 
-    def run_multi_timeframe(self, timeframes: list[str] = None,
-                            limit: int = 500) -> list[dict]:
+    def run_multi_timeframe(self, timeframes: list[str] | None = None,
+                            limit: int = 500) -> list[dict[str, Any]]:
         """Run backtests across multiple timeframes."""
         timeframes = timeframes or ["15m", "1h", "4h"]
         results = []
@@ -146,10 +148,10 @@ class BacktestRunner:
 
         return results
 
-    def run_walk_forward(self, pair: str = None, limit: int = 1000,
+    def run_walk_forward(self, pair: str | None = None, limit: int = 1000,
                          train_bars: int = 400, test_bars: int = 100,
                          step_bars: int = 50,
-                         mc_simulations: int = 500) -> dict:
+                         mc_simulations: int = 500) -> dict[str, Any]:
         """
         Run walk-forward validation with Monte Carlo robustness testing.
         This is the gold standard for strategy validation — trains on rolling
@@ -190,8 +192,8 @@ class BacktestRunner:
         except Exception as e:
             return {"type": "walk_forward", "pair": pair, "error": str(e)}
 
-    def run_walk_forward_multi_pair(self, pairs: list[str] = None,
-                                    limit: int = 1000) -> list[dict]:
+    def run_walk_forward_multi_pair(self, pairs: list[str] | None = None,
+                                    limit: int = 1000) -> list[dict[str, Any]]:
         """Run walk-forward validation across multiple trading pairs."""
         pairs = pairs or Config.TRADING_PAIRS
         results = []
@@ -200,5 +202,5 @@ class BacktestRunner:
             results.append(result)
         return results
 
-    def get_all_results(self) -> list[dict]:
+    def get_all_results(self) -> list[dict[str, Any]]:
         return self.results

@@ -11,7 +11,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 from collections import deque
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -48,9 +48,9 @@ class AutonomousEvent:
     event_type: str
     description: str
     timestamp: datetime = field(default_factory=datetime.now)
-    data: dict = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": self.event_type,
             "description": self.description,
@@ -65,7 +65,7 @@ class DecisionEngine:
     Manages system state, enforces safety, and schedules autonomous tasks.
     """
 
-    def __init__(self, initial_capital: float = 10000):
+    def __init__(self, initial_capital: float = 10000) -> None:
         self.healer = SelfHealer()
         self.evolver = StrategyEvolver()
         self.meta = MetaLearner()
@@ -74,28 +74,28 @@ class DecisionEngine:
 
         self.state = DecisionState.NORMAL
         self.initial_capital = initial_capital
-        self.event_log: deque = deque(maxlen=1000)
+        self.event_log: deque[AutonomousEvent] = deque(maxlen=1000)
 
         # Tracking
         self._daily_pnl: float = 0.0
-        self._daily_reset_date: Optional[datetime] = None
+        self._daily_reset_date: datetime | None = None
         self._consecutive_losses: int = 0
         self._last_evolution_cycle: int = 0
         self._last_learning_cycle: int = 0
         self._last_optimization_cycle: int = 0
-        self._state_change_time: Optional[datetime] = None
+        self._state_change_time: datetime | None = None
         self._total_autonomous_decisions: int = 0
-        self._latest_evolved_params: dict = {}  # Best params from strategy evolution
+        self._latest_evolved_params: dict[str, Any] = {}  # Best params from strategy evolution
 
         # Production safeguards
         self._manual_halt: bool = False
         self._halt_reason: str = ""
         self._force_close_all: bool = False
-        self._alerts: list[dict] = []
+        self._alerts: list[dict[str, Any]] = []
 
     # --- Production safeguards (kill switch, manual override) ---
 
-    def emergency_halt(self, reason: str = "Manual kill switch"):
+    def emergency_halt(self, reason: str = "Manual kill switch") -> None:
         """Immediately halt all trading. Called via API kill switch."""
         self._manual_halt = True
         self._halt_reason = reason
@@ -104,7 +104,7 @@ class DecisionEngine:
         self._add_alert("critical", f"EMERGENCY HALT: {reason}")
         print(f"\n  [KILL SWITCH] Trading HALTED: {reason}")
 
-    def emergency_resume(self):
+    def emergency_resume(self) -> None:
         """Resume trading after manual halt."""
         self._manual_halt = False
         self._halt_reason = ""
@@ -112,13 +112,13 @@ class DecisionEngine:
         self._log_event("emergency_resume", "Trading resumed manually")
         print(f"\n  [RESUME] Trading resumed")
 
-    def force_close_all_positions(self):
+    def force_close_all_positions(self) -> None:
         """Signal agent to close all open positions immediately."""
         self._force_close_all = True
         self._log_event("force_close", "Force close all positions triggered")
         self._add_alert("warning", "Force closing all positions")
 
-    def _add_alert(self, severity: str, message: str):
+    def _add_alert(self, severity: str, message: str) -> None:
         """Add an alert to the alert queue."""
         alert = {
             "severity": severity,
@@ -131,19 +131,19 @@ class DecisionEngine:
         if len(self._alerts) > 100:
             self._alerts = self._alerts[-100:]
 
-    def get_alerts(self, unacknowledged_only: bool = False) -> list[dict]:
+    def get_alerts(self, unacknowledged_only: bool = False) -> list[dict[str, Any]]:
         """Get alerts, optionally filtering to unacknowledged only."""
         if unacknowledged_only:
             return [a for a in self._alerts if not a["acknowledged"]]
         return self._alerts.copy()
 
-    def acknowledge_alerts(self):
+    def acknowledge_alerts(self) -> None:
         """Mark all alerts as acknowledged."""
         for a in self._alerts:
             a["acknowledged"] = True
 
     def orchestrate(self, cycle_count: int, current_capital: float,
-                    current_pnl: float = 0) -> dict:
+                    current_pnl: float = 0) -> dict[str, Any]:
         """
         Main orchestration method — called at the start of each cycle.
         Returns dict with instructions for the agent.
@@ -219,7 +219,7 @@ class DecisionEngine:
 
         return instructions
 
-    def _check_safety(self, current_capital: float, recent_pnl: float) -> tuple:
+    def _check_safety(self, current_capital: float, recent_pnl: float) -> tuple[DecisionState, str]:
         """Check safety limits and determine system state."""
         now = datetime.now()
 
@@ -257,7 +257,7 @@ class DecisionEngine:
 
     def record_trade_result(self, pnl: float, strategy_signal: str, ml_signal: str,
                             final_signal: str, strategy_confidence: float,
-                            ml_confidence: float, regime: str):
+                            ml_confidence: float, regime: str) -> None:
         """Record a trade result — updates all subsystems."""
         # Track daily PnL
         self._daily_pnl += pnl
@@ -290,7 +290,7 @@ class DecisionEngine:
 
         self._total_autonomous_decisions += 1
 
-    def record_drift_event(self):
+    def record_drift_event(self) -> None:
         """Record a model drift event."""
         self.meta.record_drift_event()
         self._log_event("drift_detected", "Model drift detected, retraining triggered")
@@ -416,7 +416,7 @@ class DecisionEngine:
 
         return scored
 
-    def _run_optimization_trials(self, n_trials: int = 5) -> list[dict]:
+    def _run_optimization_trials(self, n_trials: int = 5) -> list[dict[str, Any]]:
         """Run mini-backtest trials for hyperparameter optimization."""
         from backtester import Backtester
         from demo_data import generate_demo_ohlcv
@@ -491,7 +491,7 @@ class DecisionEngine:
 
         return signal, confidence
 
-    def _log_event(self, event_type: str, description: str, data: dict = None):
+    def _log_event(self, event_type: str, description: str, data: dict[str, Any] | None = None) -> None:
         """Log an autonomous event."""
         event = AutonomousEvent(
             event_type=event_type,
@@ -500,7 +500,7 @@ class DecisionEngine:
         )
         self.event_log.append(event)
 
-    def get_autonomous_status(self) -> dict:
+    def get_autonomous_status(self) -> dict[str, Any]:
         """Comprehensive status report of all autonomous subsystems."""
         return {
             "state": self.state.value,
@@ -516,7 +516,7 @@ class DecisionEngine:
             ],
         }
 
-    def print_autonomous_summary(self):
+    def print_autonomous_summary(self) -> None:
         """Print concise autonomous system status."""
         state_icons = {
             DecisionState.NORMAL: "[OK]",
@@ -555,7 +555,7 @@ class DecisionEngine:
         if recent:
             print(f"  Recent: {', '.join(e.event_type for e in recent)}")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for state persistence."""
         return {
             "state": self.state.value,
@@ -576,7 +576,7 @@ class DecisionEngine:
             "optimizer": self.optimizer.to_dict(),
         }
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """Restore from state."""
         state_str = data.get("state", "normal")
         self.state = DecisionState(state_str)

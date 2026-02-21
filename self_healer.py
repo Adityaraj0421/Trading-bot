@@ -13,7 +13,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from datetime import datetime, timedelta
-from typing import Optional, Callable
+from typing import Any, Callable
 
 _log = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class HealthMetrics:
         critical = self.api_healthy and self.data_fresh and self.memory_ok
         return critical and self.error_rate < 0.3
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "memory_ok": self.memory_ok,
             "api_healthy": self.api_healthy,
@@ -76,9 +76,9 @@ class HealthMetrics:
 class CircuitBreaker:
     state: CircuitState = CircuitState.CLOSED
     failure_count: int = 0
-    last_failure: Optional[datetime] = None
-    last_success: Optional[datetime] = None
-    open_since: Optional[datetime] = None
+    last_failure: datetime | None = None
+    last_success: datetime | None = None
+    open_since: datetime | None = None
     half_open_attempts: int = 0
     failure_threshold: int = 3
     recovery_timeout: float = 60.0  # seconds before trying half-open
@@ -97,22 +97,22 @@ class SelfHealer:
         "drift_detector", "state_manager", "logger",
     ]
 
-    def __init__(self, max_errors: int = 200):
+    def __init__(self, max_errors: int = 200) -> None:
         self.start_time = datetime.now()
-        self.error_history: deque = deque(maxlen=max_errors)
+        self.error_history: deque[ErrorRecord] = deque(maxlen=max_errors)
         self.circuit_breakers: dict[str, CircuitBreaker] = {
             comp: CircuitBreaker() for comp in self.COMPONENTS
         }
-        self.recovery_actions: dict[str, list[Callable]] = {}
+        self.recovery_actions: dict[str, list[Callable[[], None]]] = {}
         self.recovery_attempts: dict[str, int] = defaultdict(int)
-        self.last_health_check: Optional[datetime] = None
-        self._cached_health: Optional[HealthMetrics] = None
-        self._last_data_time: Optional[datetime] = None
-        self._last_model_train: Optional[datetime] = None
+        self.last_health_check: datetime | None = None
+        self._cached_health: HealthMetrics | None = None
+        self._last_data_time: datetime | None = None
+        self._last_model_train: datetime | None = None
         self._consecutive_data_failures: int = 0
 
     def record_error(self, component: str, error: Exception,
-                     severity: ErrorSeverity = ErrorSeverity.MEDIUM):
+                     severity: ErrorSeverity = ErrorSeverity.MEDIUM) -> None:
         """Record an error and update circuit breaker state."""
         record = ErrorRecord(
             component=component,
@@ -146,7 +146,7 @@ class SelfHealer:
         if severity in (ErrorSeverity.HIGH, ErrorSeverity.CRITICAL):
             self.attempt_recovery(component)
 
-    def record_success(self, component: str):
+    def record_success(self, component: str) -> None:
         """Record a successful operation — helps circuit breaker recover."""
         cb = self.circuit_breakers.get(component)
         if cb:
@@ -182,7 +182,7 @@ class SelfHealer:
         state = self.get_circuit_state(component)
         return state != CircuitState.OPEN
 
-    def register_recovery_action(self, component: str, action: Callable):
+    def register_recovery_action(self, component: str, action: Callable[[], None]) -> None:
         """Register a recovery action for a component."""
         if component not in self.recovery_actions:
             self.recovery_actions[component] = []
@@ -206,7 +206,7 @@ class SelfHealer:
 
         return False
 
-    def record_data_fetch(self, success: bool):
+    def record_data_fetch(self, success: bool) -> None:
         """Track data fetcher health."""
         if success:
             self._last_data_time = datetime.now()
@@ -221,7 +221,7 @@ class SelfHealer:
                     ErrorSeverity.HIGH,
                 )
 
-    def record_model_train(self):
+    def record_model_train(self) -> None:
         """Track model training time."""
         self._last_model_train = datetime.now()
         self.record_success("model")
@@ -282,7 +282,7 @@ class SelfHealer:
         self.last_health_check = now
         return metrics
 
-    def get_error_summary(self) -> dict:
+    def get_error_summary(self) -> dict[str, Any]:
         """Get summary of recent errors by component."""
         summary = defaultdict(lambda: {"count": 0, "last": None, "severity": "low"})
         cutoff = datetime.now() - timedelta(hours=1)
@@ -299,7 +299,7 @@ class SelfHealer:
 
         return dict(summary)
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Full self-healer status report."""
         health = self._cached_health or self.check_health()
         return {
@@ -317,7 +317,7 @@ class SelfHealer:
             "error_summary": self.get_error_summary(),
         }
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for state persistence."""
         return {
             "recovery_attempts": dict(self.recovery_attempts),
@@ -325,6 +325,6 @@ class SelfHealer:
             "start_time": self.start_time.isoformat(),
         }
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """Restore from state."""
         self.recovery_attempts = defaultdict(int, data.get("recovery_attempts", {}))

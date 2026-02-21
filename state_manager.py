@@ -24,7 +24,7 @@ class StateManager:
            and all v5.0 autonomous subsystem state.
     """
 
-    def __init__(self, state_file: str = None):
+    def __init__(self, state_file: str | None = None) -> None:
         self.state_file = state_file or Config.STATE_FILE
         self.model_file = self.state_file.replace(".json", "_model.pkl")
         self.autonomous_file = self.state_file.replace(".json", "_autonomous.json")
@@ -125,7 +125,7 @@ class StateManager:
     def exists(self) -> bool:
         return os.path.exists(self.state_file)
 
-    def clear(self):
+    def clear(self) -> None:
         """Delete saved state."""
         for f in [self.state_file, self.model_file, self.autonomous_file]:
             if os.path.exists(f):

@@ -11,7 +11,7 @@ import random
 import copy
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any
 from collections import deque
 
 _log = logging.getLogger(__name__)
@@ -21,14 +21,14 @@ _log = logging.getLogger(__name__)
 class Genome:
     """A single set of strategy parameters with fitness tracking."""
     strategy_name: str
-    parameters: dict
+    parameters: dict[str, Any]
     fitness_score: float = 0.0
     generation: int = 0
     trade_count: int = 0
     sharpe: float = 0.0
     max_drawdown: float = 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "strategy_name": self.strategy_name,
             "parameters": self.parameters,
@@ -125,17 +125,17 @@ class StrategyEvolver:
     """
 
     def __init__(self, population_size: int = 20, mutation_rate: float = 0.1,
-                 elite_fraction: float = 0.3):
+                 elite_fraction: float = 0.3) -> None:
         self.population_size = population_size
         self.mutation_rate = mutation_rate
         self.elite_fraction = elite_fraction
         self.populations: dict[str, list[Genome]] = {}
         self.generation: int = 0
         self.best_genomes: dict[str, Genome] = {}
-        self.evolution_history: deque = deque(maxlen=50)
+        self.evolution_history: deque[dict[str, Any]] = deque(maxlen=50)
         self._initialized = False
 
-    def initialize_population(self, strategy_names: list[str] = None):
+    def initialize_population(self, strategy_names: list[str] | None = None) -> None:
         """Create initial population from defaults + random variations."""
         if strategy_names is None:
             strategy_names = list(DEFAULT_PARAMS.keys())
@@ -178,7 +178,7 @@ class StrategyEvolver:
         print(f"  [Evolver] Initialized {len(self.populations)} strategy populations "
               f"({self.population_size} genomes each)")
 
-    def evaluate_fitness(self, genome: Genome, backtest_metrics: dict):
+    def evaluate_fitness(self, genome: Genome, backtest_metrics: dict[str, Any]) -> None:
         """
         Evaluate fitness of a genome from backtest results.
         Fitness = Sharpe * sqrt(trade_count) - drawdown_penalty
@@ -286,14 +286,14 @@ class StrategyEvolver:
                 genome.parameters[key] = dtype(new_val) if dtype == int else round(new_val, 4)
         return genome
 
-    def get_best_params(self, strategy_name: str) -> Optional[dict]:
+    def get_best_params(self, strategy_name: str) -> dict[str, Any] | None:
         """Get the best evolved parameters for a strategy."""
         best = self.best_genomes.get(strategy_name)
         if best and best.fitness_score > 0:
             return best.parameters
         return None
 
-    def get_all_best(self) -> dict:
+    def get_all_best(self) -> dict[str, Any]:
         """Get best params for all strategies."""
         return {
             name: genome.to_dict()
@@ -301,7 +301,7 @@ class StrategyEvolver:
             if genome.fitness_score > 0
         }
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Evolution status report."""
         return {
             "generation": self.generation,
@@ -317,7 +317,7 @@ class StrategyEvolver:
             "recent_evolution": list(self.evolution_history)[-5:] if self.evolution_history else [],
         }
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for state persistence."""
         return {
             "generation": self.generation,
@@ -327,7 +327,7 @@ class StrategyEvolver:
             "evolution_history": list(self.evolution_history),
         }
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """Restore from state."""
         self.generation = data.get("generation", 0)
         for name, gdata in data.get("best_genomes", {}).items():
