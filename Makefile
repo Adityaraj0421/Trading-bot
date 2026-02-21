@@ -4,7 +4,7 @@
 # Usage: make help
 # ============================================================
 
-.PHONY: dev api dashboard stop status install logs start test test-coverage build help
+.PHONY: dev api dashboard stop status install logs start test test-coverage build lint format help
 
 # Detect venv
 VENV_BIN   := ./venv/bin
@@ -90,6 +90,13 @@ test-coverage: ## Run tests with coverage report
 
 test-config: ## Run config and model tests only
 	$(PYTHON) -m pytest tests/test_config.py tests/test_models.py -v
+
+lint: ## Run ruff linter
+	$(PYTHON) -m ruff check .
+
+format: ## Auto-format code with ruff
+	$(PYTHON) -m ruff format .
+	$(PYTHON) -m ruff check --fix .
 
 # -------------------------------------------------------
 # Help
