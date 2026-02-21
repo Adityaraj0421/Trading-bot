@@ -16,6 +16,7 @@ Research basis:
   - Empirical crypto market impact studies (2024-2025)
 """
 
+from typing import Any
 import numpy as np
 import logging
 from dataclasses import dataclass
@@ -40,7 +41,7 @@ class ExecutionResult:
     fees_paid: float
     is_partial_fill: bool
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "filled_qty": round(self.filled_quantity, 6),
             "fill_rate": round(self.fill_rate, 4),
@@ -96,7 +97,7 @@ class MarketImpactModel:
 
     def __init__(self, fee_pct: float = 0.001,
                  enable_partial_fills: bool = True,
-                 enable_stress: bool = True):
+                 enable_stress: bool = True) -> None:
         self.fee_pct = fee_pct
         self.enable_partial_fills = enable_partial_fills
         self.enable_stress = enable_stress
@@ -182,7 +183,7 @@ class MarketImpactModel:
         self._execution_log.append(result.to_dict())
         return result
 
-    def advance_bar(self):
+    def advance_bar(self) -> None:
         """Called each bar to manage stress scenarios."""
         if self._stress_bars_remaining > 0:
             self._stress_bars_remaining -= 1
@@ -198,7 +199,7 @@ class MarketImpactModel:
                     _log.debug("Stress scenario activated: %s", scenario.name)
                     break
 
-    def get_active_stress(self) -> dict | None:
+    def get_active_stress(self) -> dict[str, Any] | None:
         """Return active stress scenario info."""
         if self._active_stress is None:
             return None
@@ -209,7 +210,7 @@ class MarketImpactModel:
             "spread_mult": self._active_stress.spread_mult,
         }
 
-    def get_execution_stats(self) -> dict:
+    def get_execution_stats(self) -> dict[str, Any]:
         """Aggregate execution statistics."""
         log = list(self._execution_log)
         if not log:
@@ -233,7 +234,7 @@ class MarketImpactModel:
     # ── Internal: Cost Components ─────────────────────────────────
 
     def _compute_slippage(self, atr_pct: float,
-                          stress_mult: dict) -> float:
+                          stress_mult: dict[str, float]) -> float:
         """
         Volatility-correlated slippage.
 
@@ -245,7 +246,7 @@ class MarketImpactModel:
         return base + vol_component
 
     def _compute_market_impact(self, quantity: float, avg_volume: float,
-                                stress_mult: dict) -> float:
+                                stress_mult: dict[str, float]) -> float:
         """
         Square-root market impact model (Almgren-Chriss).
 
@@ -263,7 +264,7 @@ class MarketImpactModel:
         return min(impact, 0.05)  # Cap at 5%
 
     def _compute_spread(self, atr_pct: float, bar_volume: float,
-                        avg_volume: float, stress_mult: dict) -> float:
+                        avg_volume: float, stress_mult: dict[str, float]) -> float:
         """
         Dynamic spread modeling.
 
@@ -295,7 +296,7 @@ class MarketImpactModel:
 
     def _simulate_fill_rate(self, quantity: float, bar_volume: float,
                             avg_volume: float,
-                            stress_mult: dict) -> float:
+                            stress_mult: dict[str, float]) -> float:
         """
         Simulate partial fills for large orders.
 
@@ -320,7 +321,7 @@ class MarketImpactModel:
         else:
             return 0.5  # Massive order, only half fills
 
-    def _get_stress_multipliers(self) -> dict:
+    def _get_stress_multipliers(self) -> dict[str, float]:
         """Get current stress scenario multipliers."""
         if self._active_stress is None:
             return {"spread": 1.0, "liquidity": 1.0}

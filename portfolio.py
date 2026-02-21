@@ -11,6 +11,7 @@ Usage:
 """
 
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -35,7 +36,7 @@ class PortfolioManager:
     Prevents over-concentration and correlation-based risk.
     """
 
-    def __init__(self, pairs: list[str] = None):
+    def __init__(self, pairs: list[str] | None = None) -> None:
         self.pairs = pairs or Config.TRADING_PAIRS
         self.correlations: pd.DataFrame = pd.DataFrame()
         self.pair_returns: dict[str, pd.Series] = {}
@@ -48,7 +49,7 @@ class PortfolioManager:
         # Track which pairs have open positions
         self.active_pairs: set = set()
 
-    def update_prices(self, pair: str, prices: pd.Series):
+    def update_prices(self, pair: str, prices: pd.Series) -> None:
         """Update price series for a pair (for correlation calculation)."""
         returns = prices.pct_change().dropna()
         self.pair_returns[pair] = returns
@@ -69,7 +70,7 @@ class PortfolioManager:
         self.correlations = aligned.corr()
         return self.correlations
 
-    def get_allocation(self, pair: str, existing_positions: list = None) -> PairAllocation:
+    def get_allocation(self, pair: str, existing_positions: list[str] | None = None) -> PairAllocation:
         """
         Get capital allocation for a pair, accounting for:
         - Base portfolio weight
@@ -108,7 +109,7 @@ class PortfolioManager:
             is_tradeable=is_tradeable,
         )
 
-    def get_portfolio_risk(self, positions: list) -> dict:
+    def get_portfolio_risk(self, positions: list[Any]) -> dict[str, Any]:
         """
         Calculate portfolio-level risk metrics.
         """
@@ -155,7 +156,7 @@ class PortfolioManager:
             "corr_risk": corr_risk,
         }
 
-    def rebalance_weights(self):
+    def rebalance_weights(self) -> None:
         """
         Rebalance portfolio weights using inverse-volatility weighting.
         Lower volatility pairs get higher allocation.

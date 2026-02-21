@@ -5,6 +5,7 @@ Bounded history, cached HMM results.
 """
 
 import logging
+from typing import Any
 import numpy as np
 import pandas as pd
 from enum import Enum
@@ -69,17 +70,17 @@ class RegimeDetector:
     VOL_WEIGHT = 0.2
     HMM_WEIGHT = 0.4
 
-    def __init__(self):
-        self.hmm_model = None
-        self.has_hmm = False
-        self.current_regime = MarketRegime.RANGING
-        self.regime_history = deque(maxlen=self.MAX_HISTORY)
-        self.regime_duration = 0
-        self._hmm_cache_key = None
-        self._hmm_cache_result = None
+    def __init__(self) -> None:
+        self.hmm_model: Any = None
+        self.has_hmm: bool = False
+        self.current_regime: MarketRegime = MarketRegime.RANGING
+        self.regime_history: deque[RegimeState] = deque(maxlen=self.MAX_HISTORY)
+        self.regime_duration: int = 0
+        self._hmm_cache_key: tuple[int, int] | None = None
+        self._hmm_cache_result: dict[str, Any] | None = None
         self._try_init_hmm()
 
-    def _try_init_hmm(self):
+    def _try_init_hmm(self) -> None:
         try:
             import warnings
             warnings.filterwarnings("ignore", module="hmmlearn")
@@ -92,7 +93,7 @@ class RegimeDetector:
         except ImportError:
             self.has_hmm = False
 
-    def detect(self, df: pd.DataFrame, df_ind: pd.DataFrame = None) -> RegimeState:
+    def detect(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> RegimeState:
         """
         Detect market regime. Accepts pre-computed indicators (df_ind)
         to reuse ATR, BBs, MAs already computed by Indicators.add_all().
@@ -121,7 +122,7 @@ class RegimeDetector:
         self.regime_history.append(state)
         return state
 
-    def _volatility_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame = None) -> dict:
+    def _volatility_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> dict[str, Any]:
         """Reuses pre-computed ATR and BB width from indicators."""
         if df_ind is not None and "atr_pct" in df_ind.columns:
             atr_pct = df_ind["atr_pct"]
@@ -155,7 +156,7 @@ class RegimeDetector:
         else:
             return {"regime": MarketRegime.RANGING, "volatility_pct": current_vol, "confidence": 0.5}
 
-    def _trend_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame = None) -> dict:
+    def _trend_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> dict[str, Any]:
         """Reuses pre-computed MAs from indicators."""
         close = df["close"]
         latest_close = float(close.iloc[-1])
@@ -197,7 +198,7 @@ class RegimeDetector:
 
         return {"regime": regime, "strength": trend_strength, "alignment": alignment, "confidence": float(conf)}
 
-    def _hmm_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame = None) -> dict | None:
+    def _hmm_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> dict[str, Any] | None:
         """Reuses pre-computed log returns and rolling vol."""
         try:
             # Reuse from indicators if available
@@ -246,7 +247,7 @@ class RegimeDetector:
             _log.debug("HMM regime detection failed: %s", e)
             return None
 
-    def _combine_regimes(self, vol_result, trend_result, hmm_result):
+    def _combine_regimes(self, vol_result: dict[str, Any], trend_result: dict[str, Any], hmm_result: dict[str, Any] | None) -> tuple[MarketRegime, float]:
         votes = {}
 
         if vol_result["regime"] == MarketRegime.HIGH_VOLATILITY and vol_result["confidence"] > self.HIGH_VOL_THRESHOLD:

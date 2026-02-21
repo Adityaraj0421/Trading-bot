@@ -40,11 +40,11 @@ class StrategySignal:
 class BaseStrategy(ABC):
     """Base class for all trading strategies."""
     name: str = "base"
-    best_regimes: list = []
+    best_regimes: list[MarketRegime] = []
 
     @abstractmethod
     def generate_signal(
-        self, df: pd.DataFrame, sentiment: SentimentState = None
+        self, df: pd.DataFrame, sentiment: SentimentState | None = None
     ) -> StrategySignal:
         pass
 
@@ -64,14 +64,14 @@ class MomentumStrategy(BaseStrategy):
     name = "Momentum"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.rsi_oversold = p.get("rsi_oversold", 30)
         self.rsi_overbought = p.get("rsi_overbought", 70)
         self.macd_threshold = p.get("macd_threshold", 0.0)
         self.confidence_base = p.get("confidence_base", 0.6)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment=None) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         latest = df.iloc[-1]
         prev = df.iloc[-2]
 
@@ -146,13 +146,13 @@ class MeanReversionStrategy(BaseStrategy):
     name = "MeanReversion"
     best_regimes = [MarketRegime.RANGING]
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.rsi_low = p.get("rsi_low", 25)
         self.rsi_high = p.get("rsi_high", 75)
         self.confidence_base = p.get("confidence_base", 0.6)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment=None) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         latest = df.iloc[-1]
 
         bb_pos = latest.get("bb_position", 0.5)
@@ -218,13 +218,13 @@ class BreakoutStrategy(BaseStrategy):
     name = "Breakout"
     best_regimes = [MarketRegime.RANGING, MarketRegime.HIGH_VOLATILITY]
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.lookback = p.get("lookback", 20)
         self.volume_mult = p.get("volume_mult", 1.5)
         self.confidence_base = p.get("confidence_base", 0.6)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment=None) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         latest = df.iloc[-1]
         prev = df.iloc[-2]
 
@@ -285,13 +285,13 @@ class GridStrategy(BaseStrategy):
     name = "Grid"
     best_regimes = [MarketRegime.RANGING]
 
-    def __init__(self, grid_spacing_pct: float = 0.01, grid_levels: int = 5, params: dict = None):
+    def __init__(self, grid_spacing_pct: float = 0.01, grid_levels: int = 5, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.grid_spacing = p.get("grid_size_pct", grid_spacing_pct * 100) / 100.0
         self.grid_levels = p.get("num_levels", grid_levels)
         self.confidence_base = p.get("confidence_base", 0.5)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment=None) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         latest = df.iloc[-1]
         close = latest["close"]
 
@@ -346,12 +346,12 @@ class ScalpingStrategy(BaseStrategy):
     name = "Scalping"
     best_regimes = [MarketRegime.RANGING, MarketRegime.HIGH_VOLATILITY]
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.volume_spike = p.get("volume_spike", 2.0)
         self.confidence_base = p.get("confidence_base", 0.5)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment=None) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         if len(df) < 5:
             return StrategySignal(
                 signal="HOLD", confidence=0.0,
@@ -430,7 +430,7 @@ class SentimentDrivenStrategy(BaseStrategy):
         MarketRegime.RANGING, MarketRegime.HIGH_VOLATILITY,
     ]
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.fear_threshold = p.get("fear_threshold", 25)
         self.greed_threshold = p.get("greed_threshold", 75)
@@ -505,12 +505,12 @@ class VWAPStrategy(BaseStrategy):
     name = "VWAP"
     best_regimes = [MarketRegime.RANGING, MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.deviation_threshold = p.get("deviation_threshold", 0.01)  # 1%
         self.confidence_base = p.get("confidence_base", 0.55)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment=None) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         latest = df.iloc[-1]
 
         vwap_dev = latest.get("close_to_vwap", 0)
@@ -559,11 +559,11 @@ class OBVDivergenceStrategy(BaseStrategy):
     name = "OBVDivergence"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN, MarketRegime.RANGING]
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.confidence_base = p.get("confidence_base", 0.55)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment=None) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         latest = df.iloc[-1]
 
         obv_div = latest.get("obv_divergence", 0)
@@ -613,12 +613,12 @@ class EMACrossoverStrategy(BaseStrategy):
     name = "EMACrossover"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
-    def __init__(self, params: dict = None):
+    def __init__(self, params: dict[str, float] | None = None) -> None:
         p = params or {}
         self.adx_threshold = p.get("adx_threshold", 20)
         self.confidence_base = p.get("confidence_base", 0.6)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment=None) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         latest = df.iloc[-1]
 
         ema_cross = latest.get("ema_cross", 0)
@@ -706,7 +706,7 @@ class StrategyEngine:
         },
     }
 
-    def __init__(self, evolved_params: dict = None):
+    def __init__(self, evolved_params: dict[str, dict[str, float]] | None = None) -> None:
         """
         Initialize strategies with optional evolved parameters.
         evolved_params: dict mapping strategy name -> param dict from StrategyEvolver.
@@ -739,7 +739,7 @@ class StrategyEngine:
         "EMACrossover": EMACrossoverStrategy,
     }
 
-    def apply_evolved_params(self, evolved_params: dict):
+    def apply_evolved_params(self, evolved_params: dict[str, dict[str, float]]) -> None:
         """Hot-reload evolved parameters into strategies without restart."""
         for name, params in evolved_params.items():
             if name in self.strategies and params:
@@ -749,7 +749,7 @@ class StrategyEngine:
 
     def run(
         self, df: pd.DataFrame, regime: MarketRegime,
-        sentiment: SentimentState = None,
+        sentiment: SentimentState | None = None,
     ) -> StrategySignal:
         """
         OPTIMIZED: Run primary first; if high confidence, short-circuit

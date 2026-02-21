@@ -25,6 +25,7 @@ Install for full power:
     pip install torch xgboost
 """
 
+from typing import Any
 import numpy as np
 import pandas as pd
 import logging
@@ -77,7 +78,7 @@ if _HAS_TORCH:
 
         def __init__(self, n_features: int, hidden_dim: int = 64,
                      n_layers: int = 2, dropout: float = 0.2,
-                     embedding_dim: int = 16):
+                     embedding_dim: int = 16) -> None:
             super().__init__()
             self.hidden_dim = hidden_dim
             self.n_layers = n_layers
@@ -153,7 +154,7 @@ if _HAS_TORCH:
         def __init__(self, model: LSTMFeatureExtractor,
                      n_features: int,
                      lr: float = 0.001,
-                     weight_decay: float = 1e-5):
+                     weight_decay: float = 1e-5) -> None:
             self.model = model
             self.embedding_dim = model.projection[-1].out_features
 
@@ -220,10 +221,10 @@ if _HAS_TORCH:
 
         def train_full(self, X_sequences: np.ndarray,
                        Y_targets: np.ndarray,
-                       X_val_seq: np.ndarray = None,
-                       Y_val_targets: np.ndarray = None,
+                       X_val_seq: np.ndarray | None = None,
+                       Y_val_targets: np.ndarray | None = None,
                        epochs: int = 15,
-                       patience: int = 3) -> dict:
+                       patience: int = 3) -> dict[str, list[float]]:
             """
             Full training loop with early stopping.
 
@@ -294,7 +295,7 @@ class TradingModel:
     Tier 3: RandomForest + GradientBoosting ensemble
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.scaler = StandardScaler()
         self.is_trained = False
         self.last_train_accuracy = 0.0
@@ -356,7 +357,7 @@ class TradingModel:
 
     # ── Sequence Creation ────────────────────────────────────────────
 
-    def _create_sequences(self, X: np.ndarray, y: np.ndarray = None):
+    def _create_sequences(self, X: np.ndarray, y: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray | None]:
         """Create LSTM-compatible sequences from flat feature matrix."""
         sequences = []
         labels = []
@@ -378,7 +379,7 @@ class TradingModel:
 
     # ── Training ─────────────────────────────────────────────────────
 
-    def train(self, df: pd.DataFrame = None, df_ind: pd.DataFrame = None) -> dict:
+    def train(self, df: pd.DataFrame | None = None, df_ind: pd.DataFrame | None = None) -> dict[str, Any]:
         """Train the model using the best available tier."""
         if df_ind is None:
             df_ind = Indicators.add_all(df)
@@ -437,7 +438,7 @@ class TradingModel:
         return {"cv_accuracy": val_accuracy, "samples": len(y),
                 "class_distribution": dist, "tier": self._tier}
 
-    def _init_tier3(self):
+    def _init_tier3(self) -> None:
         """Initialize tier 3 models."""
         self.rf_model = RandomForestClassifier(
             n_estimators=100, max_depth=8, min_samples_leaf=5,
@@ -447,7 +448,7 @@ class TradingModel:
             n_estimators=80, max_depth=4, learning_rate=0.08, random_state=42,
         )
 
-    def _train_tier1(self, X_train, y_train, X_val, y_val, X_all, y_all) -> float:
+    def _train_tier1(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, X_all: np.ndarray, y_all: np.ndarray) -> float:
         """
         Train PyTorch LSTM feature extractor + XGBoost classifier.
 
@@ -517,7 +518,7 @@ class TradingModel:
 
         return val_accuracy
 
-    def _train_tier2(self, X_train, y_train, X_val, y_val, X_all, y_all) -> float:
+    def _train_tier2(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, X_all: np.ndarray, y_all: np.ndarray) -> float:
         """Train XGBoost only."""
         y_train_mapped = np.array([self._label_map[l] for l in y_train])
         y_val_mapped = np.array([self._label_map[l] for l in y_val])
@@ -529,7 +530,7 @@ class TradingModel:
         self.xgb_model.fit(X_all, y_all_mapped)
         return val_accuracy
 
-    def _train_tier3(self, X_train, y_train, X_val, y_val, X_all, y_all) -> float:
+    def _train_tier3(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, X_all: np.ndarray, y_all: np.ndarray) -> float:
         """Train sklearn ensemble."""
         self.rf_model.fit(X_train, y_train)
         self.gb_model.fit(X_train, y_train)
@@ -546,7 +547,7 @@ class TradingModel:
 
     # ── Prediction ───────────────────────────────────────────────────
 
-    def predict(self, df: pd.DataFrame = None, df_ind: pd.DataFrame = None) -> tuple:
+    def predict(self, df: pd.DataFrame | None = None, df_ind: pd.DataFrame | None = None) -> tuple[str, float]:
         """Predict signal for latest candle."""
         if not self.is_trained:
             return Signal.HOLD, 0.0
@@ -573,7 +574,7 @@ class TradingModel:
         self._pred_cache_result = result
         return result
 
-    def _predict_tier1(self, df_ind: pd.DataFrame) -> tuple:
+    def _predict_tier1(self, df_ind: pd.DataFrame) -> tuple[str, float]:
         """Predict using PyTorch LSTM + XGBoost."""
         if self.lstm_model is None or len(df_ind) < self.lookback + 1:
             return self._predict_tier2(df_ind)
@@ -592,7 +593,7 @@ class TradingModel:
         pred_idx = np.argmax(proba)
         return self._label_inv[pred_idx], float(proba[pred_idx])
 
-    def _predict_tier2(self, df_ind: pd.DataFrame) -> tuple:
+    def _predict_tier2(self, df_ind: pd.DataFrame) -> tuple[str, float]:
         """Predict using XGBoost only."""
         latest = df_ind[self.feature_cols].iloc[-1:].values
         latest_scaled = self.scaler.transform(latest)
@@ -600,7 +601,7 @@ class TradingModel:
         pred_idx = np.argmax(proba)
         return self._label_inv[pred_idx], float(proba[pred_idx])
 
-    def _predict_tier3(self, df_ind: pd.DataFrame) -> tuple:
+    def _predict_tier3(self, df_ind: pd.DataFrame) -> tuple[str, float]:
         """Predict using sklearn ensemble."""
         latest = df_ind[self.feature_cols].iloc[-1:].values
         latest_scaled = self.scaler.transform(latest)
@@ -616,7 +617,7 @@ class TradingModel:
 
     # ── Feature Importance ───────────────────────────────────────────
 
-    def get_feature_importance(self) -> dict:
+    def get_feature_importance(self) -> dict[str, float]:
         if not self.is_trained:
             return {}
         if self._tier in (1, 2) and hasattr(self, 'xgb_model'):
@@ -637,7 +638,7 @@ class TradingModel:
 
     # ── v9.0: Model State Serialization ──────────────────────────────
 
-    def save_model_state(self) -> dict:
+    def save_model_state(self) -> dict[str, Any]:
         """
         Serialize model state for persistence.
 
@@ -660,7 +661,7 @@ class TradingModel:
 
         return state
 
-    def load_model_state(self, state: dict):
+    def load_model_state(self, state: dict[str, Any]) -> None:
         """Restore model from serialized state."""
         self._tier = state.get("tier", self._tier)
         self.is_trained = state.get("is_trained", False)
@@ -683,7 +684,7 @@ class TradingModel:
             except Exception as e:
                 _log.warning("Failed to restore LSTM state: %s", e)
 
-    def get_model_info(self) -> dict:
+    def get_model_info(self) -> dict[str, Any]:
         """Return model architecture info for dashboard."""
         info = {
             "tier": self._tier,

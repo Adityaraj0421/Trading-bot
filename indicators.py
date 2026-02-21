@@ -39,8 +39,8 @@ class Indicators:
     Caches results — only recomputes when data actually changes.
     """
 
-    _cache_key = None
-    _cache_result = None
+    _cache_key: tuple[int, float, str] | None = None
+    _cache_result: pd.DataFrame | None = None
 
     @classmethod
     def add_all(cls, df: pd.DataFrame) -> pd.DataFrame:
@@ -172,10 +172,10 @@ class Indicators:
         return out
 
     @staticmethod
-    def get_feature_columns() -> list:
+    def get_feature_columns() -> list[str]:
         return FEATURE_COLUMNS
 
     @classmethod
-    def invalidate_cache(cls):
+    def invalidate_cache(cls) -> None:
         cls._cache_key = None
         cls._cache_result = None

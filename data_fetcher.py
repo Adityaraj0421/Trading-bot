@@ -7,6 +7,7 @@ Falls back to demo data if exchange is unreachable.
 import logging
 import os
 from pathlib import Path
+from typing import Any
 import ccxt
 import pandas as pd
 import numpy as np
@@ -17,11 +18,11 @@ _log = logging.getLogger(__name__)
 
 
 class DataFetcher:
-    def __init__(self):
+    def __init__(self) -> None:
         self.exchange = self._init_exchange()
         self.using_demo = False
 
-    def _init_exchange(self):
+    def _init_exchange(self) -> Any:
         """Initialize the exchange connection.
 
         Supports both HMAC (API_SECRET) and Ed25519 (API_PRIVATE_KEY_PATH)
@@ -78,7 +79,7 @@ class DataFetcher:
         return exchange
 
     def fetch_ohlcv(
-        self, symbol: str = None, timeframe: str = None, limit: int = None
+        self, symbol: str | None = None, timeframe: str | None = None, limit: int | None = None
     ) -> pd.DataFrame:
         """
         Fetch OHLCV (candlestick) data from the exchange.
@@ -131,7 +132,7 @@ class DataFetcher:
             timeframe_minutes=minutes,
         )
 
-    def fetch_ticker(self, symbol: str = None) -> dict:
+    def fetch_ticker(self, symbol: str | None = None) -> dict[str, Any]:
         """Fetch current ticker (last price, bid, ask, volume)."""
         symbol = symbol or Config.TRADING_PAIR
         try:
@@ -149,7 +150,7 @@ class DataFetcher:
                 }
             return {}
 
-    def fetch_order_book(self, symbol: str = None, depth: int = 10) -> dict:
+    def fetch_order_book(self, symbol: str | None = None, depth: int = 10) -> dict[str, Any]:
         """Fetch order book for spread and liquidity analysis."""
         symbol = symbol or Config.TRADING_PAIR
         try:
@@ -169,7 +170,7 @@ class DataFetcher:
             _log.debug("Order book fetch failed: %s", e)
             return {}
 
-    def get_available_pairs(self) -> list:
+    def get_available_pairs(self) -> list[str]:
         """List available trading pairs on the exchange."""
         try:
             self.exchange.load_markets()

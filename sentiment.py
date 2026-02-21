@@ -44,13 +44,13 @@ class SentimentAnalyzer:
     FEAR_GREED_API = "https://api.alternative.me/fng/?limit=7&format=json"
     FG_CACHE_SECONDS = 300  # Cache API result for 5 minutes
 
-    def __init__(self):
-        self.last_fg_index = 50
-        self.fg_history = deque(maxlen=100)
-        self._fg_cache_time = 0
-        self._fg_cache_value = None
+    def __init__(self) -> None:
+        self.last_fg_index: int = 50
+        self.fg_history: deque[int] = deque(maxlen=100)
+        self._fg_cache_time: float = 0
+        self._fg_cache_value: int | None = None
 
-    def analyze(self, df: pd.DataFrame, df_ind: pd.DataFrame = None) -> SentimentState:
+    def analyze(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> SentimentState:
         """Run sentiment analysis. Accepts df_ind to reuse pre-computed returns."""
         fg_index, fg_label, fg_source = self._fetch_fear_greed()
         vol_sentiment = self._volume_sentiment(df)
@@ -70,7 +70,7 @@ class SentimentAnalyzer:
             source=fg_source,
         )
 
-    def _fetch_fear_greed(self) -> tuple:
+    def _fetch_fear_greed(self) -> tuple[int, SentimentLevel, str]:
         """Cached Fear & Greed fetch — only hits API every 5 minutes."""
         now = time.time()
         if self._fg_cache_value is not None and (now - self._fg_cache_time) < self.FG_CACHE_SECONDS:
@@ -123,7 +123,7 @@ class SentimentAnalyzer:
         score = obv_score * 0.5 + vol_ratio * 0.5
         return float(np.clip(score, -1, 1))
 
-    def _price_momentum(self, df: pd.DataFrame, df_ind: pd.DataFrame = None) -> float:
+    def _price_momentum(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> float:
         """Reuse pre-computed returns from indicators if available."""
         if df_ind is not None and "returns_5" in df_ind.columns:
             ret_5 = float(df_ind["returns_5"].iloc[-1])
