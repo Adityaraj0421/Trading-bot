@@ -11,6 +11,8 @@ from enum import Enum
 from dataclasses import dataclass
 from collections import deque
 
+_log = logging.getLogger(__name__)
+
 
 class MarketRegime(Enum):
     TRENDING_UP = "trending_up"
@@ -241,7 +243,7 @@ class RegimeDetector:
 
             return {"regime": regime, "confidence": float(max(proba[-1]))}
         except Exception as e:
-            logging.getLogger(__name__).debug("HMM regime detection failed: %s", e)
+            _log.debug("HMM regime detection failed: %s", e)
             return None
 
     def _combine_regimes(self, vol_result, trend_result, hmm_result):

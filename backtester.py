@@ -15,6 +15,8 @@ Usage:
     bt.plot_equity_curve("equity.html")
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
@@ -27,6 +29,8 @@ from regime_detector import RegimeDetector, MarketRegime
 from sentiment import SentimentAnalyzer
 from strategies import StrategyEngine, StrategySignal
 from config import Config
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass

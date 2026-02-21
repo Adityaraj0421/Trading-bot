@@ -13,6 +13,8 @@ import numpy as np
 from datetime import datetime, timedelta
 from config import Config
 
+_log = logging.getLogger(__name__)
+
 
 class DataFetcher:
     def __init__(self):
@@ -50,7 +52,7 @@ class DataFetcher:
                     if hasattr(os, "stat"):
                         mode = os.stat(key_path).st_mode & 0o777
                         if mode & 0o077:  # Group or other can read
-                            logging.getLogger(__name__).warning(
+                            _log.warning(
                                 "Private key file %s has permissive permissions (%o). "
                                 "Consider: chmod 600 %s",
                                 key_path, mode, key_path,
@@ -62,11 +64,11 @@ class DataFetcher:
                     if Config.EXCHANGE_ID == "binance":
                         params["options"] = {"defaultType": "spot"}
                 except FileNotFoundError:
-                    logging.getLogger(__name__).error(
+                    _log.error(
                         "Ed25519 private key not found: %s", Config.API_PRIVATE_KEY_PATH
                     )
                 except ValueError as e:
-                    logging.getLogger(__name__).error("Key path validation failed: %s", e)
+                    _log.error("Key path validation failed: %s", e)
             elif Config.API_SECRET:
                 # Traditional HMAC secret
                 params["secret"] = Config.API_SECRET
@@ -103,12 +105,12 @@ class DataFetcher:
                 return df
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             if not self.using_demo:
-                print(f"[DataFetcher] Exchange unreachable: {e}")
-                print("[DataFetcher] Falling back to demo data")
+                _log.warning("[DataFetcher] Exchange unreachable: %s", e)
+                _log.warning("[DataFetcher] Falling back to demo data")
         except Exception as e:
             if not self.using_demo:
-                print(f"[DataFetcher] Unexpected error: {e}")
-                print("[DataFetcher] Falling back to demo data")
+                _log.warning("[DataFetcher] Unexpected error: %s", e)
+                _log.warning("[DataFetcher] Falling back to demo data")
 
         # Fallback: generate demo data
         return self._generate_demo_data(limit, timeframe)
@@ -164,7 +166,7 @@ class DataFetcher:
                 "ask_volume": sum(a[1] for a in book["asks"]),
             }
         except Exception as e:
-            logging.getLogger(__name__).debug("Order book fetch failed: %s", e)
+            _log.debug("Order book fetch failed: %s", e)
             return {}
 
     def get_available_pairs(self) -> list:
@@ -173,5 +175,5 @@ class DataFetcher:
             self.exchange.load_markets()
             return list(self.exchange.markets.keys())
         except Exception as e:
-            print(f"[DataFetcher] Error loading markets: {e}")
+            _log.error("[DataFetcher] Error loading markets: %s", e)
             return []

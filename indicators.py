@@ -4,8 +4,12 @@ Single-pass vectorized computation with result caching.
 Eliminates redundant recomputation across modules.
 """
 
+import logging
+
 import pandas as pd
 import numpy as np
+
+_log = logging.getLogger(__name__)
 
 # Feature columns used by the ML model (v8.0: expanded to all indicators)
 FEATURE_COLUMNS = [

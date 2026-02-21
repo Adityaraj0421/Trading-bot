@@ -8,11 +8,14 @@ v3.0: Trailing stop-loss, transaction cost awareness, max hold duration,
       position timeout, enhanced portfolio tracking.
 """
 
+import logging
 import threading
 import numpy as np
 from datetime import datetime, date
 from dataclasses import dataclass, field
 from config import Config
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -337,8 +340,10 @@ class RiskManager:
             if self._halt_until is None or datetime.now() >= self._halt_until:
                 from datetime import timedelta
                 self._halt_until = datetime.now() + timedelta(hours=24)
-                print(f"[Risk] TIER 3 HALT: DD={current_dd:.1%} > {self.DD_TIER3_PCT:.0%}. "
-                      f"Trading halted until {self._halt_until.strftime('%H:%M')}")
+                _log.warning(
+                    "[Risk] TIER 3 HALT: DD=%.1f%% > %.0f%%. Trading halted until %s",
+                    current_dd * 100, self.DD_TIER3_PCT * 100, self._halt_until.strftime('%H:%M'),
+                )
             return 0.0, 3
         elif current_dd > self.DD_TIER2_PCT:
             return 0.50, 2
@@ -513,11 +518,10 @@ class RiskManager:
         self.positions.append(pos)
         self.capital -= entry_price * quantity + fee
 
-        print(
-            f"[Risk] OPENED {side.upper()} {symbol}: "
-            f"qty={quantity:.6f} @ ${entry_price:,.2f} | "
-            f"SL=${stop_loss:,.2f} TP=${take_profit:,.2f} "
-            f"Trail=${pos.trailing_stop:,.2f} | Fee=${fee:.4f}"
+        _log.info(
+            "[Risk] OPENED %s %s: qty=%.6f @ $%,.2f | SL=$%,.2f TP=$%,.2f Trail=$%,.2f | Fee=$%.4f",
+            side.upper(), symbol, quantity, entry_price,
+            stop_loss, take_profit, pos.trailing_stop, fee,
         )
         return pos
 
@@ -558,10 +562,10 @@ class RiskManager:
         self.positions.remove(position)
 
         emoji = "+" if pnl_net >= 0 else "-"
-        print(
-            f"[Risk] [{emoji}] CLOSED {position.side.upper()} {position.symbol}: "
-            f"PnL=${pnl_net:,.2f} (gross ${pnl_gross:,.2f}) | {reason} "
-            f"| held {hold_bars} bars"
+        _log.info(
+            "[Risk] [%s] CLOSED %s %s: PnL=$%,.2f (gross $%,.2f) | %s | held %d bars",
+            emoji, position.side.upper(), position.symbol,
+            pnl_net, pnl_gross, reason, hold_bars,
         )
         return record
 

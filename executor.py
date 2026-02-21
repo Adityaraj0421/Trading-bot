@@ -3,10 +3,14 @@ Trade execution module.
 Handles paper trading simulation and live order placement via CCXT.
 """
 
+import logging
+
 import ccxt
 from datetime import datetime
 from config import Config
 from risk_manager import RiskManager, Position
+
+_log = logging.getLogger(__name__)
 
 
 class PaperExecutor:
@@ -30,7 +34,7 @@ class PaperExecutor:
             "mode": "PAPER",
         }
         self.orders.append(order)
-        print(f"[Paper] 📝 {side.upper()} {quantity:.6f} {symbol} @ ${price:,.2f}")
+        _log.info("[Paper] %s %.6f %s @ $%,.2f", side.upper(), quantity, symbol, price)
         return order
 
     def cancel_order(self, order_id: str) -> bool:
@@ -53,16 +57,16 @@ class LiveExecutor:
             else:
                 order = self.exchange.create_limit_sell_order(symbol, quantity, price)
 
-            print(
-                f"[Live] 🔴 {side.upper()} {quantity:.6f} {symbol} @ ${price:,.2f} "
-                f"(order: {order['id']})"
+            _log.info(
+                "[Live] %s %.6f %s @ $%,.2f (order: %s)",
+                side.upper(), quantity, symbol, price, order['id'],
             )
             return order
         except ccxt.InsufficientFunds as e:
-            print(f"[Live] Insufficient funds: {e}")
+            _log.error("[Live] Insufficient funds: %s", e)
             return {"error": str(e)}
         except ccxt.ExchangeError as e:
-            print(f"[Live] Exchange error: {e}")
+            _log.error("[Live] Exchange error: %s", e)
             return {"error": str(e)}
 
     def cancel_order(self, order_id: str, symbol: str = None) -> bool:
@@ -70,5 +74,5 @@ class LiveExecutor:
             self.exchange.cancel_order(order_id, symbol or Config.TRADING_PAIR)
             return True
         except Exception as e:
-            print(f"[Live] Cancel error: {e}")
+            _log.error("[Live] Cancel error: %s", e)
             return False

@@ -46,7 +46,7 @@ def create_router(store: DataStore) -> APIRouter:
 
         def _run():
             import logging
-            log = logging.getLogger("backtest.api")
+            log = logging.getLogger(__name__)
             from backtest_runner import BacktestRunner
             runner = BacktestRunner()
             try:

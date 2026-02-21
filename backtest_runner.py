@@ -9,12 +9,15 @@ v2.1: passes symbol through to Backtester, flattens strategy attribution
       into results for dashboard display.
 """
 
+import logging
 from datetime import datetime
 from backtester import Backtester
 from scenarios import generate_scenario, list_scenarios
 from data_fetcher import DataFetcher
 from walk_forward import WalkForwardValidator, PurgedKFoldCV
 from config import Config
+
+_log = logging.getLogger(__name__)
 
 
 class BacktestRunner:

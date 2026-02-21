@@ -8,10 +8,13 @@ meta-learner, evolver, optimizer, healer).
 """
 
 import json
+import logging
 import os
 import pickle
 from datetime import datetime
 from config import Config
+
+_log = logging.getLogger(__name__)
 
 
 class StateManager:
@@ -65,7 +68,7 @@ class StateManager:
 
             return True
         except Exception as e:
-            print(f"[StateManager] Save error: {e}")
+            _log.error("[StateManager] Save error: %s", e)
             return False
 
     def load(self, agent) -> bool:
@@ -101,23 +104,22 @@ class StateManager:
                 with open(self.autonomous_file, "r") as f:
                     autonomous_state = json.load(f)
                 agent.decision.from_dict(autonomous_state)
-                print(f"[State] Autonomous state restored: "
-                      f"decision={agent.decision.state.value} | "
-                      f"meta_rounds={agent.decision.meta.learning_count} | "
-                      f"evolution_gen={agent.decision.evolver.generation}")
+                _log.info("[State] Autonomous state restored: "
+                         "decision=%s | meta_rounds=%s | evolution_gen=%s",
+                         agent.decision.state.value,
+                         agent.decision.meta.learning_count,
+                         agent.decision.evolver.generation)
 
             saved_at = state.get("saved_at", "unknown")
             version = state.get("version", "4.0")
             positions = len(state["risk_manager"].get("positions", []))
-            print(f"[State] Restored from {saved_at} (v{version})")
-            print(f"[State] Cycles: {agent.cycle_count} | "
-                  f"Positions: {positions} | "
-                  f"Capital: ${agent.risk.capital:,.2f} | "
-                  f"PnL: ${agent.risk.total_pnl:,.2f}")
+            _log.info("[State] Restored from %s (v%s)", saved_at, version)
+            _log.info("[State] Cycles: %d | Positions: %d | Capital: $%,.2f | PnL: $%,.2f",
+                      agent.cycle_count, positions, agent.risk.capital, agent.risk.total_pnl)
             return True
 
         except Exception as e:
-            print(f"[StateManager] Load error: {e}")
+            _log.error("[StateManager] Load error: %s", e)
             return False
 
     def exists(self) -> bool:

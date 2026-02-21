@@ -164,7 +164,7 @@ class TradingAgent:
                     timeframe=Config.TIMEFRAME,
                 )
             except Exception as e:
-                logging.getLogger(__name__).warning("WebSocket init failed: %s", e)
+                _log.warning("WebSocket init failed: %s", e)
 
         # Graceful shutdown (must be after all modules are initialized)
         self.shutdown_handler = GracefulShutdown()
@@ -1011,7 +1011,7 @@ class TradingAgent:
                 _data_store.update_arbitrage(self._last_arb_scan)
 
         except Exception as e:
-            logging.getLogger(__name__).debug("DataStore push failed: %s", e)
+            _log.debug("DataStore push failed: %s", e)
 
     def preflight_check(self) -> bool:
         """v7.0: Quick self-test before committing to an overnight run.
@@ -1075,7 +1075,7 @@ class TradingAgent:
                 self.ws_streamer.start()
                 print("[Agent] WebSocket streamer started")
             except Exception as e:
-                logging.getLogger(__name__).warning("WebSocket start failed: %s", e)
+                _log.warning("WebSocket start failed: %s", e)
 
         # Send startup notification
         mode = "paper" if Config.is_paper_mode() else "live"

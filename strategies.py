@@ -15,12 +15,16 @@ Strategies:
 Inspired by: QuantInsti, Freqtrade, 3Commas, Renaissance Technologies research
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from regime_detector import MarketRegime
 from sentiment import SentimentState
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass

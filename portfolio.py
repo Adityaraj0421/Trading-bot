@@ -10,10 +10,14 @@ Usage:
     allocation = portfolio.get_allocation("ETH/USDT")
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 from config import Config
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass

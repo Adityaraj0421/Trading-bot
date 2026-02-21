@@ -6,6 +6,7 @@ Detects failures, attempts auto-recovery, and protects the system from
 cascading errors.
 """
 
+import logging
 import time
 import traceback
 from enum import Enum
@@ -13,6 +14,8 @@ from dataclasses import dataclass, field
 from collections import deque, defaultdict
 from datetime import datetime, timedelta
 from typing import Optional, Callable
+
+_log = logging.getLogger(__name__)
 
 
 class ErrorSeverity(Enum):
@@ -130,14 +133,14 @@ class SelfHealer:
             if cb.state == CircuitState.CLOSED and cb.failure_count >= cb.failure_threshold:
                 cb.state = CircuitState.OPEN
                 cb.open_since = datetime.now()
-                print(f"  [SelfHealer] CIRCUIT OPEN: {component} (after {cb.failure_count} failures)")
+                _log.warning("  [SelfHealer] CIRCUIT OPEN: %s (after %d failures)", component, cb.failure_count)
 
             elif cb.state == CircuitState.HALF_OPEN:
                 cb.half_open_attempts += 1
                 if cb.half_open_attempts >= cb.max_half_open_attempts:
                     cb.state = CircuitState.OPEN
                     cb.open_since = datetime.now()
-                    print(f"  [SelfHealer] CIRCUIT RE-OPENED: {component}")
+                    _log.warning("  [SelfHealer] CIRCUIT RE-OPENED: %s", component)
 
         # Auto-recovery for critical errors
         if severity in (ErrorSeverity.HIGH, ErrorSeverity.CRITICAL):
@@ -152,7 +155,7 @@ class SelfHealer:
                 cb.state = CircuitState.CLOSED
                 cb.failure_count = 0
                 cb.half_open_attempts = 0
-                print(f"  [SelfHealer] CIRCUIT CLOSED: {component} recovered")
+                _log.info("  [SelfHealer] CIRCUIT CLOSED: %s recovered", component)
             elif cb.state == CircuitState.CLOSED:
                 # Decay failure count on success
                 cb.failure_count = max(0, cb.failure_count - 1)
@@ -170,7 +173,7 @@ class SelfHealer:
             if elapsed >= backoff:
                 cb.state = CircuitState.HALF_OPEN
                 cb.half_open_attempts = 0
-                print(f"  [SelfHealer] CIRCUIT HALF-OPEN: testing {component}")
+                _log.info("  [SelfHealer] CIRCUIT HALF-OPEN: testing %s", component)
 
         return cb.state
 
@@ -189,17 +192,17 @@ class SelfHealer:
         """Attempt to recover a failed component."""
         self.recovery_attempts[component] += 1
         attempt = self.recovery_attempts[component]
-        print(f"  [SelfHealer] Recovery attempt #{attempt} for {component}")
+        _log.info("  [SelfHealer] Recovery attempt #%d for %s", attempt, component)
 
         actions = self.recovery_actions.get(component, [])
         for action in actions:
             try:
                 action()
                 self.record_success(component)
-                print(f"  [SelfHealer] Recovery SUCCESS: {component}")
+                _log.info("  [SelfHealer] Recovery SUCCESS: %s", component)
                 return True
             except Exception as e:
-                print(f"  [SelfHealer] Recovery FAILED: {component} - {e}")
+                _log.error("  [SelfHealer] Recovery FAILED: %s - %s", component, e)
 
         return False
 

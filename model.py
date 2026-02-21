@@ -433,7 +433,7 @@ class TradingModel:
         unique, counts = np.unique(y, return_counts=True)
         dist = dict(zip(unique, counts))
         tier_name = {1: "PyTorch-LSTM+XGB", 2: "XGBoost", 3: "RF+GB"}[self._tier]
-        print(f"[Model] Trained ({tier_name}) — val acc: {val_accuracy:.2%} | {dist}")
+        _log.info("[Model] Trained (%s) — val acc: %.2f%% | %s", tier_name, val_accuracy * 100, dist)
         return {"cv_accuracy": val_accuracy, "samples": len(y),
                 "class_distribution": dist, "tier": self._tier}
 

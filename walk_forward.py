@@ -15,12 +15,16 @@ Key concepts:
     samples to prevent look-ahead bias in ML model evaluation.
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 from collections import defaultdict
+
+_log = logging.getLogger(__name__)
 
 from indicators import Indicators
 from model import TradingModel

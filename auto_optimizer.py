@@ -10,12 +10,15 @@ v2.0: Optuna TPE sampler + Hyperband pruner, SQLite persistence,
 v1.0: Random search with Pareto front tracking.
 """
 
+import logging
 import random
 import numpy as np
 from dataclasses import dataclass, field
 from collections import deque
 from datetime import datetime
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 # Try importing Optuna
 _HAS_OPTUNA = False

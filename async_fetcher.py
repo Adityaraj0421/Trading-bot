@@ -11,6 +11,8 @@ import numpy as np
 from datetime import datetime
 from config import Config
 
+_log = logging.getLogger(__name__)
+
 
 class AsyncDataFetcher:
     """
@@ -35,7 +37,7 @@ class AsyncDataFetcher:
                     params["secret"] = Config.API_SECRET
                 self._exchange = exchange_class(params)
             except Exception as e:
-                logging.getLogger(__name__).debug("Async exchange init failed: %s", e)
+                _log.debug("Async exchange init failed: %s", e)
                 self._exchange = None
         return self._exchange
 
@@ -71,8 +73,8 @@ class AsyncDataFetcher:
                     return df
             except Exception as e:
                 if not self.using_demo:
-                    print(f"[AsyncFetcher] Exchange error: {e}")
-                    print("[AsyncFetcher] Falling back to demo data")
+                    _log.warning("[AsyncFetcher] Exchange error: %s", e)
+                    _log.warning("[AsyncFetcher] Falling back to demo data")
 
         return self._generate_demo_data(limit, timeframe)
 
@@ -85,7 +87,7 @@ class AsyncDataFetcher:
                 data = await resp.json()
                 return {"value": int(data["data"][0]["value"]), "source": "async_api"}
         except Exception as e:
-            logging.getLogger(__name__).debug("Fear/Greed fetch failed: %s", e)
+            _log.debug("Fear/Greed fetch failed: %s", e)
             return {"value": 50, "source": "fallback"}
 
     async def fetch_all(self) -> tuple:

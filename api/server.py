@@ -10,8 +10,11 @@ in the environment. All endpoints except /health require the key.
 """
 
 import asyncio
+import logging
 import threading
 from contextlib import asynccontextmanager
+
+_log = logging.getLogger(__name__)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -125,9 +128,7 @@ def _run_agent():
         set_data_store(data_store, agent=agent)
         agent.run()
     except Exception as e:
-        print(f"[API] Agent thread error: {e}")
-        import traceback
-        traceback.print_exc()
+        _log.error("[API] Agent thread error: %s", e, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -139,20 +140,20 @@ async def lifespan(app: FastAPI):
     # Capture the event loop for thread-safe WebSocket broadcasts
     ws_manager.set_event_loop(asyncio.get_running_loop())
     data_store.set_broadcast_callback(ws_manager.broadcast_sync)
-    print(f"[API] WebSocket broadcast wired")
+    _log.info("[API] WebSocket broadcast wired")
 
     # Setup Telegram webhook
     if telegram_bot.enabled and Config.TELEGRAM_WEBHOOK_URL:
         ok = telegram_bot.setup_webhook()
-        print(f"[API] Telegram webhook: {'registered' if ok else 'failed'}")
+        _log.info("[API] Telegram webhook: %s", "registered" if ok else "failed")
 
-    print("[API] Starting trading agent in background thread...")
+    _log.info("[API] Starting trading agent in background thread...")
     agent_thread = threading.Thread(target=_run_agent, daemon=True, name="agent-thread")
     agent_thread.start()
     yield
     # Teardown Telegram webhook
     telegram_bot.teardown_webhook()
-    print("[API] Server shutting down.")
+    _log.info("[API] Server shutting down.")
 
 
 # ---------------------------------------------------------------------------

@@ -3,9 +3,13 @@ Demo data generator for offline testing.
 Generates realistic-looking OHLCV data when exchange APIs are unreachable.
 """
 
+import logging
+
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+
+_log = logging.getLogger(__name__)
 
 
 def generate_ohlcv(

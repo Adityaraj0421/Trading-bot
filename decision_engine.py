@@ -6,11 +6,14 @@ meta-learning, and hyperparameter optimization. Enforces safety limits
 and manages the system's operational state.
 """
 
+import logging
 from enum import Enum
 from dataclasses import dataclass, field
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 from self_healer import SelfHealer, ErrorSeverity, CircuitState
 from strategy_evolver import StrategyEvolver

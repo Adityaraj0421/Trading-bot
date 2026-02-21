@@ -6,12 +6,15 @@ Tests parameter variations via backtesting and breeds the
 best-performing combinations.
 """
 
+import logging
 import random
 import copy
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional
 from collections import deque
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
