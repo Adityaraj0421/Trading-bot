@@ -156,7 +156,8 @@ class TestAnalyze:
 
     @patch("sentiment.requests.get")
     def test_api_failure_uses_fallback(self, mock_get, analyzer, sample_df):
-        mock_get.side_effect = Exception("network error")
+        import requests as _requests
+        mock_get.side_effect = _requests.RequestException("network error")
         result = analyzer.analyze(sample_df)
         assert result.source == "fallback"
         assert result.fear_greed_index == 50  # default last_fg_index

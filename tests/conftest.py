@@ -15,10 +15,15 @@ import pandas as pd
 
 @pytest.fixture(autouse=True)
 def _safe_config(monkeypatch):
-    """Ensure every test runs with safe defaults (paper mode, no real keys)."""
+    """Ensure every test runs with safe defaults (paper mode, no real keys).
+
+    API_AUTH_KEY is cleared so the APIKeyAuthMiddleware passes requests
+    through without requiring an X-API-Key header (dev mode).
+    """
     monkeypatch.setattr("config.Config.TRADING_MODE", "paper")
     monkeypatch.setattr("config.Config.API_KEY", "")
     monkeypatch.setattr("config.Config.API_SECRET", "")
+    monkeypatch.setattr("config.Config.API_AUTH_KEY", "")
     monkeypatch.setattr("config.Config.TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setattr("config.Config.TELEGRAM_CHAT_ID", "")
 
