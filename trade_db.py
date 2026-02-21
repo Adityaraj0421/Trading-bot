@@ -161,13 +161,17 @@ class TradeDB:
                 """, (exit_price, pnl_gross, pnl_net, fees, slippage,
                       datetime.now().isoformat(), reason, hold_bars, trade_id))
             elif symbol and side:
-                # Close by symbol/side (fallback)
+                # Close by symbol/side (fallback) — uses subquery because
+                # standard SQLite doesn't support ORDER BY in UPDATE
                 conn.execute("""
                     UPDATE trades SET exit_price=?, pnl_gross=?, pnl_net=?,
                         fees_paid=?, slippage_cost=?, exit_time=?,
                         exit_reason=?, hold_bars=?, status='closed'
-                    WHERE symbol=? AND side=? AND status='open'
-                    ORDER BY entry_time DESC LIMIT 1
+                    WHERE id = (
+                        SELECT id FROM trades
+                        WHERE symbol=? AND side=? AND status='open'
+                        ORDER BY entry_time DESC LIMIT 1
+                    )
                 """, (exit_price, pnl_gross, pnl_net, fees, slippage,
                       datetime.now().isoformat(), reason, hold_bars,
                       symbol, side))
