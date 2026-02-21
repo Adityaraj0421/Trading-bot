@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from api.data_store import DataStore
 from api.routes import status, trading, autonomous, backtest, intelligence, arbitrage, risk
 from api.server import create_app, data_store
+from config import Config
 
 
 # ---------------------------------------------------------------------------
@@ -18,9 +19,17 @@ from api.server import create_app, data_store
 
 @pytest.fixture()
 def client():
-    """Return a TestClient wired to the app (no lifespan / no agent thread)."""
+    """Return a TestClient wired to the app (no lifespan / no agent thread).
+
+    When API_AUTH_KEY is set in .env, the middleware rejects unauthenticated
+    requests.  We inject the key into default headers so all tests pass
+    regardless of whether auth is enabled.
+    """
     app = create_app()
-    return TestClient(app)
+    c = TestClient(app)
+    if Config.API_AUTH_KEY:
+        c.headers["X-API-Key"] = Config.API_AUTH_KEY
+    return c
 
 
 @pytest.fixture(autouse=True)

@@ -4,7 +4,7 @@
 # Usage: make help
 # ============================================================
 
-.PHONY: dev api dashboard stop status install logs start test build help
+.PHONY: dev api dashboard stop status install logs start test test-coverage build help
 
 # Detect venv
 VENV_BIN   := ./venv/bin
@@ -82,6 +82,11 @@ build: ## Build the dashboard for production
 
 test: ## Run Python tests
 	$(PYTHON) -m pytest tests/ -v
+
+test-coverage: ## Run tests with coverage report
+	$(PYTHON) -m pytest tests/ -v --cov=. --cov-report=term-missing --cov-report=html
+	@echo ""
+	@echo "HTML coverage report: htmlcov/index.html"
 
 test-config: ## Run config and model tests only
 	$(PYTHON) -m pytest tests/test_config.py tests/test_models.py -v
