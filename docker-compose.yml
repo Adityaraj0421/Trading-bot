@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  agent:
+    build: .
+    container_name: crypto-agent
+    env_file: .env
+    environment:
+      - DATA_DIR=/app/data
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  dashboard:
+    build: ./dashboard
+    container_name: crypto-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://agent:8000
+    depends_on:
+      agent:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - full

@@ -1,0 +1,39 @@
+# ============================================================
+# .gitignore — Crypto Trading Agent
+# ============================================================
+
+# Python
+venv/
+*.pyc
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime data & state
+data/
+*.log
+agent_state.json
+agent_state_autonomous.json
+agent_state_model.pkl
+test_state.json
+trade_log.json
+trades.db
+bot_output.log
+
+# Secrets & credentials
+.env
+*.pem
+
+# macOS
+.DS_Store
+.fuse_hidden*
+
+# IDE
+.vscode/
+.idea/
+
+# Dashboard (also has its own .gitignore)
+dashboard/node_modules/
+dashboard/.next/
