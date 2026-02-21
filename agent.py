@@ -72,6 +72,9 @@ def set_data_store(store, agent=None):
 
 
 class TradingAgent:
+    # Expected average confidence of a healthy ML model (for drift detection baseline)
+    _DRIFT_BASELINE_CONFIDENCE = 0.7
+
     def __init__(self, restore_state: bool = True):
         self._print_banner()
         Config.validate()
@@ -258,7 +261,8 @@ class TradingAgent:
             if "error" not in metrics:
                 self.last_train_time = datetime.now()
                 acc = metrics.get("cv_accuracy", 0.5)
-                self.drift.set_baseline(acc, 0.7)
+                # Baseline confidence for drift detection (expected avg confidence of a healthy model)
+                self.drift.set_baseline(acc, self._DRIFT_BASELINE_CONFIDENCE)
                 self.drift.reset()
                 self.log.log_model_train(acc, metrics.get("samples", 0))
                 self.decision.healer.record_model_train()

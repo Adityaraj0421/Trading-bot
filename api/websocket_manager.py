@@ -51,7 +51,11 @@ class WebSocketManager:
         for ws in self._connections:
             try:
                 await ws.send_text(message)
-            except Exception:
+            except (ConnectionError, RuntimeError) as e:
+                _log.debug("WebSocket send failed (connection): %s", e)
+                dead.add(ws)
+            except Exception as e:
+                _log.warning("WebSocket send unexpected error: %s", e)
                 dead.add(ws)
 
         # Clean up broken connections
@@ -70,8 +74,10 @@ class WebSocketManager:
                 self.broadcast(event_type, data),
                 self._loop,
             )
-        except Exception:
-            pass  # Don't let broadcast failures affect the agent
+        except RuntimeError as e:
+            _log.debug("Broadcast scheduling error (event loop closed?): %s", e)
+        except Exception as e:
+            _log.warning("Broadcast scheduling unexpected error: %s", e)
 
     @property
     def client_count(self) -> int:

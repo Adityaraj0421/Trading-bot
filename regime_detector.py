@@ -37,6 +37,36 @@ class RegimeDetector:
 
     MAX_HISTORY = 500
 
+    # --- Tuning constants (class-level for easy override) ---
+
+    # Minimum bars required for regime detection
+    MIN_DATA_POINTS = 50
+
+    # HMM parameters
+    HMM_COMPONENTS = 3
+    HMM_ITERATIONS = 200
+    HMM_MIN_DATA_POINTS = 50
+    HMM_CACHE_TAIL_SIZE = 20
+
+    # ATR/ADX calculation periods
+    ATR_PERIOD = 14
+    ADX_PERIOD = 14
+
+    # Volatility thresholds (percentile-based)
+    HIGH_VOL_THRESHOLD = 0.8    # Above this percentile = high volatility
+    LOW_VOL_THRESHOLD = 0.3     # Below this percentile = ranging/low vol
+
+    # Trend detection thresholds
+    MIN_ALIGNMENT = 2           # MA alignment score for trend confirmation
+    MIN_TREND_STRENGTH = 0.3    # ADX proxy minimum for trend classification
+    TREND_BASE_CONFIDENCE = 0.6 # Starting confidence for a confirmed trend
+    TREND_STRENGTH_WEIGHT = 0.3 # How much trend strength boosts confidence
+
+    # Regime combination weights
+    TREND_WEIGHT = 0.4
+    VOL_WEIGHT = 0.2
+    HMM_WEIGHT = 0.4
+
     def __init__(self):
         self.hmm_model = None
         self.has_hmm = False
@@ -53,8 +83,8 @@ class RegimeDetector:
             warnings.filterwarnings("ignore", module="hmmlearn")
             from hmmlearn.hmm import GaussianHMM
             self.hmm_model = GaussianHMM(
-                n_components=3, covariance_type="full",
-                n_iter=200, random_state=42, init_params="",
+                n_components=self.HMM_COMPONENTS, covariance_type="full",
+                n_iter=self.HMM_ITERATIONS, random_state=42, init_params="",
             )
             self.has_hmm = True
         except ImportError:
@@ -65,7 +95,7 @@ class RegimeDetector:
         Detect market regime. Accepts pre-computed indicators (df_ind)
         to reuse ATR, BBs, MAs already computed by Indicators.add_all().
         """
-        if len(df) < 50:
+        if len(df) < self.MIN_DATA_POINTS:
             return RegimeState(MarketRegime.RANGING, 0.5, 0.0, 0.0, 0)
 
         vol_regime = self._volatility_regime(df, df_ind)
@@ -107,7 +137,7 @@ class RegimeDetector:
             high_close = (df["high"] - df["close"].shift()).abs()
             low_close = (df["low"] - df["close"].shift()).abs()
             tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-            atr_pct = (tr.rolling(14).mean() / df["close"]).dropna()
+            atr_pct = (tr.rolling(self.ATR_PERIOD).mean() / df["close"]).dropna()
             if len(atr_pct) < 20:
                 return {"regime": MarketRegime.RANGING, "volatility_pct": 0.0, "confidence": 0.5}
             current_vol = float(atr_pct.iloc[-1])
@@ -116,9 +146,9 @@ class RegimeDetector:
 
         avg_pct = (vol_percentile + bb_percentile) / 2
 
-        if avg_pct > 0.8:
+        if avg_pct > self.HIGH_VOL_THRESHOLD:
             return {"regime": MarketRegime.HIGH_VOLATILITY, "volatility_pct": current_vol, "confidence": min(avg_pct, 0.95)}
-        elif avg_pct < 0.3:
+        elif avg_pct < self.LOW_VOL_THRESHOLD:
             return {"regime": MarketRegime.RANGING, "volatility_pct": current_vol, "confidence": float(1 - avg_pct)}
         else:
             return {"regime": MarketRegime.RANGING, "volatility_pct": current_vol, "confidence": 0.5}
@@ -146,19 +176,19 @@ class RegimeDetector:
 
         # ADX proxy
         returns = close.pct_change().dropna()
-        pos_moves = returns.where(returns > 0, 0).rolling(14).mean()
-        neg_moves = (-returns.where(returns < 0, 0)).rolling(14).mean()
+        pos_moves = returns.where(returns > 0, 0).rolling(self.ADX_PERIOD).mean()
+        neg_moves = (-returns.where(returns < 0, 0)).rolling(self.ADX_PERIOD).mean()
         total = pos_moves + neg_moves
         dx = ((pos_moves - neg_moves).abs() / total.replace(0, np.nan)).dropna()
-        adx_proxy = dx.rolling(14).mean()
+        adx_proxy = dx.rolling(self.ADX_PERIOD).mean()
         trend_strength = float(adx_proxy.iloc[-1]) if len(adx_proxy) > 0 else 0.0
 
-        if alignment >= 2 and trend_strength > 0.3:
+        if alignment >= self.MIN_ALIGNMENT and trend_strength > self.MIN_TREND_STRENGTH:
             regime = MarketRegime.TRENDING_UP
-            conf = min(0.6 + trend_strength * 0.3, 0.95)
-        elif alignment <= -2 and trend_strength > 0.3:
+            conf = min(self.TREND_BASE_CONFIDENCE + trend_strength * self.TREND_STRENGTH_WEIGHT, 0.95)
+        elif alignment <= -self.MIN_ALIGNMENT and trend_strength > self.MIN_TREND_STRENGTH:
             regime = MarketRegime.TRENDING_DOWN
-            conf = min(0.6 + trend_strength * 0.3, 0.95)
+            conf = min(self.TREND_BASE_CONFIDENCE + trend_strength * self.TREND_STRENGTH_WEIGHT, 0.95)
         else:
             regime = MarketRegime.RANGING
             conf = 0.5 + (1 - trend_strength) * 0.3
@@ -180,11 +210,12 @@ class RegimeDetector:
                 common = returns.index.intersection(vol.index)
                 features = np.column_stack([returns.loc[common].values, vol.loc[common].values])
 
-            if len(features) < 50:
+            if len(features) < self.HMM_MIN_DATA_POINTS:
                 return None
 
-            # Cache: refit only if data content changed (hash last 20 rows + length)
-            tail_hash = hash(features[-20:].tobytes()) if len(features) >= 20 else hash(features.tobytes())
+            # Cache: refit only if data content changed (hash tail rows + length)
+            n = self.HMM_CACHE_TAIL_SIZE
+            tail_hash = hash(features[-n:].tobytes()) if len(features) >= n else hash(features.tobytes())
             cache_key = (len(features), tail_hash)
             if self._hmm_cache_key != cache_key:
                 self.hmm_model.fit(features)
@@ -195,7 +226,7 @@ class RegimeDetector:
 
             # Characterize states by mean return using groupby-like approach
             returns_arr = features[:, 0]
-            state_means = {s: returns_arr[states == s].mean() if (states == s).sum() > 0 else 0 for s in range(3)}
+            state_means = {s: returns_arr[states == s].mean() if (states == s).sum() > 0 else 0 for s in range(self.HMM_COMPONENTS)}
 
             sorted_states = sorted(state_means.items(), key=lambda x: x[1])
             bear_state, range_state, bull_state = sorted_states[0][0], sorted_states[1][0], sorted_states[2][0]
@@ -216,20 +247,21 @@ class RegimeDetector:
     def _combine_regimes(self, vol_result, trend_result, hmm_result):
         votes = {}
 
-        if vol_result["regime"] == MarketRegime.HIGH_VOLATILITY and vol_result["confidence"] > 0.8:
+        if vol_result["regime"] == MarketRegime.HIGH_VOLATILITY and vol_result["confidence"] > self.HIGH_VOL_THRESHOLD:
             return MarketRegime.HIGH_VOLATILITY, vol_result["confidence"]
 
         trend_r = trend_result["regime"]
-        votes[trend_r] = votes.get(trend_r, 0) + 0.4 * trend_result["confidence"]
+        votes[trend_r] = votes.get(trend_r, 0) + self.TREND_WEIGHT * trend_result["confidence"]
 
         vol_r = vol_result["regime"]
-        votes[vol_r] = votes.get(vol_r, 0) + 0.2 * vol_result["confidence"]
+        votes[vol_r] = votes.get(vol_r, 0) + self.VOL_WEIGHT * vol_result["confidence"]
 
         if hmm_result:
             hmm_r = hmm_result["regime"]
-            votes[hmm_r] = votes.get(hmm_r, 0) + 0.4 * hmm_result["confidence"]
+            votes[hmm_r] = votes.get(hmm_r, 0) + self.HMM_WEIGHT * hmm_result["confidence"]
         else:
-            votes[trend_r] = votes.get(trend_r, 0) + 0.2 * trend_result["confidence"]
+            # Without HMM, redistribute its weight half to trend
+            votes[trend_r] = votes.get(trend_r, 0) + (self.HMM_WEIGHT / 2) * trend_result["confidence"]
 
         winner = max(votes, key=votes.get)
         total = sum(votes.values())

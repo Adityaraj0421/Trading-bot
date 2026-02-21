@@ -1,4 +1,4 @@
-"""Backtest routes — run and view backtest results (v2.2)."""
+"""Backtest routes — run and view backtest results (v2.3)."""
 import threading
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -8,11 +8,27 @@ from api.data_store import DataStore
 # Track active backtest thread to prevent resource exhaustion (mutable container for closure)
 _state = {"active_thread": None}
 
+# Valid values for constrained fields
+_VALID_SCENARIOS = {"bull_run", "bear_market", "sideways_chop", "flash_crash", "black_swan", "accumulation"}
+_VALID_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"}
+
 
 class BacktestRequest(BaseModel):
-    pair: Optional[str] = None
-    scenario: Optional[str] = None
-    timeframe: Optional[str] = None
+    pair: Optional[str] = Field(
+        default=None,
+        pattern=r"^[A-Z0-9]{2,10}/[A-Z0-9]{2,10}$",
+        description="Trading pair (e.g., BTC/USDT)",
+    )
+    scenario: Optional[str] = Field(
+        default=None,
+        max_length=50,
+        description="Named scenario (use /backtest/scenarios for valid list)",
+    )
+    timeframe: Optional[str] = Field(
+        default=None,
+        pattern=r"^[0-9]{1,2}[mhdwM]$",
+        description="Candle timeframe (e.g., 1h, 4h, 1d)",
+    )
     periods: int = Field(default=500, gt=0, le=10000, description="Number of bars to backtest")
     mode: Optional[str] = Field(default=None, pattern="^(all_pairs|all_scenarios|all_timeframes)?$")
 

@@ -530,5 +530,5 @@ class TelegramBot:
                         del self._pending[tid]
                 if expired:
                     _log.debug("Cleaned up %d expired confirmations", len(expired))
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning("Confirmation cleanup error: %s", e, exc_info=True)

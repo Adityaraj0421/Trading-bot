@@ -3,6 +3,7 @@ Sentiment Analysis Module — OPTIMIZED v2.
 Bounded history, reuses pre-computed indicators, cached API results.
 """
 
+import logging
 import numpy as np
 import pandas as pd
 import requests
@@ -10,6 +11,8 @@ from dataclasses import dataclass
 from enum import Enum
 from collections import deque
 import time
+
+_log = logging.getLogger(__name__)
 
 
 class SentimentLevel(Enum):
@@ -83,7 +86,11 @@ class SentimentAnalyzer:
             self._fg_cache_value = value
             self._fg_cache_time = now
             return value, self._classify_fg(value), "api"
-        except Exception:
+        except requests.RequestException as e:
+            _log.warning("Fear & Greed API network error: %s", e)
+            return self.last_fg_index, self._classify_fg(self.last_fg_index), "fallback"
+        except (ValueError, KeyError, IndexError) as e:
+            _log.error("Fear & Greed API parse error: %s", e)
             return self.last_fg_index, self._classify_fg(self.last_fg_index), "fallback"
 
     def _classify_fg(self, value: int) -> SentimentLevel:

@@ -81,11 +81,20 @@ class FundingArbitrageEngine:
     to harvest funding payments as yield.
     """
 
-    # Thresholds
-    MIN_FUNDING_RATE = 0.0003    # 0.03% per 8h minimum to enter
+    # --- Entry/exit thresholds ---
+    MIN_FUNDING_RATE = 0.0003    # 0.03% per 8h — minimum to enter a position
     EXIT_FUNDING_RATE = 0.0001   # 0.01% per 8h — close when funding drops here
     MAX_POSITION_SIZE_PCT = 0.15 # 15% of capital per funding arb pair
-    STABILITY_LOOKBACK = 10      # Need 10+ consistent funding rate readings
+    STABILITY_LOOKBACK = 10      # Minimum consistent funding readings before entry
+    MIN_STABILITY = 0.5          # Minimum stability score (0-1) to enter
+    MIN_PAYMENTS_BEFORE_EXIT = 3 # Collect at least N payments before allowing negative-yield exit
+
+    # Funding rate math constants
+    FUNDING_PERIODS_PER_DAY = 3  # Binance: 3 × 8h funding periods
+    ROUND_TRIP_FEE_MULTIPLIER = 4  # 2 entries + 2 exits
+
+    # History tracking
+    FUNDING_HISTORY_MAXLEN = 100
 
     BINANCE_FUTURES_API = "https://fapi.binance.com"
 
@@ -96,7 +105,7 @@ class FundingArbitrageEngine:
         self.capital = capital or Config.INITIAL_CAPITAL
         self.positions: list[FundingPosition] = []
         self._funding_history: dict[str, deque] = {
-            s: deque(maxlen=100) for s in self.symbols
+            s: deque(maxlen=self.FUNDING_HISTORY_MAXLEN) for s in self.symbols
         }
         self._last_scan: dict = {}
         self._total_yield: float = 0.0
@@ -125,7 +134,7 @@ class FundingArbitrageEngine:
 
                     # Track history
                     if symbol not in self._funding_history:
-                        self._funding_history[symbol] = deque(maxlen=100)
+                        self._funding_history[symbol] = deque(maxlen=self.FUNDING_HISTORY_MAXLEN)
                     self._funding_history[symbol].append(snapshot)
 
             except Exception as e:
@@ -153,15 +162,14 @@ class FundingArbitrageEngine:
             history = list(self._funding_history.get(symbol, []))
             stability = self._compute_stability(history)
 
-            if stability < 0.5:
+            if stability < self.MIN_STABILITY:
                 continue  # Too volatile, funding might flip
 
             # Compute annualized yield
-            # 3 funding periods per day × 365 days
-            annualized_yield = abs_fr * 3 * 365 * 100  # As percentage
+            annualized_yield = abs_fr * self.FUNDING_PERIODS_PER_DAY * 365 * 100  # As percentage
 
             # Deduct estimated costs (entry + exit fees)
-            cost_pct = Config.FEE_PCT * 4  # 2 entries + 2 exits
+            cost_pct = Config.FEE_PCT * self.ROUND_TRIP_FEE_MULTIPLIER
             net_annualized = annualized_yield - (cost_pct * 365 * 100)
 
             if net_annualized <= 0:
@@ -287,7 +295,7 @@ class FundingArbitrageEngine:
                 reason = "funding_flipped"
 
             # Exit if net yield turned negative
-            if pos.total_funding_collected < 0 and pos.funding_payments >= 3:
+            if pos.total_funding_collected < 0 and pos.funding_payments >= self.MIN_PAYMENTS_BEFORE_EXIT:
                 should_exit = True
                 reason = "negative_yield"
 

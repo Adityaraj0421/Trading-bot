@@ -199,8 +199,11 @@ class CascadePredictor:
             )
             if resp.status_code == 200:
                 return resp.json()
-        except Exception:
-            pass
+            _log.debug("OI fetch %s returned status %d", symbol, resp.status_code)
+        except requests.RequestException as e:
+            _log.warning("OI fetch failed for %s: %s", symbol, e)
+        except (ValueError, KeyError) as e:
+            _log.error("OI parse error for %s: %s", symbol, e)
         return []
 
     def _fetch_long_short_ratio(self, symbol: str) -> list[dict]:
@@ -213,8 +216,11 @@ class CascadePredictor:
             )
             if resp.status_code == 200:
                 return resp.json()
-        except Exception:
-            pass
+            _log.debug("L/S ratio fetch %s returned status %d", symbol, resp.status_code)
+        except requests.RequestException as e:
+            _log.warning("L/S ratio fetch failed for %s: %s", symbol, e)
+        except (ValueError, KeyError) as e:
+            _log.error("L/S ratio parse error for %s: %s", symbol, e)
         return []
 
     def _fetch_funding_rate(self, symbol: str) -> float:
@@ -227,8 +233,11 @@ class CascadePredictor:
             )
             if resp.status_code == 200:
                 return float(resp.json().get("lastFundingRate", 0))
-        except Exception:
-            pass
+            _log.debug("Funding rate fetch %s returned status %d", symbol, resp.status_code)
+        except requests.RequestException as e:
+            _log.warning("Funding rate fetch failed for %s: %s", symbol, e)
+        except (ValueError, TypeError) as e:
+            _log.error("Funding rate parse error for %s: %s", symbol, e)
         return 0.0
 
     def _fetch_taker_ratio(self, symbol: str) -> list[dict]:
@@ -241,8 +250,11 @@ class CascadePredictor:
             )
             if resp.status_code == 200:
                 return resp.json()
-        except Exception:
-            pass
+            _log.debug("Taker ratio fetch %s returned status %d", symbol, resp.status_code)
+        except requests.RequestException as e:
+            _log.warning("Taker ratio fetch failed for %s: %s", symbol, e)
+        except (ValueError, KeyError) as e:
+            _log.error("Taker ratio parse error for %s: %s", symbol, e)
         return []
 
     def _fetch_current_price(self, symbol: str) -> float:
@@ -259,8 +271,11 @@ class CascadePredictor:
                     self._price_history[symbol] = deque(maxlen=50)
                 self._price_history[symbol].append(price)
                 return price
-        except Exception:
-            pass
+            _log.debug("Price fetch %s returned status %d", symbol, resp.status_code)
+        except requests.RequestException as e:
+            _log.warning("Price fetch failed for %s: %s", symbol, e)
+        except (ValueError, TypeError) as e:
+            _log.error("Price parse error for %s: %s", symbol, e)
         return 0.0
 
     def _estimate_liquidation_levels(self, price: float, oi_data: list,

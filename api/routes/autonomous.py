@@ -3,14 +3,18 @@ Autonomous mode routes — status, events, kill switch, manual override.
 """
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from api.data_store import DataStore
 
 
 class HaltRequest(BaseModel):
-    reason: Optional[str] = "Manual kill switch via API"
+    reason: Optional[str] = Field(
+        default="Manual kill switch via API",
+        max_length=500,
+        description="Reason for halting (stored in event log)",
+    )
 
 
 def create_router(store: DataStore) -> APIRouter:
