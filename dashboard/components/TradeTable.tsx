@@ -12,7 +12,8 @@ interface Trade {
   pnl_net: number;
   fees_paid: number;
   exit_reason: string;
-  strategy: string;
+  strategy?: string;
+  strategy_name?: string;
   hold_bars: number;
   exit_time: string;
   entry_time: string;
@@ -99,7 +100,7 @@ export default function TradeTable({ trades }: { trades: Trade[] }) {
                   </td>
 
                   <td className="py-2 px-3 text-gray-300 text-xs max-w-[120px] truncate">
-                    {t.strategy}
+                    {t.strategy_name ?? t.strategy}
                   </td>
 
                   <td className="py-2 px-3 text-gray-400 text-xs">

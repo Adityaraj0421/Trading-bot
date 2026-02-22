@@ -39,7 +39,8 @@ export interface Position {
   stop_loss: number;
   take_profit: number;
   trailing_stop: number;
-  strategy: string;
+  strategy?: string;
+  strategy_name?: string;
 }
 
 /**
@@ -57,7 +58,8 @@ export interface Trade {
   entry_time: string;
   exit_time: string;
   exit_reason: string;
-  strategy: string;
+  strategy?: string;
+  strategy_name?: string;
   hold_bars: number;
 }
 

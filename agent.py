@@ -70,6 +70,9 @@ def set_data_store(store: Any, agent: Any = None) -> None:
     # Wire DecisionEngine reference for kill switch / alerts
     if agent is not None and hasattr(agent, "decision"):
         store.set_decision_engine(agent.decision)
+    # Wire TradeDB so API routes can serve persistent trade history
+    if agent is not None and getattr(agent, "trade_db", None) is not None:
+        store.set_trade_db(agent.trade_db)
 
 
 class TradingAgent:

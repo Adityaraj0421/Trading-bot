@@ -20,12 +20,9 @@ const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 const MAX_RECONNECT_DELAY = 30000;
 const PING_INTERVAL = 30000;
 
-/** Map WebSocket event types to SWR cache keys. */
-const EVENT_TO_SWR_KEY: Record<string, string> = {
+/** Map WebSocket snapshot-replace event types to SWR cache keys. */
+const SNAPSHOT_EVENTS: Record<string, string> = {
   snapshot: "/status",
-  equity: "/equity",
-  trade: "/trades",
-  event: "/autonomous/events",
 };
 
 export function useAgentWebSocket() {
@@ -70,10 +67,43 @@ export function useAgentWebSocket() {
         if (!mountedRef.current) return;
         try {
           const msg: WebSocketMessage = JSON.parse(event.data);
-          const swrKey = EVENT_TO_SWR_KEY[msg.type];
-          if (swrKey) {
-            // Inject into SWR cache (false = don't revalidate via HTTP)
-            mutate(swrKey, msg.data, false);
+
+          // Snapshot events: replace the whole SWR cache entry
+          const snapshotKey = SNAPSHOT_EVENTS[msg.type];
+          if (snapshotKey) {
+            mutate(snapshotKey, msg.data, false);
+            return;
+          }
+
+          // Append events: merge new item into the existing cached collection
+          // so the shape always matches what the REST API returns
+          if (msg.type === "equity") {
+            mutate(
+              "/equity",
+              (current: { equity: object[]; total_points: number } | undefined) => ({
+                equity: [...(current?.equity ?? []), msg.data],
+                total_points: (current?.total_points ?? 0) + 1,
+              }),
+              false
+            );
+          } else if (msg.type === "trade") {
+            mutate(
+              "/trades",
+              (current: { trades: object[]; total: number } | undefined) => ({
+                trades: [msg.data, ...(current?.trades ?? [])],
+                total: (current?.total ?? 0) + 1,
+              }),
+              false
+            );
+          } else if (msg.type === "event") {
+            mutate(
+              "/autonomous/events",
+              (current: { events: object[]; count: number } | undefined) => ({
+                events: [...(current?.events ?? []), msg.data],
+                count: (current?.count ?? 0) + 1,
+              }),
+              false
+            );
           }
         } catch {
           // Ignore malformed messages
