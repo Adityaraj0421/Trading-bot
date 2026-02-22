@@ -23,13 +23,11 @@ intrabar noise, volume patterns, and the actual crash event.
 """
 
 import os
-import sys
-import json
 import warnings
-import time
+from datetime import timedelta
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
 
 warnings.filterwarnings("ignore")
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -58,9 +56,9 @@ def generate_realistic_btc_data():
         ("2026-02-01", 78726),
         ("2026-02-03", 74000),
         ("2026-02-05", 68000),
-        ("2026-02-07", 60000),   # Crash low
-        ("2026-02-08", 58500),   # Intraday wick
-        ("2026-02-09", 65000),   # Rebound
+        ("2026-02-07", 60000),  # Crash low
+        ("2026-02-08", 58500),  # Intraday wick
+        ("2026-02-09", 65000),  # Rebound
         ("2026-02-10", 63500),
         ("2026-02-11", 66000),
         ("2026-02-13", 68835),
@@ -123,13 +121,16 @@ def generate_realistic_btc_data():
         elif crash_end < i <= crash_end + 48:
             base_vol[i] *= 2.5
 
-    df = pd.DataFrame({
-        "open": opens,
-        "high": highs,
-        "low": lows,
-        "close": closes,
-        "volume": base_vol,
-    }, index=hourly_index)
+    df = pd.DataFrame(
+        {
+            "open": opens,
+            "high": highs,
+            "low": lows,
+            "close": closes,
+            "volume": base_vol,
+        },
+        index=hourly_index,
+    )
 
     return df
 
@@ -144,22 +145,22 @@ df_live = generate_realistic_btc_data()
 source = "Real BTC trajectory (reconstructed from verified price points)"
 
 print(f"  Data source:  {source}")
-print(f"  Symbol:       BTC/USDT")
+print("  Symbol:       BTC/USDT")
 print(f"  Bars:         {len(df_live)} (1h candles)")
 print(f"  Period:       {df_live.index[0].strftime('%Y-%m-%d %H:%M')} → {df_live.index[-1].strftime('%Y-%m-%d %H:%M')}")
 print(f"  Price range:  ${df_live['low'].min():,.2f} — ${df_live['high'].max():,.2f}")
 print(f"  Start price:  ${df_live['close'].iloc[0]:,.2f}")
 print(f"  End price:    ${df_live['close'].iloc[-1]:,.2f}")
-buy_hold = (df_live['close'].iloc[-1] / df_live['close'].iloc[0] - 1) * 100
+buy_hold = (df_live["close"].iloc[-1] / df_live["close"].iloc[0] - 1) * 100
 print(f"  Buy & Hold:   {buy_hold:+.2f}%")
-volatility = df_live['close'].pct_change().std() * np.sqrt(8760) * 100
+volatility = df_live["close"].pct_change().std() * np.sqrt(8760) * 100
 print(f"  Ann. Vol:     {volatility:.1f}%")
 
 # Market phases
 crash_low = df_live.loc["2026-02-07":"2026-02-08", "low"].min()
 pre_crash = df_live.loc[:"2026-01-15", "close"].mean()
 post_crash = df_live.loc["2026-02-10":, "close"].mean()
-print(f"\n  Market phases:")
+print("\n  Market phases:")
 print(f"    Pre-crash avg:  ${pre_crash:,.0f}")
 print(f"    Crash low:      ${crash_low:,.0f}")
 print(f"    Post-crash avg: ${post_crash:,.0f}")
@@ -176,7 +177,7 @@ print("  BACKTESTING ON REAL BTC TRAJECTORY")
 print("  $10,000 capital | 0.1% fees | 0.05% slippage")
 print("=" * 70)
 
-from backtester import Backtester
+from backtester import Backtester  # noqa: E402
 
 bt = Backtester(
     initial_capital=10000,
@@ -203,9 +204,10 @@ print("  Simulating real-time by walking through most recent bars")
 print("=" * 70)
 
 # Monkey-patch DataFetcher to use our real data
-import data_fetcher as df_mod
+import data_fetcher as df_mod  # noqa: E402
 
 _cycle_offset = [0]
+
 
 def patched_fetch(self, symbol=None, timeframe=None, limit=None):
     limit = limit or 200
@@ -222,9 +224,10 @@ def patched_fetch(self, symbol=None, timeframe=None, limit=None):
     _cycle_offset[0] = 0
     return df_live.iloc[-limit:].copy()
 
+
 df_mod.DataFetcher.fetch_ohlcv = patched_fetch
 
-from agent import TradingAgent
+from agent import TradingAgent  # noqa: E402
 
 # Clean state
 for f in ["agent_state.json", "agent_state_model.pkl"]:
@@ -254,8 +257,8 @@ print(f"""
   │  Period:        Dec 2025 → Feb 19, 2026              │
   │  Asset:         BTC/USDT                             │
   │  Data:          {len(df_live):,} hourly bars                      │
-  │  Price Start:   ${df_live['close'].iloc[0]:>10,.2f}                    │
-  │  Price End:     ${df_live['close'].iloc[-1]:>10,.2f}                    │
+  │  Price Start:   ${df_live["close"].iloc[0]:>10,.2f}                    │
+  │  Price End:     ${df_live["close"].iloc[-1]:>10,.2f}                    │
   │  Crash Low:     ${crash_low:>10,.2f}                    │
   │  Buy & Hold:    {buy_hold:>+9.2f}%                       │
   │  Annualized Vol:{volatility:>9.1f}%                       │
@@ -280,32 +283,32 @@ if "error" not in results:
   ├─────────────────────────────────────────────────────┤
   │  Rating:         {rating:10s}                          │
   │                                                       │
-  │  Total Return:   {results['total_return_pct']:>+9.2f}%                       │
+  │  Total Return:   {results["total_return_pct"]:>+9.2f}%                       │
   │  Buy & Hold:     {buy_hold:>+9.2f}%                       │
   │  Alpha:          {alpha:>+9.2f}%                       │
-  │  Final Equity:   ${results['final_equity']:>10,.2f}                    │
-  │  Max Drawdown:   {results['max_drawdown_pct']:>9.2f}%                       │
+  │  Final Equity:   ${results["final_equity"]:>10,.2f}                    │
+  │  Max Drawdown:   {results["max_drawdown_pct"]:>9.2f}%                       │
   │                                                       │
-  │  Sharpe Ratio:   {results['sharpe_ratio']:>9.3f}                        │
-  │  Sortino Ratio:  {results['sortino_ratio']:>9.3f}                        │
-  │  Calmar Ratio:   {results['calmar_ratio']:>9.3f}                        │
+  │  Sharpe Ratio:   {results["sharpe_ratio"]:>9.3f}                        │
+  │  Sortino Ratio:  {results["sortino_ratio"]:>9.3f}                        │
+  │  Calmar Ratio:   {results["calmar_ratio"]:>9.3f}                        │
   │                                                       │
-  │  Total Trades:   {results['total_trades']:>9d}                        │
-  │  Win Rate:       {results['win_rate']:>8.1f}%                       │
-  │  Profit Factor:  {results['profit_factor']:>9.2f}                        │
-  │  Avg Win:        ${results['avg_win']:>9,.2f}                        │
-  │  Avg Loss:       ${results['avg_loss']:>9,.2f}                        │
-  │  Avg Hold:       {results['avg_hold_bars']:>7.1f}h                         │
+  │  Total Trades:   {results["total_trades"]:>9d}                        │
+  │  Win Rate:       {results["win_rate"]:>8.1f}%                       │
+  │  Profit Factor:  {results["profit_factor"]:>9.2f}                        │
+  │  Avg Win:        ${results["avg_win"]:>9,.2f}                        │
+  │  Avg Loss:       ${results["avg_loss"]:>9,.2f}                        │
+  │  Avg Hold:       {results["avg_hold_bars"]:>7.1f}h                         │
   │                                                       │
   │  Transaction Costs:                                   │
-  │    Fees:         ${results['total_fees']:>9,.2f}                        │
-  │    Slippage:     ${results['total_slippage']:>9,.2f}                        │
-  │    Total Drag:   ${results['total_fees'] + results['total_slippage']:>9,.2f}                        │
+  │    Fees:         ${results["total_fees"]:>9,.2f}                        │
+  │    Slippage:     ${results["total_slippage"]:>9,.2f}                        │
+  │    Total Drag:   ${results["total_fees"] + results["total_slippage"]:>9,.2f}                        │
   └─────────────────────────────────────────────────────┘
 """)
 
     if results.get("exit_reasons"):
-        print(f"  Exit Breakdown:")
+        print("  Exit Breakdown:")
         for reason, count in sorted(results["exit_reasons"].items(), key=lambda x: -x[1]):
             pct = count / results["total_trades"] * 100 if results["total_trades"] > 0 else 0
             bar = "█" * int(pct / 5)
@@ -313,12 +316,11 @@ if "error" not in results:
 
     # Strategy attribution
     if bt.strategy_trades:
-        print(f"\n  Strategy Attribution:")
+        print("\n  Strategy Attribution:")
         print(f"  {'Strategy':<30s} {'Trades':>6s} {'Win%':>6s} {'PnL':>10s} {'Avg':>8s}")
-        print(f"  {'─'*62}")
+        print(f"  {'─' * 62}")
         for strat_name, trades in sorted(
-            bt.strategy_trades.items(),
-            key=lambda x: sum(t.pnl_net for t in x[1]), reverse=True
+            bt.strategy_trades.items(), key=lambda x: sum(t.pnl_net for t in x[1]), reverse=True
         ):
             n = len(trades)
             wins = sum(1 for t in trades if t.pnl_net > 0)
@@ -329,7 +331,7 @@ if "error" not in results:
 
     # Regime performance
     if bt.trades:
-        print(f"\n  Performance by Regime:")
+        print("\n  Performance by Regime:")
         regime_stats = {}
         for t in bt.trades:
             r = t.regime
@@ -342,50 +344,53 @@ if "error" not in results:
 
         for regime, stats in sorted(regime_stats.items(), key=lambda x: -x[1]["pnl"]):
             wr = stats["wins"] / stats["trades"] * 100 if stats["trades"] > 0 else 0
-            print(f"    {regime:20s} {stats['trades']:>4d} trades | "
-                  f"WR: {wr:>5.1f}% | PnL: ${stats['pnl']:>8,.2f}")
+            print(f"    {regime:20s} {stats['trades']:>4d} trades | WR: {wr:>5.1f}% | PnL: ${stats['pnl']:>8,.2f}")
 
-print(f"""
+print("""
   ┌─────────────────────────────────────────────────────┐
   │  LIVE AGENT SESSION (10 cycles)                      │
   ├─────────────────────────────────────────────────────┤""")
 
 summary = agent.risk.get_summary()
-ret = (summary['total_pnl'] / 1000) * 100
+ret = (summary["total_pnl"] / 1000) * 100
 print(f"""  │  Cycles:         {agent.cycle_count:>9d}                        │
-  │  Trades:         {summary['total_trades']:>9d}                        │
-  │  Win Rate:       {summary['win_rate']:>8.0%}%                       │
-  │  Total PnL:      ${summary['total_pnl']:>9,.2f}                        │
-  │  Total Fees:     ${summary.get('total_fees', 0):>9,.2f}                        │
-  │  Capital:        ${summary['capital']:>10,.2f}                    │
+  │  Trades:         {summary["total_trades"]:>9d}                        │
+  │  Win Rate:       {summary["win_rate"]:>8.0%}%                       │
+  │  Total PnL:      ${summary["total_pnl"]:>9,.2f}                        │
+  │  Total Fees:     ${summary.get("total_fees", 0):>9,.2f}                        │
+  │  Capital:        ${summary["capital"]:>10,.2f}                    │
   │  Return:         {ret:>+9.2f}%                       │
   └─────────────────────────────────────────────────────┘
 """)
 
 # Drift status
 drift = agent.drift.check_drift()
-print(f"  Model Health:")
+print("  Model Health:")
 print(f"    Drift events:  {drift['drift_count']}")
-print(f"    Current acc:   {drift['current_accuracy']:.2%}" if drift['current_accuracy'] > 0 else "    Current acc:   N/A (no predictions)")
+print(
+    f"    Current acc:   {drift['current_accuracy']:.2%}"
+    if drift["current_accuracy"] > 0
+    else "    Current acc:   N/A (no predictions)"
+)
 
 # Log events
 signal_events = agent.log.get_recent_events("signal")
 trade_events = agent.log.get_recent_events("trade_open")
 regime_events = agent.log.get_recent_events("regime_change")
-print(f"\n  Event Log:")
+print("\n  Event Log:")
 print(f"    Signals:       {len(signal_events)}")
 print(f"    Trades:        {len(trade_events)}")
 print(f"    Regime changes:{len(regime_events)}")
 
 # ML model features
 if agent.model.is_trained:
-    print(f"\n  Top ML Features:")
+    print("\n  Top ML Features:")
     for feat, imp in list(agent.model.get_feature_importance().items())[:8]:
         bar = "█" * int(imp * 40)
         print(f"    {feat:20s} {imp:.3f} {bar}")
 
-print(f"\n  {'─'*60}")
-print(f"  FILES GENERATED:")
+print(f"\n  {'─' * 60}")
+print("  FILES GENERATED:")
 files = {
     "live_btc_data.csv": "Raw OHLCV data (1h, reconstructed)",
     "equity_curve.html": "Interactive equity curve + drawdown chart",

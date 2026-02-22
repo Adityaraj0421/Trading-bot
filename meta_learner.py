@@ -28,23 +28,26 @@ Research basis:
 """
 
 import copy
-import math
 import logging
-import numpy as np
+import math
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from collections import deque, defaultdict
 from datetime import datetime
-from typing import Any
 from enum import Enum
+from typing import Any
+
+import numpy as np
 
 _log = logging.getLogger(__name__)
 
 
 # ── Data Classes ──────────────────────────────────────────────────
 
+
 @dataclass
 class MetaConfig:
     """Learned configuration that replaces hardcoded values."""
+
     strategy_weight: float = 0.6
     ml_weight: float = 0.4
     agreement_bonus: float = 0.1
@@ -88,9 +91,10 @@ class MetaConfig:
 @dataclass
 class TradeObservation:
     """A recorded trade with context for learning."""
+
     pnl: float
-    signal_source: str        # "strategy", "ml", "both"
-    strategy_signal: str      # BUY/SELL/HOLD
+    signal_source: str  # "strategy", "ml", "both"
+    strategy_signal: str  # BUY/SELL/HOLD
     ml_signal: str
     final_signal: str
     strategy_confidence: float
@@ -115,6 +119,7 @@ class TradeObservation:
 
 class ExperimentStatus(Enum):
     """State of an A/B experiment."""
+
     RUNNING = "running"
     TREATMENT_WINS = "treatment_wins"
     CONTROL_WINS = "control_wins"
@@ -130,6 +135,7 @@ class ABExperiment:
     Capital is split: control_pct goes to old config, rest to new.
     Each trade records PnL under both configs (simulated for treatment).
     """
+
     experiment_id: int
     control_config: MetaConfig
     treatment_config: MetaConfig
@@ -142,7 +148,7 @@ class ABExperiment:
     treatment_pnls: list[float] = field(default_factory=list)
 
     # Capital allocation (shifts toward winner)
-    control_allocation: float = 0.70    # 70% to proven config
+    control_allocation: float = 0.70  # 70% to proven config
     treatment_allocation: float = 0.30  # 30% to experiment
 
     # Test results
@@ -158,10 +164,8 @@ class ABExperiment:
             "status": self.status.value,
             "control_trades": len(self.control_pnls),
             "treatment_trades": len(self.treatment_pnls),
-            "control_avg_pnl": round(np.mean(self.control_pnls), 6)
-                               if self.control_pnls else 0.0,
-            "treatment_avg_pnl": round(np.mean(self.treatment_pnls), 6)
-                                 if self.treatment_pnls else 0.0,
+            "control_avg_pnl": round(np.mean(self.control_pnls), 6) if self.control_pnls else 0.0,
+            "treatment_avg_pnl": round(np.mean(self.treatment_pnls), 6) if self.treatment_pnls else 0.0,
             "control_allocation": round(self.control_allocation, 2),
             "treatment_allocation": round(self.treatment_allocation, 2),
             "p_value": round(self.p_value, 4),
@@ -174,6 +178,7 @@ class ABExperiment:
 
 # ── A/B Testing Engine ─────────────────────────────────────────────
 
+
 class ABTestEngine:
     """
     Statistical A/B testing engine for meta-learner experiments.
@@ -183,12 +188,12 @@ class ABTestEngine:
     """
 
     # Experiment parameters
-    MIN_TRADES_PER_ARM = 25        # Minimum trades before testing
-    MAX_TRADES_PER_ARM = 150       # Force conclusion after this
-    SIGNIFICANCE_LEVEL = 0.05      # p < 0.05 to adopt
-    EARLY_STOP_THRESHOLD = 3.0     # Stop early if treatment avg < -3x control
+    MIN_TRADES_PER_ARM = 25  # Minimum trades before testing
+    MAX_TRADES_PER_ARM = 150  # Force conclusion after this
+    SIGNIFICANCE_LEVEL = 0.05  # p < 0.05 to adopt
+    EARLY_STOP_THRESHOLD = 3.0  # Stop early if treatment avg < -3x control
     MAX_CONCURRENT_EXPERIMENTS = 1  # One experiment at a time
-    ALLOCATION_SHIFT_RATE = 0.05   # Shift allocation toward interim winner
+    ALLOCATION_SHIFT_RATE = 0.05  # Shift allocation toward interim winner
 
     def __init__(self) -> None:
         self._experiments: list[ABExperiment] = []
@@ -202,9 +207,9 @@ class ABTestEngine:
         """Check if there's a running experiment."""
         return self._active_experiment is not None
 
-    def start_experiment(self, control_config: MetaConfig,
-                         treatment_config: MetaConfig,
-                         description: str) -> ABExperiment:
+    def start_experiment(
+        self, control_config: MetaConfig, treatment_config: MetaConfig, description: str
+    ) -> ABExperiment:
         """
         Start a new A/B experiment.
 
@@ -227,8 +232,7 @@ class ABTestEngine:
         self._active_experiment = exp
         self._experiments.append(exp)
 
-        _log.info("A/B Experiment #%d started: %s",
-                  exp.experiment_id, description)
+        _log.info("A/B Experiment #%d started: %s", exp.experiment_id, description)
         return exp
 
     def record_trade(self, pnl: float, obs: TradeObservation) -> dict[str, Any]:
@@ -252,16 +256,13 @@ class ABTestEngine:
         # Treatment PnL: adjusted by the difference in signal weights
         # This is an approximation — in practice, treatment signals may
         # differ, but we use PnL scaling as a proxy
-        treatment_pnl = self._simulate_treatment_pnl(
-            pnl, obs, exp.control_config, exp.treatment_config
-        )
+        treatment_pnl = self._simulate_treatment_pnl(pnl, obs, exp.control_config, exp.treatment_config)
 
         exp.control_pnls.append(control_pnl)
         exp.treatment_pnls.append(treatment_pnl)
 
         # Allocation-weighted actual PnL
-        actual_pnl = (control_pnl * exp.control_allocation +
-                      treatment_pnl * exp.treatment_allocation)
+        actual_pnl = control_pnl * exp.control_allocation + treatment_pnl * exp.treatment_allocation
 
         # Adaptive allocation: shift toward interim winner
         self._update_allocation(exp)
@@ -294,22 +295,19 @@ class ABTestEngine:
         The caller applies treatment allocation separately.
         """
         if self._active_experiment:
-            return (self._active_experiment.control_config,
-                    self._active_experiment.control_allocation)
+            return (self._active_experiment.control_config, self._active_experiment.control_allocation)
         return None, 1.0
 
     def get_treatment_config(self) -> tuple[MetaConfig | None, float]:
         """Get treatment config and its allocation, if experiment active."""
         if self._active_experiment:
-            return (self._active_experiment.treatment_config,
-                    self._active_experiment.treatment_allocation)
+            return (self._active_experiment.treatment_config, self._active_experiment.treatment_allocation)
         return None, 0.0
 
     def get_status(self) -> dict[str, Any]:
         """Dashboard status."""
         return {
-            "active_experiment": self._active_experiment.to_dict()
-                                if self._active_experiment else None,
+            "active_experiment": self._active_experiment.to_dict() if self._active_experiment else None,
             "total_experiments": self._experiment_counter,
             "adopted": self._total_adopted,
             "rejected": self._total_rejected,
@@ -344,43 +342,35 @@ class ABTestEngine:
         exp.p_value = p_value
 
         # Force conclusion if max trades reached
-        force = (n_c >= self.MAX_TRADES_PER_ARM or
-                 n_t >= self.MAX_TRADES_PER_ARM)
+        force = n_c >= self.MAX_TRADES_PER_ARM or n_t >= self.MAX_TRADES_PER_ARM
 
         # Decision
         if p_value < self.SIGNIFICANCE_LEVEL and t_mean > c_mean:
             exp.status = ExperimentStatus.TREATMENT_WINS
             exp.conclusion = (
-                f"Treatment wins! p={p_value:.4f}, "
-                f"Sharpe {exp.treatment_sharpe:.2f} vs {exp.control_sharpe:.2f}"
+                f"Treatment wins! p={p_value:.4f}, Sharpe {exp.treatment_sharpe:.2f} vs {exp.control_sharpe:.2f}"
             )
             self._total_adopted += 1
             self._active_experiment = None
-            _log.info("Experiment #%d: TREATMENT ADOPTED — %s",
-                      exp.experiment_id, exp.conclusion)
+            _log.info("Experiment #%d: TREATMENT ADOPTED — %s", exp.experiment_id, exp.conclusion)
             return "treatment_wins"
 
         elif p_value < self.SIGNIFICANCE_LEVEL and c_mean > t_mean:
             exp.status = ExperimentStatus.CONTROL_WINS
             exp.conclusion = (
-                f"Control wins. p={p_value:.4f}, "
-                f"Sharpe {exp.control_sharpe:.2f} vs {exp.treatment_sharpe:.2f}"
+                f"Control wins. p={p_value:.4f}, Sharpe {exp.control_sharpe:.2f} vs {exp.treatment_sharpe:.2f}"
             )
             self._total_rejected += 1
             self._active_experiment = None
-            _log.info("Experiment #%d: TREATMENT REJECTED — %s",
-                      exp.experiment_id, exp.conclusion)
+            _log.info("Experiment #%d: TREATMENT REJECTED — %s", exp.experiment_id, exp.conclusion)
             return "control_wins"
 
         elif force:
             exp.status = ExperimentStatus.INCONCLUSIVE
-            exp.conclusion = (
-                f"Inconclusive after {n_c}/{n_t} trades, p={p_value:.4f}"
-            )
+            exp.conclusion = f"Inconclusive after {n_c}/{n_t} trades, p={p_value:.4f}"
             self._total_inconclusive += 1
             self._active_experiment = None
-            _log.info("Experiment #%d: INCONCLUSIVE — %s",
-                      exp.experiment_id, exp.conclusion)
+            _log.info("Experiment #%d: INCONCLUSIVE — %s", exp.experiment_id, exp.conclusion)
             return "inconclusive"
 
         return None  # Continue collecting data
@@ -410,7 +400,7 @@ class ABTestEngine:
 
         # Welch-Satterthwaite degrees of freedom
         numerator = (se_a + se_b) ** 2
-        denominator = (se_a ** 2 / (n_a - 1) + se_b ** 2 / (n_b - 1))
+        denominator = se_a**2 / (n_a - 1) + se_b**2 / (n_b - 1)
         if denominator < 1e-12:
             df = n_a + n_b - 2
         else:
@@ -440,7 +430,7 @@ class ABTestEngine:
             z = t
         else:
             # Adjusted t to z mapping
-            z = t * np.sqrt(df / (df - 2 + t ** 2)) if df > 2 else t * 0.7
+            z = t * np.sqrt(df / (df - 2 + t**2)) if df > 2 else t * 0.7
 
         # Standard normal CDF approximation (Abramowitz & Stegun)
         p = 0.5 * (1 + math.erf(-z / np.sqrt(2)))
@@ -465,10 +455,7 @@ class ABTestEngine:
             return True
 
         # If both are losing but treatment is much worse
-        if t_mean < 0 and c_mean >= 0 and abs(t_mean) > abs(c_mean) * 2:
-            return True
-
-        return False
+        return t_mean < 0 and c_mean >= 0 and abs(t_mean) > abs(c_mean) * 2
 
     def _update_allocation(self, exp: ABExperiment) -> None:
         """
@@ -486,21 +473,20 @@ class ABTestEngine:
             # Treatment doing well — increase its allocation
             exp.treatment_allocation = min(
                 0.50,  # Never more than 50% to unproven
-                exp.treatment_allocation + self.ALLOCATION_SHIFT_RATE
+                exp.treatment_allocation + self.ALLOCATION_SHIFT_RATE,
             )
         else:
             # Control doing better — decrease treatment
             exp.treatment_allocation = max(
                 0.15,  # Keep at least 15% for statistical power
-                exp.treatment_allocation - self.ALLOCATION_SHIFT_RATE
+                exp.treatment_allocation - self.ALLOCATION_SHIFT_RATE,
             )
 
         exp.control_allocation = 1.0 - exp.treatment_allocation
 
-    def _simulate_treatment_pnl(self, actual_pnl: float,
-                                 obs: TradeObservation,
-                                 control: MetaConfig,
-                                 treatment: MetaConfig) -> float:
+    def _simulate_treatment_pnl(
+        self, actual_pnl: float, obs: TradeObservation, control: MetaConfig, treatment: MetaConfig
+    ) -> float:
         """
         Approximate what PnL would have been under treatment config.
 
@@ -509,12 +495,8 @@ class ABTestEngine:
         """
         # The main difference is signal weighting and confidence threshold
         # If treatment would have taken the same trade: scale by weight diff
-        control_weight = (control.strategy_weight
-                          if obs.signal_source == "strategy"
-                          else control.ml_weight)
-        treatment_weight = (treatment.strategy_weight
-                            if obs.signal_source == "strategy"
-                            else treatment.ml_weight)
+        control_weight = control.strategy_weight if obs.signal_source == "strategy" else control.ml_weight
+        treatment_weight = treatment.strategy_weight if obs.signal_source == "strategy" else treatment.ml_weight
 
         # Weight ratio scaling
         if control_weight > 0:
@@ -529,8 +511,7 @@ class ABTestEngine:
             return 0.0
 
         # Kelly fraction scaling
-        if (treatment.position_size_method == "kelly" and
-                control.position_size_method == "kelly"):
+        if treatment.position_size_method == "kelly" and control.position_size_method == "kelly":
             kelly_ratio = treatment.kelly_fraction / max(control.kelly_fraction, 0.01)
             weight_ratio *= kelly_ratio
 
@@ -549,6 +530,7 @@ class ABTestEngine:
 
 # ── Meta-Learner with A/B Testing ─────────────────────────────────
 
+
 class MetaLearner:
     """
     v2.0: Learns optimal trading configuration WITH A/B testing validation.
@@ -564,9 +546,7 @@ class MetaLearner:
         self.window_size = window_size
         self.observations: deque[TradeObservation] = deque(maxlen=window_size)
         self.config = MetaConfig()
-        self._regime_observations: dict[str, deque[TradeObservation]] = defaultdict(
-            lambda: deque(maxlen=100)
-        )
+        self._regime_observations: dict[str, deque[TradeObservation]] = defaultdict(lambda: deque(maxlen=100))
         self.learning_count: int = 0
         self.last_learn_time: datetime | None = None
         self._drift_events: deque[dict[str, Any]] = deque(maxlen=50)
@@ -580,9 +560,16 @@ class MetaLearner:
 
     # ── Public Interface (backward-compatible) ───────────────────────
 
-    def observe_trade(self, pnl: float, strategy_signal: str, ml_signal: str,
-                      final_signal: str, strategy_confidence: float,
-                      ml_confidence: float, regime: str) -> None:
+    def observe_trade(
+        self,
+        pnl: float,
+        strategy_signal: str,
+        ml_signal: str,
+        final_signal: str,
+        strategy_confidence: float,
+        ml_confidence: float,
+        regime: str,
+    ) -> None:
         """Record a trade outcome with full context."""
         if strategy_signal == ml_signal:
             source = "both"
@@ -625,13 +612,11 @@ class MetaLearner:
         comparing old config vs proposed config.
         """
         if len(self.observations) < 10:
-            return {"status": "insufficient_data",
-                    "observations": len(self.observations)}
+            return {"status": "insufficient_data", "observations": len(self.observations)}
 
         # Don't start a new experiment while one is running
         if self._ab_engine.has_active_experiment():
-            return {"status": "experiment_in_progress",
-                    "experiment": self._ab_engine.get_status()["active_experiment"]}
+            return {"status": "experiment_in_progress", "experiment": self._ab_engine.get_status()["active_experiment"]}
 
         # Propose new config through learning algorithms
         proposed = self.config.copy()
@@ -661,8 +646,7 @@ class MetaLearner:
         self.last_learn_time = datetime.now()
 
         if not changes:
-            return {"status": "no_changes_proposed",
-                    "round": self.learning_count}
+            return {"status": "no_changes_proposed", "round": self.learning_count}
 
         # v2.0: Start A/B experiment instead of immediate adoption
         description = ", ".join(changes.keys())
@@ -672,8 +656,12 @@ class MetaLearner:
             description=description,
         )
 
-        _log.info("[MetaLearner] Proposed changes (round %d): %s → A/B test #%d",
-                  self.learning_count, description, exp.experiment_id)
+        _log.info(
+            "[MetaLearner] Proposed changes (round %d): %s → A/B test #%d",
+            self.learning_count,
+            description,
+            exp.experiment_id,
+        )
 
         return {
             "status": "experiment_started",
@@ -689,8 +677,7 @@ class MetaLearner:
         Use this for initial warm-up or when you want to skip validation.
         """
         if len(self.observations) < 10:
-            return {"status": "insufficient_data",
-                    "observations": len(self.observations)}
+            return {"status": "insufficient_data", "observations": len(self.observations)}
 
         changes = {}
 
@@ -718,11 +705,9 @@ class MetaLearner:
         self.last_learn_time = datetime.now()
 
         if changes:
-            _log.info("[MetaLearner] Immediate update (round %d): %s",
-                      self.learning_count, list(changes.keys()))
+            _log.info("[MetaLearner] Immediate update (round %d): %s", self.learning_count, list(changes.keys()))
 
-        return {"status": "learned", "changes": changes,
-                "round": self.learning_count}
+        return {"status": "learned", "changes": changes, "round": self.learning_count}
 
     # ── A/B Testing Internals ─────────────────────────────────────────
 
@@ -731,40 +716,45 @@ class MetaLearner:
         exp = self._ab_engine._experiments[-1]
         self.config = exp.treatment_config.copy()
         self._consecutive_rejections = 0
-        self._adoption_history.append({
-            "round": self.learning_count,
-            "experiment_id": exp.experiment_id,
-            "result": "adopted",
-            "sharpe_improvement": round(
-                exp.treatment_sharpe - exp.control_sharpe, 3
-            ),
-        })
-        _log.info("[MetaLearner] New config adopted! Sharpe: %.2f → %.2f",
-                  exp.control_sharpe, exp.treatment_sharpe)
+        self._adoption_history.append(
+            {
+                "round": self.learning_count,
+                "experiment_id": exp.experiment_id,
+                "result": "adopted",
+                "sharpe_improvement": round(exp.treatment_sharpe - exp.control_sharpe, 3),
+            }
+        )
+        _log.info("[MetaLearner] New config adopted! Sharpe: %.2f → %.2f", exp.control_sharpe, exp.treatment_sharpe)
 
     def _handle_rejection(self) -> None:
         """Treatment config lost — keep current config, adjust learning rate."""
         self._consecutive_rejections += 1
-        self._adoption_history.append({
-            "round": self.learning_count,
-            "result": "rejected",
-            "consecutive": self._consecutive_rejections,
-        })
+        self._adoption_history.append(
+            {
+                "round": self.learning_count,
+                "result": "rejected",
+                "consecutive": self._consecutive_rejections,
+            }
+        )
 
         # Reduce learning rate after consecutive rejections
         # This makes future proposals more conservative
         if self._consecutive_rejections >= 3:
             self._learning_rate = max(0.1, self._learning_rate * 0.8)
-            _log.info("[MetaLearner] %d consecutive rejections, "
-                      "learning rate → %.2f",
-                      self._consecutive_rejections, self._learning_rate)
+            _log.info(
+                "[MetaLearner] %d consecutive rejections, learning rate → %.2f",
+                self._consecutive_rejections,
+                self._learning_rate,
+            )
 
     def _handle_inconclusive(self) -> None:
         """Experiment was inconclusive — no change."""
-        self._adoption_history.append({
-            "round": self.learning_count,
-            "result": "inconclusive",
-        })
+        self._adoption_history.append(
+            {
+                "round": self.learning_count,
+                "result": "inconclusive",
+            }
+        )
 
     # ── Learning Algorithms (propose to config, don't modify self.config) ──
 
@@ -953,9 +943,7 @@ class MetaLearner:
             "learning_rounds": self.learning_count,
             "last_learn": self.last_learn_time.isoformat() if self.last_learn_time else None,
             "drift_events": len(self._drift_events),
-            "regime_data": {
-                regime: len(obs) for regime, obs in self._regime_observations.items()
-            },
+            "regime_data": {regime: len(obs) for regime, obs in self._regime_observations.items()},
             # v2.0 additions
             "ab_testing": self._ab_engine.get_status(),
             "learning_rate": round(self._learning_rate, 3),

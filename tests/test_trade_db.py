@@ -5,6 +5,7 @@ Uses tmp_path for database isolation.
 """
 
 import pytest
+
 from trade_db import TradeDB
 
 
@@ -20,18 +21,32 @@ def db(tmp_path):
 class TestTradeOperations:
     def test_record_trade_open_returns_id(self, db):
         tid = db.record_trade_open(
-            symbol="BTC/USDT", side="long", entry_price=50000,
-            quantity=0.1, strategy="momentum", regime="trending_up",
-            confidence=0.8, sl=49000, tp=52000, trailing=500,
+            symbol="BTC/USDT",
+            side="long",
+            entry_price=50000,
+            quantity=0.1,
+            strategy="momentum",
+            regime="trending_up",
+            confidence=0.8,
+            sl=49000,
+            tp=52000,
+            trailing=500,
         )
         assert isinstance(tid, int)
         assert tid > 0
 
     def test_open_trade_appears_in_list(self, db):
         db.record_trade_open(
-            symbol="BTC/USDT", side="long", entry_price=50000,
-            quantity=0.1, strategy="momentum", regime="trending_up",
-            confidence=0.8, sl=49000, tp=52000, trailing=500,
+            symbol="BTC/USDT",
+            side="long",
+            entry_price=50000,
+            quantity=0.1,
+            strategy="momentum",
+            regime="trending_up",
+            confidence=0.8,
+            sl=49000,
+            tp=52000,
+            trailing=500,
         )
         trades = db.get_open_trades()
         assert len(trades) == 1
@@ -40,13 +55,25 @@ class TestTradeOperations:
 
     def test_close_trade_by_id(self, db):
         tid = db.record_trade_open(
-            symbol="ETH/USDT", side="short", entry_price=3000,
-            quantity=1.0, strategy="reversion", regime="ranging",
-            confidence=0.7, sl=3100, tp=2800, trailing=50,
+            symbol="ETH/USDT",
+            side="short",
+            entry_price=3000,
+            quantity=1.0,
+            strategy="reversion",
+            regime="ranging",
+            confidence=0.7,
+            sl=3100,
+            tp=2800,
+            trailing=50,
         )
         db.record_trade_close(
-            trade_id=tid, exit_price=2900, pnl_gross=100,
-            pnl_net=98, fees=2, reason="take_profit", hold_bars=10,
+            trade_id=tid,
+            exit_price=2900,
+            pnl_gross=100,
+            pnl_net=98,
+            fees=2,
+            reason="take_profit",
+            hold_bars=10,
         )
         assert db.get_open_trades() == []
         history = db.get_trade_history(limit=10)
@@ -55,31 +82,57 @@ class TestTradeOperations:
 
     def test_close_trade_by_symbol_side(self, db):
         db.record_trade_open(
-            symbol="BTC/USDT", side="long", entry_price=50000,
-            quantity=0.1, strategy="momentum", regime="trending_up",
-            confidence=0.8, sl=49000, tp=52000, trailing=500,
+            symbol="BTC/USDT",
+            side="long",
+            entry_price=50000,
+            quantity=0.1,
+            strategy="momentum",
+            regime="trending_up",
+            confidence=0.8,
+            sl=49000,
+            tp=52000,
+            trailing=500,
         )
         db.record_trade_close(
-            symbol="BTC/USDT", side="long", exit_price=51000,
-            pnl_gross=100, pnl_net=95, fees=5, reason="trailing_stop",
+            symbol="BTC/USDT",
+            side="long",
+            exit_price=51000,
+            pnl_gross=100,
+            pnl_net=95,
+            fees=5,
+            reason="trailing_stop",
         )
         assert db.get_open_trades() == []
 
     def test_multiple_open_trades(self, db):
         for pair in ["BTC/USDT", "ETH/USDT", "SOL/USDT"]:
             db.record_trade_open(
-                symbol=pair, side="long", entry_price=100,
-                quantity=1.0, strategy="test", regime="ranging",
-                confidence=0.5, sl=90, tp=110, trailing=5,
+                symbol=pair,
+                side="long",
+                entry_price=100,
+                quantity=1.0,
+                strategy="test",
+                regime="ranging",
+                confidence=0.5,
+                sl=90,
+                tp=110,
+                trailing=5,
             )
         assert len(db.get_open_trades()) == 3
 
     def test_trade_history_limit(self, db):
         for i in range(5):
             tid = db.record_trade_open(
-                symbol="BTC/USDT", side="long", entry_price=50000 + i,
-                quantity=0.1, strategy="test", regime="ranging",
-                confidence=0.5, sl=49000, tp=52000, trailing=500,
+                symbol="BTC/USDT",
+                side="long",
+                entry_price=50000 + i,
+                quantity=0.1,
+                strategy="test",
+                regime="ranging",
+                confidence=0.5,
+                sl=49000,
+                tp=52000,
+                trailing=500,
             )
             db.record_trade_close(trade_id=tid, exit_price=50100 + i, pnl_net=10 + i)
         assert len(db.get_trade_history(limit=3)) == 3
@@ -88,9 +141,16 @@ class TestTradeOperations:
     def test_trade_history_filter_by_strategy(self, db):
         for strat in ["momentum", "reversion", "momentum"]:
             tid = db.record_trade_open(
-                symbol="BTC/USDT", side="long", entry_price=50000,
-                quantity=0.1, strategy=strat, regime="ranging",
-                confidence=0.5, sl=49000, tp=52000, trailing=500,
+                symbol="BTC/USDT",
+                side="long",
+                entry_price=50000,
+                quantity=0.1,
+                strategy=strat,
+                regime="ranging",
+                confidence=0.5,
+                sl=49000,
+                tp=52000,
+                trailing=500,
             )
             db.record_trade_close(trade_id=tid, exit_price=50100, pnl_net=10)
         assert len(db.get_trade_history(strategy="momentum")) == 2
@@ -102,10 +162,8 @@ class TestTradeOperations:
 
 class TestEquitySnapshots:
     def test_record_and_get_equity(self, db):
-        db.record_equity(equity=10000, capital=9500, unrealized_pnl=500,
-                         open_positions=2, cycle=1)
-        db.record_equity(equity=10100, capital=9600, unrealized_pnl=500,
-                         open_positions=2, cycle=2)
+        db.record_equity(equity=10000, capital=9500, unrealized_pnl=500, open_positions=2, cycle=1)
+        db.record_equity(equity=10100, capital=9600, unrealized_pnl=500, open_positions=2, cycle=2)
         curve = db.get_equity_curve()
         assert len(curve) == 2
         assert curve[0]["cycle"] == 1
@@ -113,8 +171,7 @@ class TestEquitySnapshots:
 
     def test_equity_curve_limit(self, db):
         for i in range(10):
-            db.record_equity(equity=10000 + i, capital=10000, unrealized_pnl=0,
-                             open_positions=0, cycle=i)
+            db.record_equity(equity=10000 + i, capital=10000, unrealized_pnl=0, open_positions=0, cycle=i)
         assert len(db.get_equity_curve(limit=5)) == 5
 
 
@@ -138,6 +195,7 @@ class TestEvents:
         db.record_event("test", "test event", data={"key": "value"})
         events = db.get_events()
         import json
+
         data = json.loads(events[0]["data"])
         assert data["key"] == "value"
 
@@ -164,21 +222,34 @@ class TestDailySummaries:
 class TestAnalytics:
     def _populate_trades(self, db):
         """Helper: create a few closed trades for analytics."""
-        for i, (strat, regime, pnl) in enumerate([
-            ("momentum", "trending_up", 100),
-            ("momentum", "trending_up", -30),
-            ("reversion", "ranging", 50),
-            ("reversion", "ranging", 60),
-        ]):
+        for _i, (strat, regime, pnl) in enumerate(
+            [
+                ("momentum", "trending_up", 100),
+                ("momentum", "trending_up", -30),
+                ("reversion", "ranging", 50),
+                ("reversion", "ranging", 60),
+            ]
+        ):
             tid = db.record_trade_open(
-                symbol="BTC/USDT", side="long", entry_price=50000,
-                quantity=0.1, strategy=strat, regime=regime,
-                confidence=0.7, sl=49000, tp=52000, trailing=500,
+                symbol="BTC/USDT",
+                side="long",
+                entry_price=50000,
+                quantity=0.1,
+                strategy=strat,
+                regime=regime,
+                confidence=0.7,
+                sl=49000,
+                tp=52000,
+                trailing=500,
             )
             db.record_trade_close(
-                trade_id=tid, exit_price=50000 + pnl * 10,
-                pnl_gross=pnl, pnl_net=pnl - 2, fees=2,
-                reason="test", hold_bars=5,
+                trade_id=tid,
+                exit_price=50000 + pnl * 10,
+                pnl_gross=pnl,
+                pnl_net=pnl - 2,
+                fees=2,
+                reason="test",
+                hold_bars=5,
             )
 
     def test_strategy_performance(self, db):

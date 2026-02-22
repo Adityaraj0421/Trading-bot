@@ -5,9 +5,13 @@ and state management directly.
 """
 
 import json
+
 import pytest
+
 from websocket_streamer import (
-    WebSocketStreamer, _normalize_pair_binance, _normalize_pair_kraken,
+    WebSocketStreamer,
+    _normalize_pair_binance,
+    _normalize_pair_kraken,
 )
 
 
@@ -90,11 +94,12 @@ class TestStatus:
 
 class TestBinanceParsing:
     def test_parse_ticker(self, streamer):
-        msg = json.dumps({
-            "stream": "btcusdt@ticker",
-            "data": {"c": "50123.45", "h": "51000", "l": "49000",
-                     "v": "1234.5", "P": "2.5"},
-        })
+        msg = json.dumps(
+            {
+                "stream": "btcusdt@ticker",
+                "data": {"c": "50123.45", "h": "51000", "l": "49000", "v": "1234.5", "P": "2.5"},
+            }
+        )
         received = []
         streamer.on_ticker(lambda t: received.append(t))
         streamer._process_message(msg)
@@ -103,10 +108,12 @@ class TestBinanceParsing:
         assert received[0]["volume_24h"] == 1234.5
 
     def test_parse_trade(self, streamer):
-        msg = json.dumps({
-            "stream": "btcusdt@trade",
-            "data": {"p": "50100", "q": "0.5", "m": True, "T": 1700000000000},
-        })
+        msg = json.dumps(
+            {
+                "stream": "btcusdt@trade",
+                "data": {"p": "50100", "q": "0.5", "m": True, "T": 1700000000000},
+            }
+        )
         received = []
         streamer.on_trade(lambda t: received.append(t))
         streamer._process_message(msg)
@@ -115,11 +122,22 @@ class TestBinanceParsing:
         assert received[0]["side"] == "sell"  # m=True means maker was buy → taker was sell
 
     def test_parse_kline_closed(self, streamer):
-        msg = json.dumps({
-            "stream": "btcusdt@kline_1h",
-            "data": {"k": {"o": "50000", "h": "51000", "l": "49000",
-                           "c": "50500", "v": "100", "x": True, "t": 1700000000000}},
-        })
+        msg = json.dumps(
+            {
+                "stream": "btcusdt@kline_1h",
+                "data": {
+                    "k": {
+                        "o": "50000",
+                        "h": "51000",
+                        "l": "49000",
+                        "c": "50500",
+                        "v": "100",
+                        "x": True,
+                        "t": 1700000000000,
+                    }
+                },
+            }
+        )
         received = []
         streamer.on_kline(lambda k: received.append(k))
         streamer._process_message(msg)
@@ -128,20 +146,32 @@ class TestBinanceParsing:
         assert len(streamer.latest_klines) == 1
 
     def test_parse_kline_not_closed_not_appended(self, streamer):
-        msg = json.dumps({
-            "stream": "btcusdt@kline_1h",
-            "data": {"k": {"o": "50000", "h": "51000", "l": "49000",
-                           "c": "50500", "v": "100", "x": False, "t": 1700000000000}},
-        })
+        msg = json.dumps(
+            {
+                "stream": "btcusdt@kline_1h",
+                "data": {
+                    "k": {
+                        "o": "50000",
+                        "h": "51000",
+                        "l": "49000",
+                        "c": "50500",
+                        "v": "100",
+                        "x": False,
+                        "t": 1700000000000,
+                    }
+                },
+            }
+        )
         streamer._process_message(msg)
         assert len(streamer.latest_klines) == 0
 
     def test_parse_depth(self, streamer):
-        msg = json.dumps({
-            "stream": "btcusdt@depth20@100ms",
-            "data": {"bids": [["50000", "1.0"], ["49999", "2.0"]],
-                     "asks": [["50001", "0.5"]]},
-        })
+        msg = json.dumps(
+            {
+                "stream": "btcusdt@depth20@100ms",
+                "data": {"bids": [["50000", "1.0"], ["49999", "2.0"]], "asks": [["50001", "0.5"]]},
+            }
+        )
         received = []
         streamer.on_orderbook(lambda b: received.append(b))
         streamer._process_message(msg)
@@ -159,9 +189,12 @@ class TestBinanceParsing:
 class TestKrakenParsing:
     def test_parse_kraken_ticker(self):
         s = WebSocketStreamer("kraken", "BTC/USDT")
-        data = [0, {"c": ["50000.0", "1"], "v": ["100", "200"],
-                     "h": ["51000", "51000"], "l": ["49000", "49000"]},
-                "ticker", "XBT/USDT"]
+        data = [
+            0,
+            {"c": ["50000.0", "1"], "v": ["100", "200"], "h": ["51000", "51000"], "l": ["49000", "49000"]},
+            "ticker",
+            "XBT/USDT",
+        ]
         received = []
         s.on_ticker(lambda t: received.append(t))
         s._process_kraken(data)
@@ -170,8 +203,7 @@ class TestKrakenParsing:
 
     def test_parse_kraken_trade(self):
         s = WebSocketStreamer("kraken", "BTC/USDT")
-        data = [0, [["50000.0", "0.5", "1700000000.0", "b", "m", ""]],
-                "trade", "XBT/USDT"]
+        data = [0, [["50000.0", "0.5", "1700000000.0", "b", "m", ""]], "trade", "XBT/USDT"]
         received = []
         s.on_trade(lambda t: received.append(t))
         s._process_kraken(data)
@@ -190,8 +222,7 @@ class TestKrakenParsing:
 class TestCoinbaseParsing:
     def test_parse_coinbase_ticker(self):
         s = WebSocketStreamer("coinbase", "BTC/USDT")
-        data = {"type": "ticker", "price": "50000.0", "volume_24h": "1000",
-                "high_24h": "51000", "low_24h": "49000"}
+        data = {"type": "ticker", "price": "50000.0", "volume_24h": "1000", "high_24h": "51000", "low_24h": "49000"}
         received = []
         s.on_ticker(lambda t: received.append(t))
         s._process_coinbase(data)
@@ -214,10 +245,16 @@ class TestCoinbaseParsing:
 class TestBybitParsing:
     def test_parse_bybit_ticker(self):
         s = WebSocketStreamer("bybit", "BTC/USDT")
-        data = {"topic": "tickers.BTCUSDT",
-                "data": {"lastPrice": "50000", "volume24h": "1000",
-                         "highPrice24h": "51000", "lowPrice24h": "49000",
-                         "price24hPcnt": "0.025"}}
+        data = {
+            "topic": "tickers.BTCUSDT",
+            "data": {
+                "lastPrice": "50000",
+                "volume24h": "1000",
+                "highPrice24h": "51000",
+                "lowPrice24h": "49000",
+                "price24hPcnt": "0.025",
+            },
+        }
         received = []
         s.on_ticker(lambda t: received.append(t))
         s._process_bybit(data)
@@ -227,8 +264,7 @@ class TestBybitParsing:
 
     def test_parse_bybit_trade(self):
         s = WebSocketStreamer("bybit", "BTC/USDT")
-        data = {"topic": "publicTrade.BTCUSDT",
-                "data": [{"p": "50100", "v": "0.5", "S": "Buy", "T": 1700000000000}]}
+        data = {"topic": "publicTrade.BTCUSDT", "data": [{"p": "50100", "v": "0.5", "S": "Buy", "T": 1700000000000}]}
         received = []
         s.on_trade(lambda t: received.append(t))
         s._process_bybit(data)

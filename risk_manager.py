@@ -10,11 +10,12 @@ v3.0: Trailing stop-loss, transaction cost awareness, max hold duration,
 
 import logging
 import threading
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
 import numpy as np
-from datetime import datetime, date
-from dataclasses import dataclass, field
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -34,9 +35,9 @@ class Position:
     strategy_name: str = ""
     # Trailing stop fields
     trailing_stop: float = 0.0
-    highest_price: float = 0.0   # Track high water mark (longs)
-    lowest_price: float = 0.0    # Track low water mark (shorts)
-    entry_bar: int = 0           # Bar count at entry (for max hold)
+    highest_price: float = 0.0  # Track high water mark (longs)
+    lowest_price: float = 0.0  # Track low water mark (shorts)
+    entry_bar: int = 0  # Bar count at entry (for max hold)
 
     def __post_init__(self) -> None:
         if self.highest_price == 0.0:
@@ -55,8 +56,9 @@ class Position:
         """Return the notional value (entry_price * quantity) of the position."""
         return self.entry_price * self.quantity
 
-    def update_trailing_stop(self, current_high: float, current_low: float,
-                             trail_pct_override: float | None = None) -> None:
+    def update_trailing_stop(
+        self, current_high: float, current_low: float, trail_pct_override: float | None = None
+    ) -> None:
         """Update trailing stop based on new price extremes."""
         trail_pct = trail_pct_override or Config.TRAILING_STOP_PCT
         if self.side == "long":
@@ -89,9 +91,8 @@ class Position:
                 return "trailing_stop"
 
         # Max hold duration
-        if current_bar > 0 and self.entry_bar > 0:
-            if current_bar - self.entry_bar >= Config.MAX_HOLD_BARS:
-                return "max_duration"
+        if current_bar > 0 and self.entry_bar > 0 and current_bar - self.entry_bar >= Config.MAX_HOLD_BARS:
+            return "max_duration"
 
         return None
 
@@ -112,8 +113,8 @@ class TradeRecord:
     entry_price: float
     exit_price: float
     quantity: float
-    pnl_gross: float          # Before fees
-    pnl_net: float            # After fees
+    pnl_gross: float  # Before fees
+    pnl_net: float  # After fees
     fees_paid: float
     entry_time: datetime
     exit_time: datetime
@@ -126,13 +127,13 @@ class RiskManager:
     """Portfolio-level risk manager with volatility-adaptive sizing and tiered drawdown protocol."""
 
     # Volatility targeting constants
-    TARGET_ANNUAL_VOL = 0.15       # 15% annualized portfolio volatility target
-    VOL_LOOKBACK = 20              # Bars for realized volatility calculation
-    BARS_PER_YEAR = 8760           # 1h bars/year for annualization
+    TARGET_ANNUAL_VOL = 0.15  # 15% annualized portfolio volatility target
+    VOL_LOOKBACK = 20  # Bars for realized volatility calculation
+    BARS_PER_YEAR = 8760  # 1h bars/year for annualization
     # Tiered drawdown thresholds
-    DD_TIER1_PCT = 0.05            # -5%: reduce risk 25%
-    DD_TIER2_PCT = 0.10            # -10%: reduce risk 50%, A-setups only
-    DD_TIER3_PCT = 0.15            # -15%: halt trading 24h, review
+    DD_TIER1_PCT = 0.05  # -5%: reduce risk 25%
+    DD_TIER2_PCT = 0.10  # -10%: reduce risk 50%, A-setups only
+    DD_TIER3_PCT = 0.15  # -15%: halt trading 24h, review
 
     def __init__(self) -> None:
         self.capital = Config.INITIAL_CAPITAL
@@ -161,8 +162,7 @@ class RiskManager:
         """Set current bar number (for max hold tracking)."""
         self.current_bar = bar
 
-    def can_open_position(self, signal: str, confidence: float,
-                          symbol: str | None = None) -> tuple[bool, str]:
+    def can_open_position(self, signal: str, confidence: float, symbol: str | None = None) -> tuple[bool, str]:
         """
         Check if a new position is allowed.
         Thread-safe: acquires lock to prevent TOCTOU race conditions.
@@ -171,8 +171,9 @@ class RiskManager:
         with self._lock:
             return self._can_open_position_unlocked(signal, confidence, symbol)
 
-    def _can_open_position_unlocked(self, signal: str, confidence: float,
-                                     symbol: str | None = None) -> tuple[bool, str]:
+    def _can_open_position_unlocked(
+        self, signal: str, confidence: float, symbol: str | None = None
+    ) -> tuple[bool, str]:
         """Internal check without lock (called within locked context)."""
         symbol = symbol or Config.TRADING_PAIR
 
@@ -199,9 +200,16 @@ class RiskManager:
         return True, "OK"
 
     def atomic_check_and_open(
-        self, signal: str, confidence: float,
-        symbol: str, side: str, entry_price: float, quantity: float,
-        stop_loss: float, take_profit: float, strategy_name: str = "",
+        self,
+        signal: str,
+        confidence: float,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        quantity: float,
+        stop_loss: float,
+        take_profit: float,
+        strategy_name: str = "",
     ) -> tuple[bool, str, "Position | None"]:
         """
         Atomically check if position can be opened AND open it.
@@ -213,18 +221,26 @@ class RiskManager:
             if not can_open:
                 return False, reason, None
             pos = self._open_position_unlocked(
-                symbol, side, entry_price, quantity,
-                stop_loss, take_profit, strategy_name,
+                symbol,
+                side,
+                entry_price,
+                quantity,
+                stop_loss,
+                take_profit,
+                strategy_name,
             )
             return True, "OK", pos
 
-    def calculate_position_size(self, entry_price: float,
-                                fee_pct: float | None = None,
-                                confidence: float = 0.6,
-                                strategy_name: str = "",
-                                regime: str = "",
-                                atr_pct: float = 0.0,
-                                symbol: str = "") -> float:
+    def calculate_position_size(
+        self,
+        entry_price: float,
+        fee_pct: float | None = None,
+        confidence: float = 0.6,
+        strategy_name: str = "",
+        regime: str = "",
+        atr_pct: float = 0.0,
+        symbol: str = "",
+    ) -> float:
         """
         v9.0: Volatility-adaptive position sizing.
         Layers: Kelly fraction -> volatility targeting -> confidence scaling
@@ -262,8 +278,7 @@ class RiskManager:
         corr_mult = self._correlation_adjustment(symbol)
 
         # Combine all multipliers
-        position_pct = (kelly_pct * vol_mult * confidence_mult
-                        * regime_mult * drawdown_mult * corr_mult)
+        position_pct = kelly_pct * vol_mult * confidence_mult * regime_mult * drawdown_mult * corr_mult
 
         # Clamp between 0.3% and 5% of capital
         position_pct = max(0.003, min(0.05, position_pct))
@@ -349,10 +364,13 @@ class RiskManager:
             # Tier 3: Halt trading for 24 hours
             if self._halt_until is None or datetime.now() >= self._halt_until:
                 from datetime import timedelta
+
                 self._halt_until = datetime.now() + timedelta(hours=24)
                 _log.warning(
                     "[Risk] TIER 3 HALT: DD=%.1f%% > %.0f%%. Trading halted until %s",
-                    current_dd * 100, self.DD_TIER3_PCT * 100, self._halt_until.strftime('%H:%M'),
+                    current_dd * 100,
+                    self.DD_TIER3_PCT * 100,
+                    self._halt_until.strftime("%H:%M"),
                 )
             return 0.0, 3
         elif current_dd > self.DD_TIER2_PCT:
@@ -399,14 +417,13 @@ class RiskManager:
             return 1.0
 
         # Simple correlation proxy: same-direction positions = higher correlation
-        same_direction = sum(1 for p in self.positions
-                             if p.side == "long")
+        same_direction = sum(1 for p in self.positions if p.side == "long")
         all_same = same_direction == n_open or same_direction == 0
 
         if n_open >= 3 and all_same:
-            return 0.5   # Heavy concentration penalty
+            return 0.5  # Heavy concentration penalty
         elif n_open >= 2 and all_same:
-            return 0.7   # Moderate concentration
+            return 0.7  # Moderate concentration
         elif n_open >= 2:
             return 0.85  # Some diversification benefit
         return 1.0
@@ -416,7 +433,7 @@ class RiskManager:
         self._recent_returns.append(bar_return)
         # Keep rolling window
         if len(self._recent_returns) > self.VOL_LOOKBACK * 2:
-            self._recent_returns = self._recent_returns[-self.VOL_LOOKBACK:]
+            self._recent_returns = self._recent_returns[-self.VOL_LOOKBACK :]
 
     def get_risk_status(self) -> dict[str, Any]:
         """Get detailed risk status including volatility metrics."""
@@ -446,9 +463,13 @@ class RiskManager:
         }
 
     def calculate_stop_take(
-        self, entry_price: float, side: str,
-        sl_pct: float | None = None, tp_pct: float | None = None,
-        atr: float | None = None, regime: str = "",
+        self,
+        entry_price: float,
+        side: str,
+        sl_pct: float | None = None,
+        tp_pct: float | None = None,
+        atr: float | None = None,
+        regime: str = "",
     ) -> tuple[float, float]:
         """
         v8.0: Regime-adaptive stop-loss and take-profit levels.
@@ -489,39 +510,59 @@ class RiskManager:
         Crash: very tight SL (preserve capital at all costs)
         """
         regime_params = {
-            "trending_up":    (1.0, 1.5),   # Normal SL, 50% wider TP
-            "trending_down":  (1.0, 1.4),   # Normal SL, 40% wider TP (for shorts)
-            "ranging":        (0.8, 0.7),   # 20% tighter SL, 30% tighter TP (scalp mode)
-            "volatile":       (0.7, 1.3),   # 30% tighter SL, 30% wider TP
-            "high_volatility":(0.7, 1.3),   # Same as volatile
-            "breakout":       (1.1, 1.8),   # Slightly wider SL, much wider TP
-            "crash":          (0.5, 0.6),   # Very tight everything
+            "trending_up": (1.0, 1.5),  # Normal SL, 50% wider TP
+            "trending_down": (1.0, 1.4),  # Normal SL, 40% wider TP (for shorts)
+            "ranging": (0.8, 0.7),  # 20% tighter SL, 30% tighter TP (scalp mode)
+            "volatile": (0.7, 1.3),  # 30% tighter SL, 30% wider TP
+            "high_volatility": (0.7, 1.3),  # Same as volatile
+            "breakout": (1.1, 1.8),  # Slightly wider SL, much wider TP
+            "crash": (0.5, 0.6),  # Very tight everything
         }
         return regime_params.get(regime, (1.0, 1.0))
 
     def open_position(
-        self, symbol: str, side: str, entry_price: float, quantity: float,
-        stop_loss: float, take_profit: float, strategy_name: str = "",
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        quantity: float,
+        stop_loss: float,
+        take_profit: float,
+        strategy_name: str = "",
     ) -> Position:
         """Record a new position with trailing stop initialized. Thread-safe."""
         with self._lock:
             return self._open_position_unlocked(
-                symbol, side, entry_price, quantity,
-                stop_loss, take_profit, strategy_name,
+                symbol,
+                side,
+                entry_price,
+                quantity,
+                stop_loss,
+                take_profit,
+                strategy_name,
             )
 
     def _open_position_unlocked(
-        self, symbol: str, side: str, entry_price: float, quantity: float,
-        stop_loss: float, take_profit: float, strategy_name: str = "",
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        quantity: float,
+        stop_loss: float,
+        take_profit: float,
+        strategy_name: str = "",
     ) -> Position:
         """Internal open (called within locked context)."""
         fee = self._charge_fee(entry_price, quantity)
 
         pos = Position(
-            symbol=symbol, side=side,
-            entry_price=entry_price, quantity=quantity,
+            symbol=symbol,
+            side=side,
+            entry_price=entry_price,
+            quantity=quantity,
             entry_time=datetime.now(),
-            stop_loss=stop_loss, take_profit=take_profit,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
             strategy_name=strategy_name,
             entry_bar=self.current_bar,
         )
@@ -530,25 +571,26 @@ class RiskManager:
 
         _log.info(
             "[Risk] OPENED %s %s: qty=%.6f @ $%,.2f | SL=$%,.2f TP=$%,.2f Trail=$%,.2f | Fee=$%.4f",
-            side.upper(), symbol, quantity, entry_price,
-            stop_loss, take_profit, pos.trailing_stop, fee,
+            side.upper(),
+            symbol,
+            quantity,
+            entry_price,
+            stop_loss,
+            take_profit,
+            pos.trailing_stop,
+            fee,
         )
         return pos
 
-    def close_position(
-        self, position: Position, exit_price: float, reason: str
-    ) -> TradeRecord:
+    def close_position(self, position: Position, exit_price: float, reason: str) -> TradeRecord:
         """Close position with fee accounting. Thread-safe."""
         with self._lock:
             return self._close_position_unlocked(position, exit_price, reason)
 
-    def _close_position_unlocked(
-        self, position: Position, exit_price: float, reason: str
-    ) -> TradeRecord:
+    def _close_position_unlocked(self, position: Position, exit_price: float, reason: str) -> TradeRecord:
         """Internal close (called within locked context)."""
         fee = self._charge_fee(exit_price, position.quantity)
         pnl_gross = position.unrealized_pnl(exit_price)
-        entry_fee = exit_price * position.quantity * Config.FEE_PCT  # Approximate entry fee
         pnl_net = pnl_gross - fee  # Exit fee only (entry already deducted)
 
         self.daily_pnl += pnl_net
@@ -558,12 +600,16 @@ class RiskManager:
         hold_bars = self.current_bar - position.entry_bar if position.entry_bar > 0 else 0
 
         record = TradeRecord(
-            symbol=position.symbol, side=position.side,
-            entry_price=position.entry_price, exit_price=exit_price,
+            symbol=position.symbol,
+            side=position.side,
+            entry_price=position.entry_price,
+            exit_price=exit_price,
             quantity=position.quantity,
-            pnl_gross=pnl_gross, pnl_net=pnl_net,
+            pnl_gross=pnl_gross,
+            pnl_net=pnl_net,
             fees_paid=fee,
-            entry_time=position.entry_time, exit_time=datetime.now(),
+            entry_time=position.entry_time,
+            exit_time=datetime.now(),
             exit_reason=reason,
             strategy_name=position.strategy_name,
             hold_bars=hold_bars,
@@ -574,8 +620,13 @@ class RiskManager:
         emoji = "+" if pnl_net >= 0 else "-"
         _log.info(
             "[Risk] [%s] CLOSED %s %s: PnL=$%,.2f (gross $%,.2f) | %s | held %d bars",
-            emoji, position.side.upper(), position.symbol,
-            pnl_net, pnl_gross, reason, hold_bars,
+            emoji,
+            position.side.upper(),
+            position.symbol,
+            pnl_net,
+            pnl_gross,
+            reason,
+            hold_bars,
         )
         return record
 
@@ -584,9 +635,9 @@ class RiskManager:
         self.total_fees += fee
         return fee
 
-    def check_positions(self, current_price: float,
-                        current_high: float | None = None,
-                        current_low: float | None = None) -> list[TradeRecord]:
+    def check_positions(
+        self, current_price: float, current_high: float | None = None, current_low: float | None = None
+    ) -> list[TradeRecord]:
         """
         Check all positions: update trailing stops, then check exits.
         Accepts high/low for intra-bar trailing stop updates.
@@ -633,17 +684,23 @@ class RiskManager:
             "daily_pnl": self.daily_pnl,
             "daily_pnl_date": str(self.daily_pnl_date),
             "current_bar": self.current_bar,
-            "positions": [{
-                "symbol": p.symbol, "side": p.side,
-                "entry_price": p.entry_price, "quantity": p.quantity,
-                "entry_time": p.entry_time.isoformat(),
-                "stop_loss": p.stop_loss, "take_profit": p.take_profit,
-                "trailing_stop": p.trailing_stop,
-                "highest_price": p.highest_price,
-                "lowest_price": p.lowest_price,
-                "strategy_name": p.strategy_name,
-                "entry_bar": p.entry_bar,
-            } for p in self.positions],
+            "positions": [
+                {
+                    "symbol": p.symbol,
+                    "side": p.side,
+                    "entry_price": p.entry_price,
+                    "quantity": p.quantity,
+                    "entry_time": p.entry_time.isoformat(),
+                    "stop_loss": p.stop_loss,
+                    "take_profit": p.take_profit,
+                    "trailing_stop": p.trailing_stop,
+                    "highest_price": p.highest_price,
+                    "lowest_price": p.lowest_price,
+                    "strategy_name": p.strategy_name,
+                    "entry_bar": p.entry_bar,
+                }
+                for p in self.positions
+            ],
             "trade_count": len(self.trade_history),
         }
 
@@ -658,10 +715,13 @@ class RiskManager:
         self.positions = []
         for p in data.get("positions", []):
             pos = Position(
-                symbol=p["symbol"], side=p["side"],
-                entry_price=p["entry_price"], quantity=p["quantity"],
+                symbol=p["symbol"],
+                side=p["side"],
+                entry_price=p["entry_price"],
+                quantity=p["quantity"],
                 entry_time=datetime.fromisoformat(p["entry_time"]),
-                stop_loss=p["stop_loss"], take_profit=p["take_profit"],
+                stop_loss=p["stop_loss"],
+                take_profit=p["take_profit"],
                 strategy_name=p.get("strategy_name", ""),
                 trailing_stop=p.get("trailing_stop", 0),
                 highest_price=p.get("highest_price", p["entry_price"]),

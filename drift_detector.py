@@ -18,17 +18,19 @@ Original methods:
 """
 
 import logging
+from collections import deque
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from collections import deque
-from dataclasses import dataclass, field
+
 from config import Config
 
 _log = logging.getLogger(__name__)
 
 try:
     from scipy.stats import ks_2samp
+
     _HAS_SCIPY = True
 except ImportError:
     _HAS_SCIPY = False
@@ -36,25 +38,28 @@ except ImportError:
 
 # ── Data Classes ──────────────────────────────────────────────────
 
+
 @dataclass
 class DriftReport:
     """Comprehensive drift analysis report."""
+
     drift_detected: bool
     predictive_drift_score: float  # 0-100, higher = more likely to drift
     current_accuracy: float
     accuracy_drop: float
     confidence_decay: float
-    confidence_slope: float       # Gradient of confidence over time
-    feature_drift_pct: float      # % of features with significant distribution shift
-    regime_mismatch: bool         # Model trained on wrong regime
+    confidence_slope: float  # Gradient of confidence over time
+    feature_drift_pct: float  # % of features with significant distribution shift
+    regime_mismatch: bool  # Model trained on wrong regime
     reason: str
     resolved_samples: int
     drift_count: int
-    blend_weight: float           # Suggested weight for new model (0-1)
+    blend_weight: float  # Suggested weight for new model (0-1)
     feature_alerts: list = field(default_factory=list)
 
 
 # ── Predictive Drift Detector ─────────────────────────────────────
+
 
 class DriftDetector:
     """
@@ -65,12 +70,12 @@ class DriftDetector:
 
     # Predictive drift thresholds
     PREDICTIVE_DRIFT_THRESHOLD = 70  # Score 0-100
-    KS_SIGNIFICANCE = 0.05          # p-value threshold for KS test
+    KS_SIGNIFICANCE = 0.05  # p-value threshold for KS test
     CONFIDENCE_SLOPE_ALERT = -0.005  # Slope below this = decaying fast
     REGIME_MISMATCH_THRESHOLD = 0.3  # 30% mismatch between train/live regimes
 
     # Model blending
-    BLEND_INITIAL = 0.2   # New model starts at 20% weight
+    BLEND_INITIAL = 0.2  # New model starts at 20% weight
     BLEND_INCREMENT = 0.1  # Increase by 10% each validation cycle
     BLEND_MAX = 1.0
 
@@ -110,9 +115,7 @@ class DriftDetector:
 
         # Track confidence timeline
         self._confidence_index += 1
-        self._confidence_timestamps.append(
-            (self._confidence_index, confidence)
-        )
+        self._confidence_timestamps.append((self._confidence_index, confidence))
 
     def record_outcome(self, actual_return: float, threshold: float = 0.01) -> None:
         """Fill in the actual outcome for the most recent unresolved prediction."""
@@ -168,8 +171,7 @@ class DriftDetector:
 
     # ── v2.0: Enhanced Interface ──────────────────────────────────
 
-    def set_training_features(self, features: np.ndarray,
-                               feature_names: list[str]) -> None:
+    def set_training_features(self, features: np.ndarray, feature_names: list[str]) -> None:
         """
         Store training feature distributions for KS testing.
         Call this after model training with the scaled feature matrix.
@@ -203,8 +205,7 @@ class DriftDetector:
         - Regime mismatch (predictive, 20 points)
         """
         # ── Component 1: Accuracy (reactive) ─────────────────────
-        resolved = [(p, a) for p, a in zip(self.predictions, self.actuals)
-                    if a is not None]
+        resolved = [(p, a) for p, a in zip(self.predictions, self.actuals) if a is not None]
         n_resolved = len(resolved)
 
         if n_resolved >= self.window_size // 2:
@@ -318,16 +319,12 @@ class DriftDetector:
         Otherwise, slow down or revert.
         """
         if new_model_performing:
-            self._blend_weight = max(
-                self._blend_weight - self.BLEND_INCREMENT, 0.0
-            )
+            self._blend_weight = max(self._blend_weight - self.BLEND_INCREMENT, 0.0)
             if self._blend_weight <= 0.0:
                 self._new_model_validated = True
         else:
             # Pull back toward old model
-            self._blend_weight = min(
-                self._blend_weight + self.BLEND_INCREMENT * 0.5, 1.0
-            )
+            self._blend_weight = min(self._blend_weight + self.BLEND_INCREMENT * 0.5, 1.0)
 
     # ── Internal: Confidence Slope ────────────────────────────────
 
@@ -349,7 +346,7 @@ class DriftDetector:
 
         # Normalize x to prevent numerical issues
         x_norm = x - x.mean()
-        x_var = np.sum(x_norm ** 2)
+        x_var = np.sum(x_norm**2)
 
         if x_var < 1e-10:
             return 0.0
@@ -374,10 +371,7 @@ class DriftDetector:
             return self._check_feature_drift_simple()
 
         recent_matrix = np.array(list(self._recent_features))
-        n_features = min(
-            self._training_features.shape[1],
-            recent_matrix.shape[1]
-        )
+        n_features = min(self._training_features.shape[1], recent_matrix.shape[1])
 
         drifted = 0
         alerts = []
@@ -397,16 +391,16 @@ class DriftDetector:
 
             if p_value < self.KS_SIGNIFICANCE:
                 drifted += 1
-                fname = (self._feature_names[i]
-                         if i < len(self._feature_names)
-                         else f"feature_{i}")
-                alerts.append({
-                    "feature": fname,
-                    "ks_statistic": round(float(stat), 4),
-                    "p_value": round(float(p_value), 6),
-                    "train_mean": round(float(np.mean(train_valid)), 4),
-                    "recent_mean": round(float(np.mean(recent_valid)), 4),
-                })
+                fname = self._feature_names[i] if i < len(self._feature_names) else f"feature_{i}"
+                alerts.append(
+                    {
+                        "feature": fname,
+                        "ks_statistic": round(float(stat), 4),
+                        "p_value": round(float(p_value), 6),
+                        "train_mean": round(float(np.mean(train_valid)), 4),
+                        "recent_mean": round(float(np.mean(recent_valid)), 4),
+                    }
+                )
 
         fraction = drifted / n_features if n_features > 0 else 0.0
         # Sort by severity
@@ -418,10 +412,7 @@ class DriftDetector:
         Fallback drift check without scipy — uses mean/std comparison.
         """
         recent_matrix = np.array(list(self._recent_features))
-        n_features = min(
-            self._training_features.shape[1],
-            recent_matrix.shape[1]
-        )
+        n_features = min(self._training_features.shape[1], recent_matrix.shape[1])
 
         drifted = 0
         alerts = []
@@ -437,24 +428,22 @@ class DriftDetector:
                 continue
 
             train_mean, train_std = np.mean(train_valid), np.std(train_valid)
-            recent_mean, recent_std = np.mean(recent_valid), np.std(recent_valid)
+            recent_mean = np.mean(recent_valid)
 
             # Z-test for mean shift
             if train_std > 1e-10:
-                z_score = abs(recent_mean - train_mean) / (
-                    train_std / np.sqrt(len(recent_valid))
-                )
+                z_score = abs(recent_mean - train_mean) / (train_std / np.sqrt(len(recent_valid)))
                 if z_score > 3.0:
                     drifted += 1
-                    fname = (self._feature_names[i]
-                             if i < len(self._feature_names)
-                             else f"feature_{i}")
-                    alerts.append({
-                        "feature": fname,
-                        "z_score": round(float(z_score), 2),
-                        "train_mean": round(float(train_mean), 4),
-                        "recent_mean": round(float(recent_mean), 4),
-                    })
+                    fname = self._feature_names[i] if i < len(self._feature_names) else f"feature_{i}"
+                    alerts.append(
+                        {
+                            "feature": fname,
+                            "z_score": round(float(z_score), 2),
+                            "train_mean": round(float(train_mean), 4),
+                            "recent_mean": round(float(recent_mean), 4),
+                        }
+                    )
 
         fraction = drifted / n_features if n_features > 0 else 0.0
         alerts.sort(key=lambda a: a.get("z_score", 0), reverse=True)
@@ -478,17 +467,11 @@ class DriftDetector:
             return False
 
         # Compute live distribution
-        live_dist = {
-            k: v / total_live for k, v in self._live_regime_counts.items()
-        }
+        live_dist = {k: v / total_live for k, v in self._live_regime_counts.items()}
 
         # Compare using total variation distance (L1/2)
-        all_regimes = set(list(self._training_regime_dist.keys()) +
-                         list(live_dist.keys()))
-        tv_distance = 0.5 * sum(
-            abs(self._training_regime_dist.get(r, 0) - live_dist.get(r, 0))
-            for r in all_regimes
-        )
+        all_regimes = set(list(self._training_regime_dist.keys()) + list(live_dist.keys()))
+        tv_distance = 0.5 * sum(abs(self._training_regime_dist.get(r, 0) - live_dist.get(r, 0)) for r in all_regimes)
 
         return tv_distance > self.REGIME_MISMATCH_THRESHOLD
 

@@ -1,4 +1,5 @@
 """Intelligence signal routes."""
+
 from typing import Any
 
 from fastapi import APIRouter
@@ -16,6 +17,7 @@ def create_router(store: DataStore) -> APIRouter:
         signals = store.get_intelligence()
         if not signals:
             from config import Config
+
             if Config.any_intelligence_enabled():
                 return {"status": "awaiting_first_cycle", "message": "Waiting for agent to complete first cycle"}
             return {"status": "not_enabled", "message": "Enable intelligence toggles in .env"}
@@ -25,6 +27,7 @@ def create_router(store: DataStore) -> APIRouter:
     async def list_providers() -> dict[str, Any]:
         """List intelligence providers and their enabled status."""
         from config import Config
+
         return {
             "providers": [
                 {"name": "onchain", "enabled": Config.ENABLE_ONCHAIN},

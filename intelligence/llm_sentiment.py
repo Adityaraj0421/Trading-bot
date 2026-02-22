@@ -16,12 +16,14 @@ Signal format (same as other intelligence providers):
    "strength": 0.0-1.0, "data": {...}}
 """
 
-import time
 import json
 import logging
-import requests
+import time
 from collections import deque
-from datetime import datetime, timedelta
+from typing import Any
+
+import requests
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -31,12 +33,14 @@ _HAS_ANTHROPIC = False
 _HAS_OPENAI = False
 try:
     import anthropic
+
     _HAS_ANTHROPIC = True
 except ImportError:
     pass
 
 try:
     import openai
+
     _HAS_OPENAI = True
 except ImportError:
     pass
@@ -44,19 +48,49 @@ except ImportError:
 
 # Enhanced keyword scoring as fallback
 _BULLISH_PATTERNS = {
-    "all-time high": 2.0, "ath": 1.5, "etf approved": 2.5, "institutional buy": 2.0,
-    "adoption": 1.2, "partnership": 1.0, "upgrade": 0.8, "bullish": 1.5,
-    "breakout": 1.3, "rally": 1.5, "surge": 1.5, "soars": 1.5,
-    "accumulate": 1.2, "inflows": 1.0, "treasury": 1.0, "reserve": 1.0,
-    "halving": 1.0, "recovery": 1.0, "green": 0.5, "gains": 1.0,
+    "all-time high": 2.0,
+    "ath": 1.5,
+    "etf approved": 2.5,
+    "institutional buy": 2.0,
+    "adoption": 1.2,
+    "partnership": 1.0,
+    "upgrade": 0.8,
+    "bullish": 1.5,
+    "breakout": 1.3,
+    "rally": 1.5,
+    "surge": 1.5,
+    "soars": 1.5,
+    "accumulate": 1.2,
+    "inflows": 1.0,
+    "treasury": 1.0,
+    "reserve": 1.0,
+    "halving": 1.0,
+    "recovery": 1.0,
+    "green": 0.5,
+    "gains": 1.0,
 }
 
 _BEARISH_PATTERNS = {
-    "crash": 2.0, "collapse": 2.0, "bankrupt": 2.5, "ban": 2.0,
-    "hack": 1.8, "exploit": 1.5, "rug pull": 2.0, "fraud": 1.5,
-    "liquidation": 1.3, "sell-off": 1.5, "plunge": 1.5, "dump": 1.5,
-    "bearish": 1.5, "fear": 1.0, "crackdown": 1.5, "investigation": 1.0,
-    "outflows": 1.0, "warning": 0.8, "delisted": 1.2, "bubble": 1.0,
+    "crash": 2.0,
+    "collapse": 2.0,
+    "bankrupt": 2.5,
+    "ban": 2.0,
+    "hack": 1.8,
+    "exploit": 1.5,
+    "rug pull": 2.0,
+    "fraud": 1.5,
+    "liquidation": 1.3,
+    "sell-off": 1.5,
+    "plunge": 1.5,
+    "dump": 1.5,
+    "bearish": 1.5,
+    "fear": 1.0,
+    "crackdown": 1.5,
+    "investigation": 1.0,
+    "outflows": 1.0,
+    "warning": 0.8,
+    "delisted": 1.2,
+    "bubble": 1.0,
 }
 
 
@@ -66,15 +100,15 @@ class LLMSentimentProvider:
     Contextually scores headlines instead of naive keyword matching.
     """
 
-    CACHE_TTL = 300          # 5 min cache for API calls
-    LLM_BATCH_SIZE = 20     # Headlines per LLM call
+    CACHE_TTL = 300  # 5 min cache for API calls
+    LLM_BATCH_SIZE = 20  # Headlines per LLM call
     VOLUME_SPIKE_MULT = 2.5  # Social mention volume spike threshold
     SENTIMENT_HALF_LIFE = 7200  # 2 hours in seconds
 
     REDDIT_HEADERS = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/120.0.0.0 Safari/537.36",
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json",
     }
 
@@ -115,17 +149,21 @@ class LLMSentimentProvider:
 
             # Record sentiment data point
             avg_score = sum(s["polarity"] for s in scores) / len(scores) if scores else 0
-            self._sentiment_history.append({
-                "timestamp": now,
-                "polarity": avg_score,
-                "n_headlines": len(headlines),
-            })
+            self._sentiment_history.append(
+                {
+                    "timestamp": now,
+                    "polarity": avg_score,
+                    "n_headlines": len(headlines),
+                }
+            )
 
             # Record volume data point
-            self._volume_history.append({
-                "timestamp": now,
-                "count": len(headlines),
-            })
+            self._volume_history.append(
+                {
+                    "timestamp": now,
+                    "count": len(headlines),
+                }
+            )
 
             # Compute exponentially-weighted sentiment
             ew_sentiment = self._compute_ew_sentiment()
@@ -150,40 +188,42 @@ class LLMSentimentProvider:
         # Reddit r/cryptocurrency
         try:
             resp = requests.get(
-                "https://www.reddit.com/r/cryptocurrency/hot.json?limit=25",
-                headers=self.REDDIT_HEADERS, timeout=5
+                "https://www.reddit.com/r/cryptocurrency/hot.json?limit=25", headers=self.REDDIT_HEADERS, timeout=5
             )
             if resp.status_code == 200:
                 data = resp.json()
                 for post in data.get("data", {}).get("children", []):
                     d = post["data"]
-                    headlines.append({
-                        "title": d.get("title", ""),
-                        "source": "reddit_crypto",
-                        "score": d.get("score", 0),
-                        "created": d.get("created_utc", 0),
-                        "comments": d.get("num_comments", 0),
-                    })
+                    headlines.append(
+                        {
+                            "title": d.get("title", ""),
+                            "source": "reddit_crypto",
+                            "score": d.get("score", 0),
+                            "created": d.get("created_utc", 0),
+                            "comments": d.get("num_comments", 0),
+                        }
+                    )
         except Exception as e:
             _log.debug("Reddit r/cryptocurrency fetch failed: %s", e)
 
         # Reddit r/bitcoin
         try:
             resp = requests.get(
-                "https://www.reddit.com/r/bitcoin/hot.json?limit=15",
-                headers=self.REDDIT_HEADERS, timeout=5
+                "https://www.reddit.com/r/bitcoin/hot.json?limit=15", headers=self.REDDIT_HEADERS, timeout=5
             )
             if resp.status_code == 200:
                 data = resp.json()
                 for post in data.get("data", {}).get("children", []):
                     d = post["data"]
-                    headlines.append({
-                        "title": d.get("title", ""),
-                        "source": "reddit_bitcoin",
-                        "score": d.get("score", 0),
-                        "created": d.get("created_utc", 0),
-                        "comments": d.get("num_comments", 0),
-                    })
+                    headlines.append(
+                        {
+                            "title": d.get("title", ""),
+                            "source": "reddit_bitcoin",
+                            "score": d.get("score", 0),
+                            "created": d.get("created_utc", 0),
+                            "comments": d.get("num_comments", 0),
+                        }
+                    )
         except Exception as e:
             _log.debug("Reddit r/bitcoin fetch failed: %s", e)
 
@@ -195,25 +235,26 @@ class LLMSentimentProvider:
                     f"https://cryptopanic.com/api/v1/posts/"
                     f"?auth_token={cryptopanic_key}&currencies=BTC,ETH"
                     f"&kind=news&filter=important",
-                    timeout=5
+                    timeout=5,
                 )
                 if resp.status_code == 200:
                     data = resp.json()
                     for item in data.get("results", [])[:20]:
-                        headlines.append({
-                            "title": item.get("title", ""),
-                            "source": "cryptopanic",
-                            "score": item.get("votes", {}).get("positive", 0),
-                            "created": time.time(),
-                            "comments": item.get("votes", {}).get("comments", 0),
-                        })
+                        headlines.append(
+                            {
+                                "title": item.get("title", ""),
+                                "source": "cryptopanic",
+                                "score": item.get("votes", {}).get("positive", 0),
+                                "created": time.time(),
+                                "comments": item.get("votes", {}).get("comments", 0),
+                            }
+                        )
             except Exception as e:
                 _log.debug("CryptoPanic fetch failed: %s", e)
 
         # Filter to recent headlines (last 6 hours)
         cutoff = time.time() - 6 * 3600
-        headlines = [h for h in headlines
-                     if h.get("created", 0) > cutoff or h.get("created", 0) == 0]
+        headlines = [h for h in headlines if h.get("created", 0) > cutoff or h.get("created", 0) == 0]
 
         return headlines[:50]  # Cap at 50
 
@@ -233,10 +274,8 @@ class LLMSentimentProvider:
         # Batch titles into groups
         results = []
         for i in range(0, len(titles), self.LLM_BATCH_SIZE):
-            batch = titles[i:i + self.LLM_BATCH_SIZE]
-            batch_text = "\n".join(
-                f"{j+1}. {t}" for j, t in enumerate(batch)
-            )
+            batch = titles[i : i + self.LLM_BATCH_SIZE]
+            batch_text = "\n".join(f"{j + 1}. {t}" for j, t in enumerate(batch))
 
             prompt = (
                 "Score each crypto headline for market sentiment. "
@@ -299,13 +338,13 @@ class LLMSentimentProvider:
             data = json.loads(text[start:end])
             results = []
             for item in data:
-                results.append({
-                    "polarity": max(-1.0, min(1.0,
-                                              float(item.get("polarity", 0)))),
-                    "confidence": max(0.0, min(1.0,
-                                               float(item.get("confidence", 0.5)))),
-                    "urgency": item.get("urgency", "medium"),
-                })
+                results.append(
+                    {
+                        "polarity": max(-1.0, min(1.0, float(item.get("polarity", 0)))),
+                        "confidence": max(0.0, min(1.0, float(item.get("confidence", 0.5)))),
+                        "urgency": item.get("urgency", "medium"),
+                    }
+                )
             return results
         except (json.JSONDecodeError, ValueError):
             return []
@@ -315,14 +354,8 @@ class LLMSentimentProvider:
         results = []
         for title in titles:
             lower = title.lower()
-            bull_score = sum(
-                weight for keyword, weight in _BULLISH_PATTERNS.items()
-                if keyword in lower
-            )
-            bear_score = sum(
-                weight for keyword, weight in _BEARISH_PATTERNS.items()
-                if keyword in lower
-            )
+            bull_score = sum(weight for keyword, weight in _BULLISH_PATTERNS.items() if keyword in lower)
+            bear_score = sum(weight for keyword, weight in _BEARISH_PATTERNS.items() if keyword in lower)
 
             if bull_score + bear_score == 0:
                 polarity = 0.0
@@ -331,11 +364,13 @@ class LLMSentimentProvider:
                 polarity = (bull_score - bear_score) / max(bull_score + bear_score, 1)
                 confidence = min(0.7, (bull_score + bear_score) / 5.0)
 
-            results.append({
-                "polarity": round(polarity, 3),
-                "confidence": round(confidence, 3),
-                "urgency": "medium",
-            })
+            results.append(
+                {
+                    "polarity": round(polarity, 3),
+                    "confidence": round(confidence, 3),
+                    "urgency": "medium",
+                }
+            )
         return results
 
     def _compute_ew_sentiment(self) -> float:
@@ -386,8 +421,7 @@ class LLMSentimentProvider:
             "avg_baseline": round(avg_baseline, 1),
         }
 
-    def _to_signal(self, ew_sentiment: float, volume_spike: dict,
-                   scores: list[dict]) -> dict[str, Any]:
+    def _to_signal(self, ew_sentiment: float, volume_spike: dict, scores: list[dict]) -> dict[str, Any]:
         """Convert analysis to standard intelligence signal format."""
         # Determine signal direction
         if ew_sentiment > 0.15:
@@ -398,8 +432,7 @@ class LLMSentimentProvider:
             signal = "neutral"
 
         # Strength: magnitude of sentiment * average confidence
-        avg_conf = (sum(s.get("confidence", 0.5) for s in scores) / len(scores)
-                    if scores else 0.3)
+        avg_conf = sum(s.get("confidence", 0.5) for s in scores) / len(scores) if scores else 0.3
         strength = min(1.0, abs(ew_sentiment) * avg_conf * 2)
 
         # Volume spike modifies strength (volatility warning)
@@ -407,8 +440,7 @@ class LLMSentimentProvider:
             strength = min(1.0, strength * 1.3)
 
         # Count urgency
-        urgent_count = sum(1 for s in scores
-                           if s.get("urgency") == "high")
+        urgent_count = sum(1 for s in scores if s.get("urgency") == "high")
 
         return {
             "source": "LLMSentiment",

@@ -10,10 +10,14 @@ Covers:
   - Serialization round-trip
 """
 
-import pytest
 from datetime import datetime, timedelta
+
+import pytest
+
 from decision_engine import (
-    DecisionEngine, DecisionState, AutonomousConfig, AutonomousEvent,
+    AutonomousEvent,
+    DecisionEngine,
+    DecisionState,
 )
 
 
@@ -25,6 +29,7 @@ def engine():
 # ---------------------------------------------------------------------------
 # AutonomousEvent
 # ---------------------------------------------------------------------------
+
 
 class TestAutonomousEvent:
     def test_to_dict_shape(self):
@@ -39,6 +44,7 @@ class TestAutonomousEvent:
 # ---------------------------------------------------------------------------
 # Safety checks / state transitions
 # ---------------------------------------------------------------------------
+
 
 class TestSafetyChecks:
     """Verify _check_safety and orchestrate manage state correctly."""
@@ -82,7 +88,7 @@ class TestSafetyChecks:
         engine._state_change_time = datetime.now() - timedelta(minutes=35)
         engine._consecutive_losses = 1  # Below recovery threshold
 
-        instructions = engine.orchestrate(cycle_count=1, current_capital=9500)
+        engine.orchestrate(cycle_count=1, current_capital=9500)
         assert engine.state == DecisionState.NORMAL
 
     def test_no_recovery_if_losses_still_high(self, engine):
@@ -97,7 +103,7 @@ class TestSafetyChecks:
     def test_halted_takes_priority_over_defensive(self, engine):
         """Capital floor check (HALTED) takes priority over daily loss (DEFENSIVE)."""
         engine._daily_pnl = -600  # Would trigger DEFENSIVE
-        instructions = engine.orchestrate(cycle_count=1, current_capital=3000)  # Below 50%
+        engine.orchestrate(cycle_count=1, current_capital=3000)  # Below 50%
         assert engine.state == DecisionState.HALTED
 
     def test_state_change_logs_event(self, engine):
@@ -112,6 +118,7 @@ class TestSafetyChecks:
 # ---------------------------------------------------------------------------
 # Signal overrides
 # ---------------------------------------------------------------------------
+
 
 class TestSignalOverride:
     """Verify should_override_signal behavior per state."""
@@ -162,43 +169,64 @@ class TestSignalOverride:
 # Trade result recording
 # ---------------------------------------------------------------------------
 
+
 class TestTradeRecording:
     def test_winning_trade_resets_consecutive_losses(self, engine):
         engine._consecutive_losses = 3
         engine.record_trade_result(
-            pnl=50.0, strategy_signal="BUY", ml_signal="BUY",
-            final_signal="BUY", strategy_confidence=0.8,
-            ml_confidence=0.7, regime="trending_up",
+            pnl=50.0,
+            strategy_signal="BUY",
+            ml_signal="BUY",
+            final_signal="BUY",
+            strategy_confidence=0.8,
+            ml_confidence=0.7,
+            regime="trending_up",
         )
         assert engine._consecutive_losses == 0
 
     def test_losing_trade_increments_consecutive_losses(self, engine):
         engine.record_trade_result(
-            pnl=-30.0, strategy_signal="BUY", ml_signal="BUY",
-            final_signal="BUY", strategy_confidence=0.7,
-            ml_confidence=0.6, regime="ranging",
+            pnl=-30.0,
+            strategy_signal="BUY",
+            ml_signal="BUY",
+            final_signal="BUY",
+            strategy_confidence=0.7,
+            ml_confidence=0.6,
+            regime="ranging",
         )
         assert engine._consecutive_losses == 1
 
     def test_daily_pnl_accumulates(self, engine):
         engine.record_trade_result(
-            pnl=100.0, strategy_signal="BUY", ml_signal="BUY",
-            final_signal="BUY", strategy_confidence=0.8,
-            ml_confidence=0.7, regime="trending_up",
+            pnl=100.0,
+            strategy_signal="BUY",
+            ml_signal="BUY",
+            final_signal="BUY",
+            strategy_confidence=0.8,
+            ml_confidence=0.7,
+            regime="trending_up",
         )
         engine.record_trade_result(
-            pnl=-40.0, strategy_signal="SELL", ml_signal="SELL",
-            final_signal="SELL", strategy_confidence=0.7,
-            ml_confidence=0.6, regime="ranging",
+            pnl=-40.0,
+            strategy_signal="SELL",
+            ml_signal="SELL",
+            final_signal="SELL",
+            strategy_confidence=0.7,
+            ml_confidence=0.6,
+            regime="ranging",
         )
         assert engine._daily_pnl == pytest.approx(60.0)
 
     def test_total_decisions_tracked(self, engine):
         assert engine._total_autonomous_decisions == 0
         engine.record_trade_result(
-            pnl=10.0, strategy_signal="BUY", ml_signal="BUY",
-            final_signal="BUY", strategy_confidence=0.8,
-            ml_confidence=0.7, regime="ranging",
+            pnl=10.0,
+            strategy_signal="BUY",
+            ml_signal="BUY",
+            final_signal="BUY",
+            strategy_confidence=0.8,
+            ml_confidence=0.7,
+            regime="ranging",
         )
         assert engine._total_autonomous_decisions == 1
 
@@ -206,6 +234,7 @@ class TestTradeRecording:
 # ---------------------------------------------------------------------------
 # Orchestration instructions shape
 # ---------------------------------------------------------------------------
+
 
 class TestOrchestrate:
     def test_instructions_shape(self, engine):
@@ -227,6 +256,7 @@ class TestOrchestrate:
 # ---------------------------------------------------------------------------
 # Status and serialization
 # ---------------------------------------------------------------------------
+
 
 class TestStatusAndSerialization:
     def test_get_autonomous_status_shape(self, engine):

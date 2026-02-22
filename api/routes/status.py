@@ -81,11 +81,15 @@ def create_router(store: DataStore) -> APIRouter:
                 },
                 "intelligence": {
                     "enabled": Config.any_intelligence_enabled(),
-                    "providers_enabled": sum([
-                        Config.ENABLE_ONCHAIN, Config.ENABLE_ORDERBOOK,
-                        Config.ENABLE_CORRELATION, Config.ENABLE_WHALE_TRACKING,
-                        Config.ENABLE_NEWS_NLP,
-                    ]),
+                    "providers_enabled": sum(
+                        [
+                            Config.ENABLE_ONCHAIN,
+                            Config.ENABLE_ORDERBOOK,
+                            Config.ENABLE_CORRELATION,
+                            Config.ENABLE_WHALE_TRACKING,
+                            Config.ENABLE_NEWS_NLP,
+                        ]
+                    ),
                 },
             }
         return modules

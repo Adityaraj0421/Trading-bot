@@ -11,15 +11,16 @@ Sends alerts via Telegram, Discord, and email for:
 All channels are optional — configure via .env.
 """
 
-import json
 import logging
-import requests
 import smtplib
 import threading
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
 from collections import deque
+from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+import requests
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ _log = logging.getLogger(__name__)
 
 class AlertLevel:
     """Constants for notification severity levels."""
+
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -75,9 +77,17 @@ class Notifier:
         """Check if any notification channel is configured."""
         return self.telegram_enabled or self.discord_enabled or self.email_enabled
 
-    def notify_trade_open(self, symbol: str, side: str, price: float,
-                          quantity: float, sl: float = 0, tp: float = 0,
-                          strategy: str = "", confidence: float = 0) -> None:
+    def notify_trade_open(
+        self,
+        symbol: str,
+        side: str,
+        price: float,
+        quantity: float,
+        sl: float = 0,
+        tp: float = 0,
+        strategy: str = "",
+        confidence: float = 0,
+    ) -> None:
         """Notify about a new trade."""
         side_emoji = "🟢" if side == "long" else "🔴"
         msg = (
@@ -88,9 +98,17 @@ class Notifier:
         )
         self._send_all(msg, AlertLevel.TRADE)
 
-    def notify_trade_close(self, symbol: str, side: str, entry: float,
-                           exit_price: float, pnl: float, reason: str,
-                           strategy: str, hold_bars: int) -> None:
+    def notify_trade_close(
+        self,
+        symbol: str,
+        side: str,
+        entry: float,
+        exit_price: float,
+        pnl: float,
+        reason: str,
+        strategy: str,
+        hold_bars: int,
+    ) -> None:
         """Notify about a closed trade."""
         pnl_emoji = "✅" if pnl >= 0 else "❌"
         pnl_sign = "+" if pnl >= 0 else ""
@@ -103,23 +121,27 @@ class Notifier:
         self._send_all(msg, AlertLevel.TRADE)
 
         # Track for daily summary
-        self._daily_trades.append({
-            "symbol": symbol, "side": side, "pnl": pnl,
-            "strategy": strategy, "reason": reason,
-        })
+        self._daily_trades.append(
+            {
+                "symbol": symbol,
+                "side": side,
+                "pnl": pnl,
+                "strategy": strategy,
+                "reason": reason,
+            }
+        )
         self._daily_pnl += pnl
 
     def notify_state_change(self, old_state: str, new_state: str, reason: str) -> None:
         """Notify about system state change."""
         state_emojis = {
-            "normal": "🟢", "cautious": "🟡",
-            "defensive": "🟠", "halted": "🔴",
+            "normal": "🟢",
+            "cautious": "🟡",
+            "defensive": "🟠",
+            "halted": "🔴",
         }
         emoji = state_emojis.get(new_state, "⚪")
-        msg = (
-            f"{emoji} **STATE CHANGE**: {old_state.upper()} → {new_state.upper()}\n"
-            f"Reason: {reason}"
-        )
+        msg = f"{emoji} **STATE CHANGE**: {old_state.upper()} → {new_state.upper()}\nReason: {reason}"
         level = AlertLevel.CRITICAL if new_state in ("halted", "defensive") else AlertLevel.WARNING
         self._send_all(msg, level)
 
@@ -130,14 +152,10 @@ class Notifier:
 
     def notify_large_loss(self, pnl: float, capital_pct: float) -> None:
         """Notify about a large loss."""
-        msg = (
-            f"⚠️ **LARGE LOSS**: ${pnl:,.2f} ({capital_pct:.1f}% of capital)\n"
-            f"Review positions immediately."
-        )
+        msg = f"⚠️ **LARGE LOSS**: ${pnl:,.2f} ({capital_pct:.1f}% of capital)\nReview positions immediately."
         self._send_all(msg, AlertLevel.WARNING)
 
-    def notify_daily_summary(self, capital: float, total_pnl: float,
-                             win_rate: float, open_positions: int) -> None:
+    def notify_daily_summary(self, capital: float, total_pnl: float, win_rate: float, open_positions: int) -> None:
         """Send daily performance summary."""
         pnl_emoji = "📈" if total_pnl >= 0 else "📉"
         trade_count = len(self._daily_trades)
@@ -148,10 +166,13 @@ class Notifier:
             s = t["strategy"]
             strategy_pnl[s] = strategy_pnl.get(s, 0) + t["pnl"]
 
-        strat_lines = "\n".join(
-            f"  {s}: {'+'if p>=0 else ''}${p:,.2f}"
-            for s, p in sorted(strategy_pnl.items(), key=lambda x: -x[1])
-        ) if strategy_pnl else "  No trades today"
+        strat_lines = (
+            "\n".join(
+                f"  {s}: {'+' if p >= 0 else ''}${p:,.2f}" for s, p in sorted(strategy_pnl.items(), key=lambda x: -x[1])
+            )
+            if strategy_pnl
+            else "  No trades today"
+        )
 
         pnl_sign = "+" if self._daily_pnl >= 0 else ""
         msg = (
@@ -169,18 +190,22 @@ class Notifier:
         self._daily_trades = []
         self._daily_pnl = 0.0
 
-    def notify_heartbeat(self, cycle: int, capital: float, total_pnl: float,
-                         open_positions: int, pairs: list[str],
-                         prices: dict[str, float] | None = None) -> None:
+    def notify_heartbeat(
+        self,
+        cycle: int,
+        capital: float,
+        total_pnl: float,
+        open_positions: int,
+        pairs: list[str],
+        prices: dict[str, float] | None = None,
+    ) -> None:
         """v7.0: Hourly heartbeat — agent is alive + quick stats."""
         pnl_sign = "+" if total_pnl >= 0 else ""
         daily_sign = "+" if self._daily_pnl >= 0 else ""
 
         price_lines = ""
         if prices:
-            price_lines = "\n".join(
-                f"  {p.split('/')[0]}: ${v:,.2f}" for p, v in prices.items()
-            )
+            price_lines = "\n".join(f"  {p.split('/')[0]}: ${v:,.2f}" for p, v in prices.items())
             price_lines = f"\n**Prices:**\n{price_lines}\n"
 
         msg = (
@@ -199,28 +224,33 @@ class Notifier:
 
     def _send_all(self, message: str, level: str) -> None:
         """Send to all enabled channels (async, non-blocking)."""
-        self._history.append({
-            "ts": datetime.now().isoformat(),
-            "level": level,
-            "message": message[:200],
-        })
+        self._history.append(
+            {
+                "ts": datetime.now().isoformat(),
+                "level": level,
+                "message": message[:200],
+            }
+        )
 
         # Send in background threads to avoid blocking
         if self.telegram_enabled:
             threading.Thread(
-                target=self._send_telegram, args=(message,),
+                target=self._send_telegram,
+                args=(message,),
                 daemon=True,
             ).start()
 
         if self.discord_enabled:
             threading.Thread(
-                target=self._send_discord, args=(message,),
+                target=self._send_discord,
+                args=(message,),
                 daemon=True,
             ).start()
 
         if self.email_enabled and level in (AlertLevel.CRITICAL, AlertLevel.DAILY_SUMMARY):
             threading.Thread(
-                target=self._send_email, args=(message, level),
+                target=self._send_email,
+                args=(message, level),
                 daemon=True,
             ).start()
 

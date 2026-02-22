@@ -7,46 +7,48 @@ and manages the system's operational state.
 """
 
 import logging
-from enum import Enum
-from dataclasses import dataclass, field
 from collections import deque
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
 from typing import Any
 
-_log = logging.getLogger(__name__)
-
-from self_healer import SelfHealer, ErrorSeverity, CircuitState
-from strategy_evolver import StrategyEvolver
-from meta_learner import MetaLearner
 from auto_optimizer import AutoOptimizer
+from meta_learner import MetaLearner
+from self_healer import SelfHealer
+from strategy_evolver import StrategyEvolver
+
+_log = logging.getLogger(__name__)
 
 
 class DecisionState(Enum):
     """Operational state that governs trading aggression and safety limits."""
 
-    NORMAL = "normal"         # Full trading
-    CAUTIOUS = "cautious"     # Reduced position sizes after losses
-    DEFENSIVE = "defensive"   # Minimal trading, near safety limits
-    HALTED = "halted"         # No trading, safety triggered
+    NORMAL = "normal"  # Full trading
+    CAUTIOUS = "cautious"  # Reduced position sizes after losses
+    DEFENSIVE = "defensive"  # Minimal trading, near safety limits
+    HALTED = "halted"  # No trading, safety triggered
 
 
 @dataclass
 class AutonomousConfig:
     """Safety limits for autonomous operation."""
-    max_daily_loss_pct: float = 5.0        # Max % loss in a day
-    max_consecutive_losses: int = 5         # Max losing streak before CAUTIOUS
-    min_capital_pct: float = 50.0           # Min % of initial capital before HALTED
-    cautious_position_mult: float = 0.5     # Position size multiplier in CAUTIOUS
-    defensive_position_mult: float = 0.25   # Position size multiplier in DEFENSIVE
-    evolution_interval: int = 500           # Cycles between evolution rounds
-    learning_interval: int = 100            # Cycles between meta-learning
-    optimization_interval: int = 1000       # Cycles between optimization
-    health_check_interval: int = 10         # Cycles between health checks
+
+    max_daily_loss_pct: float = 5.0  # Max % loss in a day
+    max_consecutive_losses: int = 5  # Max losing streak before CAUTIOUS
+    min_capital_pct: float = 50.0  # Min % of initial capital before HALTED
+    cautious_position_mult: float = 0.5  # Position size multiplier in CAUTIOUS
+    defensive_position_mult: float = 0.25  # Position size multiplier in DEFENSIVE
+    evolution_interval: int = 500  # Cycles between evolution rounds
+    learning_interval: int = 100  # Cycles between meta-learning
+    optimization_interval: int = 1000  # Cycles between optimization
+    health_check_interval: int = 10  # Cycles between health checks
 
 
 @dataclass
 class AutonomousEvent:
     """Logged autonomous decision or action."""
+
     event_type: str
     description: str
     timestamp: datetime = field(default_factory=datetime.now)
@@ -113,7 +115,7 @@ class DecisionEngine:
         self._halt_reason = ""
         self.state = DecisionState.NORMAL
         self._log_event("emergency_resume", "Trading resumed manually")
-        print(f"\n  [RESUME] Trading resumed")
+        print("\n  [RESUME] Trading resumed")
 
     def force_close_all_positions(self) -> None:
         """Signal agent to close all open positions immediately."""
@@ -145,8 +147,7 @@ class DecisionEngine:
         for a in self._alerts:
             a["acknowledged"] = True
 
-    def orchestrate(self, cycle_count: int, current_capital: float,
-                    current_pnl: float = 0) -> dict[str, Any]:
+    def orchestrate(self, cycle_count: int, current_capital: float, current_pnl: float = 0) -> dict[str, Any]:
         """
         Main orchestration method — called at the start of each cycle.
         Returns dict with instructions for the agent.
@@ -175,8 +176,7 @@ class DecisionEngine:
         if cycle_count % self.config.health_check_interval == 0:
             health = self.healer.check_health()
             if not health.overall_healthy:
-                self._log_event("health_warning", "System health degraded",
-                               health.to_dict())
+                self._log_event("health_warning", "System health degraded", health.to_dict())
                 # Don't halt for health — just log. Self-healer handles recovery.
 
         # 2. Safety check
@@ -185,9 +185,11 @@ class DecisionEngine:
             old_state = self.state
             self.state = state
             self._state_change_time = datetime.now()
-            self._log_event("state_change",
-                           f"{old_state.value} -> {state.value}: {reason}",
-                           {"old": old_state.value, "new": state.value, "reason": reason})
+            self._log_event(
+                "state_change",
+                f"{old_state.value} -> {state.value}: {reason}",
+                {"old": old_state.value, "new": state.value, "reason": reason},
+            )
             print(f"  [DecisionEngine] State: {old_state.value} -> {state.value} ({reason})")
 
         # Apply state-based restrictions
@@ -249,18 +251,24 @@ class DecisionEngine:
             return DecisionState.CAUTIOUS, f"{self._consecutive_losses} consecutive losses"
 
         # Check if we can recover from CAUTIOUS/DEFENSIVE
-        if self.state in (DecisionState.CAUTIOUS, DecisionState.DEFENSIVE):
-            if self._state_change_time:
-                elapsed = (now - self._state_change_time).total_seconds()
-                # Auto-recover after 30 minutes if conditions improve
-                if elapsed > 1800 and self._consecutive_losses < 3:
-                    return DecisionState.NORMAL, "conditions improved"
+        if self.state in (DecisionState.CAUTIOUS, DecisionState.DEFENSIVE) and self._state_change_time:
+            elapsed = (now - self._state_change_time).total_seconds()
+            # Auto-recover after 30 minutes if conditions improve
+            if elapsed > 1800 and self._consecutive_losses < 3:
+                return DecisionState.NORMAL, "conditions improved"
 
         return self.state if self.state != DecisionState.HALTED else DecisionState.NORMAL, "ok"
 
-    def record_trade_result(self, pnl: float, strategy_signal: str, ml_signal: str,
-                            final_signal: str, strategy_confidence: float,
-                            ml_confidence: float, regime: str) -> None:
+    def record_trade_result(
+        self,
+        pnl: float,
+        strategy_signal: str,
+        ml_signal: str,
+        final_signal: str,
+        strategy_confidence: float,
+        ml_confidence: float,
+        regime: str,
+    ) -> None:
         """Record a trade result — updates all subsystems."""
         # Track daily PnL
         self._daily_pnl += pnl
@@ -303,13 +311,14 @@ class DecisionEngine:
         actions = []
 
         # Meta-learning (every 100 cycles)
-        if (cycle_count - self._last_learning_cycle >= self.config.learning_interval
-                and len(self.meta.observations) >= 10):
+        if (
+            cycle_count - self._last_learning_cycle >= self.config.learning_interval
+            and len(self.meta.observations) >= 10
+        ):
             result = self.meta.learn()
             if result.get("changes"):
                 actions.append(f"meta_learn: {list(result['changes'].keys())}")
-                self._log_event("meta_learning", "Updated trading config",
-                               result.get("changes", {}))
+                self._log_event("meta_learning", "Updated trading config", result.get("changes", {}))
             self._last_learning_cycle = cycle_count
 
         # Strategy evolution (every 500 cycles) — backtest unscored genomes, then evolve
@@ -326,14 +335,14 @@ class DecisionEngine:
                 # Collect best evolved params for strategy hot-reload
                 evolved = self.evolver.get_all_best()
                 self._latest_evolved_params = {
-                    name: data["parameters"]
-                    for name, data in evolved.items()
-                    if data.get("parameters")
+                    name: data["parameters"] for name, data in evolved.items() if data.get("parameters")
                 }
                 actions.append(f"evolution: gen {self.evolver.generation}")
-                self._log_event("evolution", f"Evolved to generation {self.evolver.generation}",
-                               {"evolved_strategies": list(self._latest_evolved_params.keys()),
-                                "genomes_scored": scored})
+                self._log_event(
+                    "evolution",
+                    f"Evolved to generation {self.evolver.generation}",
+                    {"evolved_strategies": list(self._latest_evolved_params.keys()), "genomes_scored": scored},
+                )
             self._last_evolution_cycle = cycle_count
 
         # Auto-optimization (every 1000 cycles) — run backtest trials
@@ -341,11 +350,14 @@ class DecisionEngine:
             try:
                 results = self._run_optimization_trials()
                 if results:
-                    actions.append(f"optimization: {len(results)} trials, "
-                                   f"best_score={self.optimizer.best_result.score:.3f}")
-                    self._log_event("optimization",
-                                   f"Ran {len(results)} trials",
-                                   {"best_score": self.optimizer.best_result.score if self.optimizer.best_result else 0})
+                    actions.append(
+                        f"optimization: {len(results)} trials, best_score={self.optimizer.best_result.score:.3f}"
+                    )
+                    self._log_event(
+                        "optimization",
+                        f"Ran {len(results)} trials",
+                        {"best_score": self.optimizer.best_result.score if self.optimizer.best_result else 0},
+                    )
             except Exception as e:
                 self._log_event("optimization_error", str(e))
             self._last_optimization_cycle = cycle_count
@@ -378,6 +390,7 @@ class DecisionEngine:
 
                 try:
                     import config as cfg
+
                     # Snapshot config values
                     orig = {
                         "sl": cfg.Config.STOP_LOSS_PCT,
@@ -421,9 +434,9 @@ class DecisionEngine:
 
     def _run_optimization_trials(self, n_trials: int = 5) -> list[dict[str, Any]]:
         """Run mini-backtest trials for hyperparameter optimization."""
+        import config as cfg
         from backtester import Backtester
         from demo_data import generate_demo_ohlcv
-        import config as cfg
 
         suggestions = self.optimizer.run_optimization_round(n_trials=n_trials)
         results = []
@@ -514,9 +527,7 @@ class DecisionEngine:
             "evolver": self.evolver.get_status(),
             "meta_learner": self.meta.get_status(),
             "optimizer": self.optimizer.get_status(),
-            "recent_events": [
-                e.to_dict() for e in list(self.event_log)[-10:]
-            ],
+            "recent_events": [e.to_dict() for e in list(self.event_log)[-10:]],
         }
 
     def print_autonomous_summary(self) -> None:
@@ -528,30 +539,35 @@ class DecisionEngine:
             DecisionState.HALTED: "[STOP]",
         }
         icon = state_icons.get(self.state, "?")
-        print(f"\n  AUTONOMOUS {icon} State={self.state.value} | "
-              f"DailyPnL=${self._daily_pnl:,.2f} | "
-              f"LossStreak={self._consecutive_losses} | "
-              f"Decisions={self._total_autonomous_decisions}")
+        print(
+            f"\n  AUTONOMOUS {icon} State={self.state.value} | "
+            f"DailyPnL=${self._daily_pnl:,.2f} | "
+            f"LossStreak={self._consecutive_losses} | "
+            f"Decisions={self._total_autonomous_decisions}"
+        )
 
         # Signal weights
         sw = self.meta.config.strategy_weight
         mw = self.meta.config.ml_weight
-        print(f"  Weights: Strategy={sw:.0%} ML={mw:.0%} | "
-              f"Sizing={self.meta.config.position_size_method} | "
-              f"Retrain={self.meta.config.retrain_hours:.1f}h")
+        print(
+            f"  Weights: Strategy={sw:.0%} ML={mw:.0%} | "
+            f"Sizing={self.meta.config.position_size_method} | "
+            f"Retrain={self.meta.config.retrain_hours:.1f}h"
+        )
 
         # Evolution
         if self.evolver._initialized:
-            print(f"  Evolution: Gen {self.evolver.generation} | "
-                  f"Best strategies: {list(self.evolver.best_genomes.keys())[:3]}")
+            print(
+                f"  Evolution: Gen {self.evolver.generation} | "
+                f"Best strategies: {list(self.evolver.best_genomes.keys())[:3]}"
+            )
 
         # Health
         health = self.healer._cached_health
         if health:
             h_count = health.components_healthy
             h_total = health.components_total
-            print(f"  Health: {h_count}/{h_total} components | "
-                  f"Errors/min={health.error_rate:.1f}")
+            print(f"  Health: {h_count}/{h_total} components | Errors/min={health.error_rate:.1f}")
 
         # Recent events
         recent = list(self.event_log)[-3:]

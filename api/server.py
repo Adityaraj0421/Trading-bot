@@ -16,19 +16,19 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-_log = logging.getLogger(__name__)
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.data_store import DataStore
-from api.routes import status, trading, autonomous, backtest, intelligence, arbitrage, risk, telegram
+from api.routes import arbitrage, autonomous, backtest, intelligence, risk, status, telegram, trading
 from api.routes import websocket as ws_route
 from api.websocket_manager import WebSocketManager
 from config import Config
 from telegram_bot import TelegramBot
+
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +63,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             )
 
         return await call_next(request)
+
 
 # ---------------------------------------------------------------------------
 # Global DataStore shared between the agent thread and API request handlers
@@ -126,6 +127,7 @@ def _run_agent() -> None:
     """Import and start the trading agent in the current thread."""
     try:
         from agent import TradingAgent, set_data_store
+
         agent = TradingAgent()
         agent.telegram_bot = telegram_bot
         set_data_store(data_store, agent=agent)

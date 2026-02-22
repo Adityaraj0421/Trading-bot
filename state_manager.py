@@ -12,6 +12,7 @@ import logging
 import os
 import pickle
 from datetime import datetime
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -37,10 +38,7 @@ class StateManager:
                 "version": "5.0",
                 "cycle_count": agent.cycle_count,
                 "risk_manager": agent.risk.to_dict(),
-                "last_train_time": (
-                    agent.last_train_time.isoformat()
-                    if agent.last_train_time else None
-                ),
+                "last_train_time": (agent.last_train_time.isoformat() if agent.last_train_time else None),
                 "last_data_hash": agent._last_data_hash,
                 "regime_history_len": len(agent.regime_detector.regime_history),
             }
@@ -61,7 +59,7 @@ class StateManager:
                     pickle.dump(model_state, f)
 
             # v5.0: Save autonomous subsystem state
-            if hasattr(agent, 'decision'):
+            if hasattr(agent, "decision"):
                 autonomous_state = agent.decision.to_dict()
                 with open(self.autonomous_file, "w") as f:
                     json.dump(autonomous_state, f, indent=2)
@@ -77,7 +75,7 @@ class StateManager:
             return False
 
         try:
-            with open(self.state_file, "r") as f:
+            with open(self.state_file) as f:
                 state = json.load(f)
 
             agent.cycle_count = state.get("cycle_count", 0)
@@ -100,22 +98,28 @@ class StateManager:
                 agent.model.last_train_accuracy = model_state["last_train_accuracy"]
 
             # v5.0: Restore autonomous subsystem state
-            if hasattr(agent, 'decision') and os.path.exists(self.autonomous_file):
-                with open(self.autonomous_file, "r") as f:
+            if hasattr(agent, "decision") and os.path.exists(self.autonomous_file):
+                with open(self.autonomous_file) as f:
                     autonomous_state = json.load(f)
                 agent.decision.from_dict(autonomous_state)
-                _log.info("[State] Autonomous state restored: "
-                         "decision=%s | meta_rounds=%s | evolution_gen=%s",
-                         agent.decision.state.value,
-                         agent.decision.meta.learning_count,
-                         agent.decision.evolver.generation)
+                _log.info(
+                    "[State] Autonomous state restored: decision=%s | meta_rounds=%s | evolution_gen=%s",
+                    agent.decision.state.value,
+                    agent.decision.meta.learning_count,
+                    agent.decision.evolver.generation,
+                )
 
             saved_at = state.get("saved_at", "unknown")
             version = state.get("version", "4.0")
             positions = len(state["risk_manager"].get("positions", []))
             _log.info("[State] Restored from %s (v%s)", saved_at, version)
-            _log.info("[State] Cycles: %d | Positions: %d | Capital: $%,.2f | PnL: $%,.2f",
-                      agent.cycle_count, positions, agent.risk.capital, agent.risk.total_pnl)
+            _log.info(
+                "[State] Cycles: %d | Positions: %d | Capital: $%,.2f | PnL: $%,.2f",
+                agent.cycle_count,
+                positions,
+                agent.risk.capital,
+                agent.risk.total_pnl,
+            )
             return True
 
         except Exception as e:

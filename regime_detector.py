@@ -5,12 +5,13 @@ Bounded history, cached HMM results.
 """
 
 import logging
+from collections import deque
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any
+
 import numpy as np
 import pandas as pd
-from enum import Enum
-from dataclasses import dataclass
-from collections import deque
 
 _log = logging.getLogger(__name__)
 
@@ -60,14 +61,14 @@ class RegimeDetector:
     ADX_PERIOD = 14
 
     # Volatility thresholds (percentile-based)
-    HIGH_VOL_THRESHOLD = 0.8    # Above this percentile = high volatility
-    LOW_VOL_THRESHOLD = 0.3     # Below this percentile = ranging/low vol
+    HIGH_VOL_THRESHOLD = 0.8  # Above this percentile = high volatility
+    LOW_VOL_THRESHOLD = 0.3  # Below this percentile = ranging/low vol
 
     # Trend detection thresholds
-    MIN_ALIGNMENT = 2           # MA alignment score for trend confirmation
-    MIN_TREND_STRENGTH = 0.3    # ADX proxy minimum for trend classification
-    TREND_BASE_CONFIDENCE = 0.6 # Starting confidence for a confirmed trend
-    TREND_STRENGTH_WEIGHT = 0.3 # How much trend strength boosts confidence
+    MIN_ALIGNMENT = 2  # MA alignment score for trend confirmation
+    MIN_TREND_STRENGTH = 0.3  # ADX proxy minimum for trend classification
+    TREND_BASE_CONFIDENCE = 0.6  # Starting confidence for a confirmed trend
+    TREND_STRENGTH_WEIGHT = 0.3  # How much trend strength boosts confidence
 
     # Regime combination weights
     TREND_WEIGHT = 0.4
@@ -88,11 +89,16 @@ class RegimeDetector:
         """Attempt to initialise a Gaussian HMM; silently disable if hmmlearn is missing."""
         try:
             import warnings
+
             warnings.filterwarnings("ignore", module="hmmlearn")
             from hmmlearn.hmm import GaussianHMM
+
             self.hmm_model = GaussianHMM(
-                n_components=self.HMM_COMPONENTS, covariance_type="full",
-                n_iter=self.HMM_ITERATIONS, random_state=42, init_params="",
+                n_components=self.HMM_COMPONENTS,
+                covariance_type="full",
+                n_iter=self.HMM_ITERATIONS,
+                random_state=42,
+                init_params="",
             )
             self.has_hmm = True
         except ImportError:
@@ -119,7 +125,8 @@ class RegimeDetector:
             self.current_regime = regime
 
         state = RegimeState(
-            regime=regime, confidence=confidence,
+            regime=regime,
+            confidence=confidence,
             volatility=vol_regime["volatility_pct"],
             trend_strength=trend_regime["strength"],
             regime_duration=self.regime_duration,
@@ -155,7 +162,11 @@ class RegimeDetector:
         avg_pct = (vol_percentile + bb_percentile) / 2
 
         if avg_pct > self.HIGH_VOL_THRESHOLD:
-            return {"regime": MarketRegime.HIGH_VOLATILITY, "volatility_pct": current_vol, "confidence": min(avg_pct, 0.95)}
+            return {
+                "regime": MarketRegime.HIGH_VOLATILITY,
+                "volatility_pct": current_vol,
+                "confidence": min(avg_pct, 0.95),
+            }
         elif avg_pct < self.LOW_VOL_THRESHOLD:
             return {"regime": MarketRegime.RANGING, "volatility_pct": current_vol, "confidence": float(1 - avg_pct)}
         else:
@@ -234,10 +245,12 @@ class RegimeDetector:
 
             # Characterize states by mean return using groupby-like approach
             returns_arr = features[:, 0]
-            state_means = {s: returns_arr[states == s].mean() if (states == s).sum() > 0 else 0 for s in range(self.HMM_COMPONENTS)}
+            state_means = {
+                s: returns_arr[states == s].mean() if (states == s).sum() > 0 else 0 for s in range(self.HMM_COMPONENTS)
+            }
 
             sorted_states = sorted(state_means.items(), key=lambda x: x[1])
-            bear_state, range_state, bull_state = sorted_states[0][0], sorted_states[1][0], sorted_states[2][0]
+            bear_state, _range_state, bull_state = sorted_states[0][0], sorted_states[1][0], sorted_states[2][0]
 
             current = states[-1]
             if current == bull_state:
@@ -252,7 +265,9 @@ class RegimeDetector:
             _log.debug("HMM regime detection failed: %s", e)
             return None
 
-    def _combine_regimes(self, vol_result: dict[str, Any], trend_result: dict[str, Any], hmm_result: dict[str, Any] | None) -> tuple[MarketRegime, float]:
+    def _combine_regimes(
+        self, vol_result: dict[str, Any], trend_result: dict[str, Any], hmm_result: dict[str, Any] | None
+    ) -> tuple[MarketRegime, float]:
         """Merge volatility, trend, and HMM sub-results into a single regime verdict."""
         votes = {}
 

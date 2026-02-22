@@ -10,14 +10,14 @@ Uses raw requests.post for sending (works from the sync agent thread).
 Receives updates via FastAPI webhook endpoint (api/routes/telegram.py).
 """
 
-import json
 import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 import requests
 
@@ -31,6 +31,7 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}"
 @dataclass
 class PendingConfirmation:
     """A trade awaiting user approval via Telegram inline keyboard."""
+
     trade_id: str
     signal: str
     pair: str
@@ -73,9 +74,7 @@ class TelegramBot:
         }
 
         # Start cleanup thread for expired confirmations
-        self._cleanup_thread = threading.Thread(
-            target=self._cleanup_loop, daemon=True, name="tg-cleanup"
-        )
+        self._cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True, name="tg-cleanup")
         self._cleanup_thread.start()
 
     @property
@@ -204,19 +203,13 @@ class TelegramBot:
             conf.event.set()
             self._answer_callback(callback_id, "Trade APPROVED")
             if conf.message_id:
-                self._edit_message(
-                    conf.message_id,
-                    f"APPROVED {conf.side.upper()} {conf.pair} @ ${conf.price:,.2f}"
-                )
+                self._edit_message(conf.message_id, f"APPROVED {conf.side.upper()} {conf.pair} @ ${conf.price:,.2f}")
         elif action == "reject":
             conf.decision = "rejected"
             conf.event.set()
             self._answer_callback(callback_id, "Trade REJECTED")
             if conf.message_id:
-                self._edit_message(
-                    conf.message_id,
-                    f"REJECTED {conf.side.upper()} {conf.pair} @ ${conf.price:,.2f}"
-                )
+                self._edit_message(conf.message_id, f"REJECTED {conf.side.upper()} {conf.pair} @ ${conf.price:,.2f}")
 
     # ------------------------------------------------------------------
     # Command handlers
@@ -247,8 +240,10 @@ class TelegramBot:
         auto = snap.get("autonomous", {})
         state = auto.get("state", "unknown")
         state_emoji = {
-            "normal": "🟢", "cautious": "🟡",
-            "defensive": "🟠", "halted": "🔴",
+            "normal": "🟢",
+            "cautious": "🟡",
+            "defensive": "🟠",
+            "halted": "🔴",
         }.get(state, "⚪")
 
         pnl = snap.get("total_pnl", 0)
@@ -377,10 +372,12 @@ class TelegramBot:
     def _cmd_close_all(self) -> None:
         """Send confirmation keyboard before force-closing all positions."""
         keyboard = {
-            "inline_keyboard": [[
-                {"text": "Yes, close all", "callback_data": "confirm_close_all"},
-                {"text": "Cancel", "callback_data": "cancel_close_all"},
-            ]]
+            "inline_keyboard": [
+                [
+                    {"text": "Yes, close all", "callback_data": "confirm_close_all"},
+                    {"text": "Cancel", "callback_data": "cancel_close_all"},
+                ]
+            ]
         }
         self._send(
             "⚠️ *Force close ALL positions?*\nThis cannot be undone.",
@@ -398,16 +395,15 @@ class TelegramBot:
             self._send("Decision engine not available.")
             return
         decision.force_close_all_positions()
-        self._send("🚨 *Force close triggered.* All positions will be closed on the next cycle.",
-                    parse_mode="Markdown")
+        self._send("🚨 *Force close triggered.* All positions will be closed on the next cycle.", parse_mode="Markdown")
 
     # ------------------------------------------------------------------
     # Trade confirmation flow (called from agent thread)
     # ------------------------------------------------------------------
 
-    def request_confirmation(self, signal: str, pair: str, side: str,
-                             price: float, quantity: float,
-                             strategy: str, confidence: float) -> PendingConfirmation:
+    def request_confirmation(
+        self, signal: str, pair: str, side: str, price: float, quantity: float, strategy: str, confidence: float
+    ) -> PendingConfirmation:
         """
         Send a trade confirmation request to Telegram and return a
         PendingConfirmation. The caller should wait on conf.event with a timeout.
@@ -415,9 +411,13 @@ class TelegramBot:
         trade_id = uuid.uuid4().hex[:8]
         conf = PendingConfirmation(
             trade_id=trade_id,
-            signal=signal, pair=pair, side=side,
-            price=price, quantity=quantity,
-            strategy=strategy, confidence=confidence,
+            signal=signal,
+            pair=pair,
+            side=side,
+            price=price,
+            quantity=quantity,
+            strategy=strategy,
+            confidence=confidence,
         )
 
         with self._pending_lock:
@@ -436,14 +436,15 @@ class TelegramBot:
             f"(default: {Config.TELEGRAM_CONFIRMATION_DEFAULT})_"
         )
         keyboard = {
-            "inline_keyboard": [[
-                {"text": "Approve ✅", "callback_data": f"approve:{trade_id}"},
-                {"text": "Reject ❌", "callback_data": f"reject:{trade_id}"},
-            ]]
+            "inline_keyboard": [
+                [
+                    {"text": "Approve ✅", "callback_data": f"approve:{trade_id}"},
+                    {"text": "Reject ❌", "callback_data": f"reject:{trade_id}"},
+                ]
+            ]
         }
 
-        msg_id = self._send(text, parse_mode="Markdown", reply_markup=keyboard,
-                            return_message_id=True)
+        msg_id = self._send(text, parse_mode="Markdown", reply_markup=keyboard, return_message_id=True)
         conf.message_id = msg_id
 
         return conf
@@ -452,9 +453,13 @@ class TelegramBot:
     # Telegram API helpers (raw requests.post — works from sync threads)
     # ------------------------------------------------------------------
 
-    def _send(self, text: str, parse_mode: str | None = None,
-              reply_markup: dict | None = None,
-              return_message_id: bool = False) -> int | None:
+    def _send(
+        self,
+        text: str,
+        parse_mode: str | None = None,
+        reply_markup: dict | None = None,
+        return_message_id: bool = False,
+    ) -> int | None:
         """Send a message to the configured chat."""
         if not self.enabled:
             return None

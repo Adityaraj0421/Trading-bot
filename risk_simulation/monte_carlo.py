@@ -5,29 +5,32 @@ Simulates thousands of possible future equity paths based on historical
 trade return distribution. Computes VaR, CVaR, and probability of ruin.
 """
 
-import numpy as np
 from dataclasses import dataclass, field
+
+import numpy as np
+
 from config import Config
 
 
 @dataclass
 class MonteCarloResult:
     """Results from a Monte Carlo simulation run."""
+
     n_simulations: int
     n_days: int
     initial_equity: float
-    var_95: float              # 95% Value at Risk (loss)
-    var_99: float              # 99% Value at Risk (loss)
-    cvar_95: float             # Expected loss beyond 95% VaR
-    cvar_99: float             # Expected loss beyond 99% VaR
+    var_95: float  # 95% Value at Risk (loss)
+    var_99: float  # 99% Value at Risk (loss)
+    cvar_95: float  # Expected loss beyond 95% VaR
+    cvar_99: float  # Expected loss beyond 99% VaR
     max_drawdown_median: float
     max_drawdown_95th: float
     probability_of_ruin: float  # P(equity <= 0)
     median_final_equity: float
-    percentile_5: float        # Worst 5% outcome
+    percentile_5: float  # Worst 5% outcome
     percentile_25: float
     percentile_75: float
-    percentile_95: float       # Best 5% outcome
+    percentile_95: float  # Best 5% outcome
     mean_final_equity: float
     paths_summary: list = field(default_factory=list)  # Percentile bands for chart
 
@@ -99,10 +102,7 @@ class MonteCarloSimulator:
 
         # Generate random paths
         # Each path: initial_equity * cumulative product of (1 + random_return)
-        random_returns = np.random.normal(
-            mean_return, std_return,
-            size=(self.n_simulations, self.n_days)
-        )
+        random_returns = np.random.normal(mean_return, std_return, size=(self.n_simulations, self.n_days))
 
         # Build equity paths
         equity_paths = initial_equity * np.cumprod(1 + random_returns, axis=1)
@@ -139,14 +139,16 @@ class MonteCarloSimulator:
         paths_summary = []
         for day_idx in range(0, self.n_days, step):
             day_values = equity_paths[:, day_idx]
-            paths_summary.append({
-                "day": day_idx + 1,
-                "p5": round(float(np.percentile(day_values, 5)), 2),
-                "p25": round(float(np.percentile(day_values, 25)), 2),
-                "p50": round(float(np.percentile(day_values, 50)), 2),
-                "p75": round(float(np.percentile(day_values, 75)), 2),
-                "p95": round(float(np.percentile(day_values, 95)), 2),
-            })
+            paths_summary.append(
+                {
+                    "day": day_idx + 1,
+                    "p5": round(float(np.percentile(day_values, 5)), 2),
+                    "p25": round(float(np.percentile(day_values, 25)), 2),
+                    "p50": round(float(np.percentile(day_values, 50)), 2),
+                    "p75": round(float(np.percentile(day_values, 75)), 2),
+                    "p95": round(float(np.percentile(day_values, 95)), 2),
+                }
+            )
 
         return MonteCarloResult(
             n_simulations=self.n_simulations,

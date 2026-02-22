@@ -7,33 +7,34 @@ cascading errors.
 """
 
 import logging
-import time
 import traceback
-from enum import Enum
-from dataclasses import dataclass, field
-from collections import deque, defaultdict
+from collections import defaultdict, deque
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from enum import Enum
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
 
 class ErrorSeverity(Enum):
-    LOW = "low"           # Logging, display issues
-    MEDIUM = "medium"     # Single component degraded
-    HIGH = "high"         # Core component failing
-    CRITICAL = "critical" # System integrity at risk
+    LOW = "low"  # Logging, display issues
+    MEDIUM = "medium"  # Single component degraded
+    HIGH = "high"  # Core component failing
+    CRITICAL = "critical"  # System integrity at risk
 
 
 class CircuitState(Enum):
-    CLOSED = "closed"       # Normal operation
-    OPEN = "open"           # Failing — skip operations
-    HALF_OPEN = "half_open" # Testing if recovered
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing — skip operations
+    HALF_OPEN = "half_open"  # Testing if recovered
 
 
 @dataclass
 class ErrorRecord:
     """Single error event with component, severity, and traceback."""
+
     component: str
     error_type: str
     message: str
@@ -46,6 +47,7 @@ class ErrorRecord:
 @dataclass
 class HealthMetrics:
     """System health snapshot used by the self-healer."""
+
     memory_ok: bool = True
     api_healthy: bool = True
     data_fresh: bool = True
@@ -96,17 +98,22 @@ class SelfHealer:
     """
 
     COMPONENTS = [
-        "data_fetcher", "model", "risk_manager", "executor",
-        "regime_detector", "sentiment", "strategy_engine",
-        "drift_detector", "state_manager", "logger",
+        "data_fetcher",
+        "model",
+        "risk_manager",
+        "executor",
+        "regime_detector",
+        "sentiment",
+        "strategy_engine",
+        "drift_detector",
+        "state_manager",
+        "logger",
     ]
 
     def __init__(self, max_errors: int = 200) -> None:
         self.start_time = datetime.now()
         self.error_history: deque[ErrorRecord] = deque(maxlen=max_errors)
-        self.circuit_breakers: dict[str, CircuitBreaker] = {
-            comp: CircuitBreaker() for comp in self.COMPONENTS
-        }
+        self.circuit_breakers: dict[str, CircuitBreaker] = {comp: CircuitBreaker() for comp in self.COMPONENTS}
         self.recovery_actions: dict[str, list[Callable[[], None]]] = {}
         self.recovery_attempts: dict[str, int] = defaultdict(int)
         self.last_health_check: datetime | None = None
@@ -115,8 +122,7 @@ class SelfHealer:
         self._last_model_train: datetime | None = None
         self._consecutive_data_failures: int = 0
 
-    def record_error(self, component: str, error: Exception,
-                     severity: ErrorSeverity = ErrorSeverity.MEDIUM) -> None:
+    def record_error(self, component: str, error: Exception, severity: ErrorSeverity = ErrorSeverity.MEDIUM) -> None:
         """Record an error and update circuit breaker state."""
         record = ErrorRecord(
             component=component,
@@ -263,13 +269,12 @@ class SelfHealer:
 
         # Component health count
         metrics.components_total = len(self.COMPONENTS)
-        metrics.components_healthy = sum(
-            1 for c in self.COMPONENTS if self.is_component_available(c)
-        )
+        metrics.components_healthy = sum(1 for c in self.COMPONENTS if self.is_component_available(c))
 
         # Memory check — use psutil for real memory pressure detection
         try:
             import psutil
+
             mem = psutil.virtual_memory()
             # Flag if less than 10% memory available
             metrics.memory_ok = mem.percent < 90
@@ -277,6 +282,7 @@ class SelfHealer:
             # Fallback: check if process RSS is reasonable (< 2GB)
             try:
                 import resource
+
                 usage_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
                 metrics.memory_ok = usage_mb < 2048
             except (ImportError, AttributeError):

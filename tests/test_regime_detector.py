@@ -5,15 +5,16 @@ Tests the volatility regime, trend regime, regime combination, and
 regime history tracking without requiring hmmlearn.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
-from regime_detector import MarketRegime, RegimeState, RegimeDetector
+import pytest
 
+from regime_detector import MarketRegime, RegimeDetector, RegimeState
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def make_ohlcv(n=100, trend="flat", volatility="normal"):
     """Build synthetic OHLCV data with controllable trend and volatility."""
@@ -30,13 +31,16 @@ def make_ohlcv(n=100, trend="flat", volatility="normal"):
 
     prices = np.maximum(prices, 1000)  # Floor at 1000
 
-    df = pd.DataFrame({
-        "open": prices,
-        "high": prices + abs(np.random.normal(100, 50, n)),
-        "low": prices - abs(np.random.normal(100, 50, n)),
-        "close": prices + np.random.normal(0, 30, n),
-        "volume": np.random.uniform(500, 2000, n),
-    }, index=pd.date_range("2024-01-01", periods=n, freq="h"))
+    df = pd.DataFrame(
+        {
+            "open": prices,
+            "high": prices + abs(np.random.normal(100, 50, n)),
+            "low": prices - abs(np.random.normal(100, 50, n)),
+            "close": prices + np.random.normal(0, 30, n),
+            "volume": np.random.uniform(500, 2000, n),
+        },
+        index=pd.date_range("2024-01-01", periods=n, freq="h"),
+    )
 
     return df
 
@@ -61,6 +65,7 @@ def make_df_with_indicators(n=100, trend="flat", volatility="normal"):
 # MarketRegime enum
 # ---------------------------------------------------------------------------
 
+
 class TestMarketRegime:
     def test_all_regimes_exist(self):
         assert len(MarketRegime) == 4
@@ -71,6 +76,7 @@ class TestMarketRegime:
 # ---------------------------------------------------------------------------
 # RegimeState
 # ---------------------------------------------------------------------------
+
 
 class TestRegimeState:
     def test_fields(self):
@@ -88,6 +94,7 @@ class TestRegimeState:
 # ---------------------------------------------------------------------------
 # RegimeDetector
 # ---------------------------------------------------------------------------
+
 
 class TestRegimeDetector:
     @pytest.fixture()

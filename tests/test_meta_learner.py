@@ -6,24 +6,29 @@ retraining frequency, regime adjustments, confidence thresholds, and
 serialization.
 """
 
-import pytest
-import numpy as np
 from datetime import datetime, timedelta
-from meta_learner import MetaConfig, TradeObservation, MetaLearner
 
+import pytest
+
+from meta_learner import MetaConfig, MetaLearner, TradeObservation
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _add_observations(ml: MetaLearner, n: int, *,
-                      pnl: float = 10.0,
-                      strat_signal: str = "BUY",
-                      ml_signal: str = "BUY",
-                      final_signal: str = "BUY",
-                      strat_conf: float = 0.7,
-                      ml_conf: float = 0.7,
-                      regime: str = "trending_up"):
+
+def _add_observations(
+    ml: MetaLearner,
+    n: int,
+    *,
+    pnl: float = 10.0,
+    strat_signal: str = "BUY",
+    ml_signal: str = "BUY",
+    final_signal: str = "BUY",
+    strat_conf: float = 0.7,
+    ml_conf: float = 0.7,
+    regime: str = "trending_up",
+):
     """Inject n identical observations into the MetaLearner."""
     for _ in range(n):
         ml.observe_trade(
@@ -40,6 +45,7 @@ def _add_observations(ml: MetaLearner, n: int, *,
 # ---------------------------------------------------------------------------
 # MetaConfig
 # ---------------------------------------------------------------------------
+
 
 class TestMetaConfig:
     def test_defaults(self):
@@ -61,13 +67,18 @@ class TestMetaConfig:
 # TradeObservation
 # ---------------------------------------------------------------------------
 
+
 class TestTradeObservation:
     def test_to_dict(self):
         obs = TradeObservation(
-            pnl=50.0, signal_source="both",
-            strategy_signal="BUY", ml_signal="BUY",
-            final_signal="BUY", strategy_confidence=0.8,
-            ml_confidence=0.7, regime="trending_up",
+            pnl=50.0,
+            signal_source="both",
+            strategy_signal="BUY",
+            ml_signal="BUY",
+            final_signal="BUY",
+            strategy_confidence=0.8,
+            ml_confidence=0.7,
+            regime="trending_up",
         )
         d = obs.to_dict()
         assert d["pnl"] == 50.0
@@ -78,6 +89,7 @@ class TestTradeObservation:
 # ---------------------------------------------------------------------------
 # MetaLearner — observe_trade
 # ---------------------------------------------------------------------------
+
 
 class TestObserveTrade:
     def test_observation_appended(self):
@@ -117,6 +129,7 @@ class TestObserveTrade:
 # MetaLearner — learn (top-level)
 # ---------------------------------------------------------------------------
 
+
 class TestLearn:
     def test_insufficient_data(self):
         ml = MetaLearner()
@@ -126,16 +139,14 @@ class TestLearn:
 
     def test_increments_learning_count(self):
         ml = MetaLearner()
-        _add_observations(ml, 15, strat_signal="BUY", ml_signal="SELL",
-                          final_signal="BUY", pnl=10.0)
+        _add_observations(ml, 15, strat_signal="BUY", ml_signal="SELL", final_signal="BUY", pnl=10.0)
         ml.learn()
         assert ml.learning_count == 1
         assert ml.last_learn_time is not None
 
     def test_returns_learned_status(self):
         ml = MetaLearner()
-        _add_observations(ml, 15, strat_signal="BUY", ml_signal="SELL",
-                          final_signal="BUY", pnl=10.0)
+        _add_observations(ml, 15, strat_signal="BUY", ml_signal="SELL", final_signal="BUY", pnl=10.0)
         # v2.0: learn() starts A/B experiment, use learn_immediate() for v1.0 compat
         result = ml.learn_immediate()
         assert result["status"] == "learned"
@@ -146,30 +157,27 @@ class TestLearn:
 # _learn_signal_weights
 # ---------------------------------------------------------------------------
 
+
 class TestLearnSignalWeights:
     def test_strategy_wins_get_higher_weight(self):
         ml = MetaLearner()
         # Strategy-sourced wins
-        _add_observations(ml, 10, strat_signal="BUY", ml_signal="SELL",
-                          final_signal="BUY", pnl=50.0)
+        _add_observations(ml, 10, strat_signal="BUY", ml_signal="SELL", final_signal="BUY", pnl=50.0)
         # ML-sourced losses
-        _add_observations(ml, 10, strat_signal="SELL", ml_signal="BUY",
-                          final_signal="BUY", pnl=-30.0)
+        _add_observations(ml, 10, strat_signal="SELL", ml_signal="BUY", final_signal="BUY", pnl=-30.0)
         initial_sw = ml.config.strategy_weight
         ml._learn_signal_weights_proposed(ml.config)
         assert ml.config.strategy_weight > initial_sw
 
     def test_weights_sum_to_one(self):
         ml = MetaLearner()
-        _add_observations(ml, 15, strat_signal="BUY", ml_signal="SELL",
-                          final_signal="BUY", pnl=10.0)
+        _add_observations(ml, 15, strat_signal="BUY", ml_signal="SELL", final_signal="BUY", pnl=10.0)
         ml._learn_signal_weights_proposed(ml.config)
         assert ml.config.strategy_weight + ml.config.ml_weight == pytest.approx(1.0)
 
     def test_weights_bounded(self):
         ml = MetaLearner()
-        _add_observations(ml, 15, strat_signal="BUY", ml_signal="SELL",
-                          final_signal="BUY", pnl=100.0)
+        _add_observations(ml, 15, strat_signal="BUY", ml_signal="SELL", final_signal="BUY", pnl=100.0)
         ml._learn_signal_weights_proposed(ml.config)
         assert 0.2 <= ml.config.strategy_weight <= 0.8
         assert 0.2 <= ml.config.ml_weight <= 0.8
@@ -177,14 +185,11 @@ class TestLearnSignalWeights:
     def test_agreement_bonus_increases(self):
         ml = MetaLearner()
         # "both" trades very profitable (must be > max of strat_avg, ml_avg)
-        _add_observations(ml, 10, strat_signal="BUY", ml_signal="BUY",
-                          final_signal="BUY", pnl=100.0)
+        _add_observations(ml, 10, strat_signal="BUY", ml_signal="BUY", final_signal="BUY", pnl=100.0)
         # Strategy-only trades less profitable
-        _add_observations(ml, 5, strat_signal="BUY", ml_signal="SELL",
-                          final_signal="BUY", pnl=10.0)
+        _add_observations(ml, 5, strat_signal="BUY", ml_signal="SELL", final_signal="BUY", pnl=10.0)
         # ML-only trades less profitable
-        _add_observations(ml, 5, strat_signal="SELL", ml_signal="BUY",
-                          final_signal="BUY", pnl=10.0)
+        _add_observations(ml, 5, strat_signal="SELL", ml_signal="BUY", final_signal="BUY", pnl=10.0)
         initial_bonus = ml.config.agreement_bonus
         ml._learn_signal_weights_proposed(ml.config)
         assert ml.config.agreement_bonus >= initial_bonus
@@ -192,8 +197,7 @@ class TestLearnSignalWeights:
     def test_insufficient_data_returns_none(self):
         ml = MetaLearner()
         # Only "both" observations (neither strat-only nor ml-only have >= 3)
-        _add_observations(ml, 5, strat_signal="BUY", ml_signal="BUY",
-                          final_signal="BUY", pnl=10.0)
+        _add_observations(ml, 5, strat_signal="BUY", ml_signal="BUY", final_signal="BUY", pnl=10.0)
         result = ml._learn_signal_weights_proposed(ml.config)
         assert result is None
 
@@ -201,6 +205,7 @@ class TestLearnSignalWeights:
 # ---------------------------------------------------------------------------
 # _learn_position_sizing
 # ---------------------------------------------------------------------------
+
 
 class TestLearnPositionSizing:
     def test_insufficient_data(self):
@@ -212,8 +217,8 @@ class TestLearnPositionSizing:
     def test_switches_to_kelly_with_edge(self):
         ml = MetaLearner()
         # 80% win rate, 2:1 reward/risk → strong Kelly edge
-        _add_observations(ml, 16, pnl=20.0)   # wins
-        _add_observations(ml, 4, pnl=-10.0)    # losses
+        _add_observations(ml, 16, pnl=20.0)  # wins
+        _add_observations(ml, 4, pnl=-10.0)  # losses
         result = ml._learn_position_sizing_proposed(ml.config)
         assert result is not None
         assert result["method"] == "kelly"
@@ -239,6 +244,7 @@ class TestLearnPositionSizing:
 # ---------------------------------------------------------------------------
 # _learn_retraining_frequency
 # ---------------------------------------------------------------------------
+
 
 class TestLearnRetrainingFrequency:
     def test_insufficient_drift_events(self):
@@ -268,6 +274,7 @@ class TestLearnRetrainingFrequency:
 # _learn_regime_adjustments
 # ---------------------------------------------------------------------------
 
+
 class TestLearnRegimeAdjustments:
     def test_insufficient_regime_data(self):
         ml = MetaLearner()
@@ -279,13 +286,25 @@ class TestLearnRegimeAdjustments:
         ml = MetaLearner()
         # Strategy outperforms ML in this regime
         for _ in range(5):
-            ml.observe_trade(pnl=50.0, strategy_signal="BUY", ml_signal="SELL",
-                             final_signal="BUY", strategy_confidence=0.8,
-                             ml_confidence=0.5, regime="trending_up")
+            ml.observe_trade(
+                pnl=50.0,
+                strategy_signal="BUY",
+                ml_signal="SELL",
+                final_signal="BUY",
+                strategy_confidence=0.8,
+                ml_confidence=0.5,
+                regime="trending_up",
+            )
         for _ in range(5):
-            ml.observe_trade(pnl=-20.0, strategy_signal="SELL", ml_signal="BUY",
-                             final_signal="BUY", strategy_confidence=0.5,
-                             ml_confidence=0.8, regime="trending_up")
+            ml.observe_trade(
+                pnl=-20.0,
+                strategy_signal="SELL",
+                ml_signal="BUY",
+                final_signal="BUY",
+                strategy_confidence=0.5,
+                ml_confidence=0.8,
+                regime="trending_up",
+            )
         result = ml._learn_regime_adjustments_proposed(ml.config)
         assert result is not None
         assert "trending_up" in result
@@ -295,6 +314,7 @@ class TestLearnRegimeAdjustments:
 # ---------------------------------------------------------------------------
 # _learn_confidence_threshold
 # ---------------------------------------------------------------------------
+
 
 class TestLearnConfidenceThreshold:
     def test_insufficient_data(self):
@@ -325,6 +345,7 @@ class TestLearnConfidenceThreshold:
 # get_signal_weights
 # ---------------------------------------------------------------------------
 
+
 class TestGetSignalWeights:
     def test_default_weights(self):
         ml = MetaLearner()
@@ -334,18 +355,14 @@ class TestGetSignalWeights:
 
     def test_regime_adjustment_boosts_strategy(self):
         ml = MetaLearner()
-        ml.config.regime_adjustments = {
-            "trending_up": {"bias": "strategy"}
-        }
+        ml.config.regime_adjustments = {"trending_up": {"bias": "strategy"}}
         sw, mw = ml.get_signal_weights(regime="trending_up")
         assert sw > 0.6
         assert sw + mw == pytest.approx(1.0)
 
     def test_regime_adjustment_boosts_ml(self):
         ml = MetaLearner()
-        ml.config.regime_adjustments = {
-            "ranging": {"bias": "ml"}
-        }
+        ml.config.regime_adjustments = {"ranging": {"bias": "ml"}}
         sw, mw = ml.get_signal_weights(regime="ranging")
         assert mw > 0.4
         assert sw + mw == pytest.approx(1.0)
@@ -368,6 +385,7 @@ class TestGetSignalWeights:
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
+
 
 class TestSerialization:
     def test_get_status_shape(self):

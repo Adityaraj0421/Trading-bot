@@ -25,10 +25,11 @@ Install for full power:
     pip install torch xgboost
 """
 
+import logging
 from typing import Any
+
 import numpy as np
 import pandas as pd
-import logging
 
 _log = logging.getLogger(__name__)
 
@@ -44,25 +45,28 @@ try:
     import torch
     import torch.nn as nn
     import torch.optim as optim
+
     _HAS_TORCH = True
 except ImportError:
     pass
 
 try:
     import xgboost as xgb
+
     _HAS_XGBOOST = True
 except ImportError:
     pass
 
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.preprocessing import StandardScaler
-from indicators import Indicators, FEATURE_COLUMNS
-from config import Config
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
 
+from config import Config  # noqa: E402
+from indicators import FEATURE_COLUMNS, Indicators  # noqa: E402
 
 # ── PyTorch LSTM Module ──────────────────────────────────────────
 
 if _HAS_TORCH:
+
     class LSTMFeatureExtractor(nn.Module):
         """
         PyTorch LSTM that extracts temporal feature embeddings.
@@ -76,9 +80,14 @@ if _HAS_TORCH:
           - Layer normalization for training stability
         """
 
-        def __init__(self, n_features: int, hidden_dim: int = 64,
-                     n_layers: int = 2, dropout: float = 0.2,
-                     embedding_dim: int = 16) -> None:
+        def __init__(
+            self,
+            n_features: int,
+            hidden_dim: int = 64,
+            n_layers: int = 2,
+            dropout: float = 0.2,
+            embedding_dim: int = 16,
+        ) -> None:
             super().__init__()
             self.hidden_dim = hidden_dim
             self.n_layers = n_layers
@@ -141,7 +150,6 @@ if _HAS_TORCH:
                 embeddings = self.forward(x_tensor)
                 return embeddings.numpy()
 
-
     class SelfSupervisedTrainer:
         """
         Self-supervised pre-training for LSTM feature extractor.
@@ -151,10 +159,9 @@ if _HAS_TORCH:
         the LSTM to capture predictive temporal patterns.
         """
 
-        def __init__(self, model: LSTMFeatureExtractor,
-                     n_features: int,
-                     lr: float = 0.001,
-                     weight_decay: float = 1e-5) -> None:
+        def __init__(
+            self, model: LSTMFeatureExtractor, n_features: int, lr: float = 0.001, weight_decay: float = 1e-5
+        ) -> None:
             self.model = model
             self.embedding_dim = model.projection[-1].out_features
 
@@ -164,16 +171,11 @@ if _HAS_TORCH:
 
             # Combine parameters for joint optimization
             all_params = list(model.parameters()) + list(self.pred_head.parameters())
-            self.optimizer = optim.AdamW(all_params, lr=lr,
-                                         weight_decay=weight_decay)
-            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                self.optimizer, mode='min', factor=0.5, patience=3
-            )
+            self.optimizer = optim.AdamW(all_params, lr=lr, weight_decay=weight_decay)
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode="min", factor=0.5, patience=3)
             self.loss_fn = nn.MSELoss()
 
-        def train_epoch(self, X_sequences: np.ndarray,
-                        Y_targets: np.ndarray,
-                        batch_size: int = 32) -> float:
+        def train_epoch(self, X_sequences: np.ndarray, Y_targets: np.ndarray, batch_size: int = 32) -> float:
             """
             Train one epoch of self-supervised pre-training.
 
@@ -207,9 +209,7 @@ if _HAS_TORCH:
                 # Backward with gradient clipping
                 self.optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), max_norm=1.0
-                )
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.optimizer.step()
 
                 total_loss += loss.item()
@@ -219,18 +219,21 @@ if _HAS_TORCH:
             self.scheduler.step(avg_loss)
             return avg_loss
 
-        def train_full(self, X_sequences: np.ndarray,
-                       Y_targets: np.ndarray,
-                       X_val_seq: np.ndarray | None = None,
-                       Y_val_targets: np.ndarray | None = None,
-                       epochs: int = 15,
-                       patience: int = 3) -> dict[str, list[float]]:
+        def train_full(
+            self,
+            X_sequences: np.ndarray,
+            Y_targets: np.ndarray,
+            X_val_seq: np.ndarray | None = None,
+            Y_val_targets: np.ndarray | None = None,
+            epochs: int = 15,
+            patience: int = 3,
+        ) -> dict[str, list[float]]:
             """
             Full training loop with early stopping.
 
             Returns training history dict.
             """
-            best_val_loss = float('inf')
+            best_val_loss = float("inf")
             best_state = None
             patience_counter = 0
             history = {"train_loss": [], "val_loss": []}
@@ -246,10 +249,7 @@ if _HAS_TORCH:
 
                     if val_loss < best_val_loss:
                         best_val_loss = val_loss
-                        best_state = {
-                            k: v.clone()
-                            for k, v in self.model.state_dict().items()
-                        }
+                        best_state = {k: v.clone() for k, v in self.model.state_dict().items()}
                         patience_counter = 0
                     else:
                         patience_counter += 1
@@ -279,14 +279,17 @@ if _HAS_TORCH:
 
 # ── Signal Constants ──────────────────────────────────────────────
 
+
 class Signal:
     """Trading signal constants (BUY, SELL, HOLD)."""
+
     BUY = "BUY"
     SELL = "SELL"
     HOLD = "HOLD"
 
 
 # ── Main Trading Model ───────────────────────────────────────────
+
 
 class TradingModel:
     """
@@ -316,28 +319,43 @@ class TradingModel:
             self._tier = 1
             self.lstm_model = None  # Built dynamically based on feature count
             self.xgb_model = xgb.XGBClassifier(
-                n_estimators=150, max_depth=6, learning_rate=0.05,
-                subsample=0.8, colsample_bytree=0.8,
-                eval_metric="mlogloss", use_label_encoder=False,
-                random_state=42, n_jobs=-1,
+                n_estimators=150,
+                max_depth=6,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                eval_metric="mlogloss",
+                use_label_encoder=False,
+                random_state=42,
+                n_jobs=-1,
             )
         elif _HAS_XGBOOST:
             self._tier = 2
             self.xgb_model = xgb.XGBClassifier(
-                n_estimators=150, max_depth=6, learning_rate=0.05,
-                subsample=0.8, colsample_bytree=0.8,
-                eval_metric="mlogloss", use_label_encoder=False,
-                random_state=42, n_jobs=-1,
+                n_estimators=150,
+                max_depth=6,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                eval_metric="mlogloss",
+                use_label_encoder=False,
+                random_state=42,
+                n_jobs=-1,
             )
         else:
             self._tier = 3
             self.rf_model = RandomForestClassifier(
-                n_estimators=100, max_depth=8,
-                min_samples_leaf=5, random_state=42, n_jobs=-1,
+                n_estimators=100,
+                max_depth=8,
+                min_samples_leaf=5,
+                random_state=42,
+                n_jobs=-1,
             )
             self.gb_model = GradientBoostingClassifier(
-                n_estimators=80, max_depth=4,
-                learning_rate=0.08, random_state=42,
+                n_estimators=80,
+                max_depth=4,
+                learning_rate=0.08,
+                random_state=42,
             )
 
         tier_name = {1: "PyTorch-LSTM+XGB", 2: "XGBoost", 3: "RF+GB"}[self._tier]
@@ -363,7 +381,7 @@ class TradingModel:
         sequences = []
         labels = []
         for i in range(self.lookback, len(X)):
-            sequences.append(X[i - self.lookback:i])
+            sequences.append(X[i - self.lookback : i])
             if y is not None:
                 labels.append(y[i])
         if not sequences:
@@ -436,20 +454,33 @@ class TradingModel:
         dist = dict(zip(unique, counts))
         tier_name = {1: "PyTorch-LSTM+XGB", 2: "XGBoost", 3: "RF+GB"}[self._tier]
         _log.info("[Model] Trained (%s) — val acc: %.2f%% | %s", tier_name, val_accuracy * 100, dist)
-        return {"cv_accuracy": val_accuracy, "samples": len(y),
-                "class_distribution": dist, "tier": self._tier}
+        return {"cv_accuracy": val_accuracy, "samples": len(y), "class_distribution": dist, "tier": self._tier}
 
     def _init_tier3(self) -> None:
         """Initialize tier 3 models."""
         self.rf_model = RandomForestClassifier(
-            n_estimators=100, max_depth=8, min_samples_leaf=5,
-            random_state=42, n_jobs=-1,
+            n_estimators=100,
+            max_depth=8,
+            min_samples_leaf=5,
+            random_state=42,
+            n_jobs=-1,
         )
         self.gb_model = GradientBoostingClassifier(
-            n_estimators=80, max_depth=4, learning_rate=0.08, random_state=42,
+            n_estimators=80,
+            max_depth=4,
+            learning_rate=0.08,
+            random_state=42,
         )
 
-    def _train_tier1(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, X_all: np.ndarray, y_all: np.ndarray) -> float:
+    def _train_tier1(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: np.ndarray,
+        y_val: np.ndarray,
+        X_all: np.ndarray,
+        y_all: np.ndarray,
+    ) -> float:
         """
         Train PyTorch LSTM feature extractor + XGBoost classifier.
 
@@ -470,42 +501,42 @@ class TradingModel:
 
         # Self-supervised pre-training target: predict compressed next features
         target_dim = min(16, n_features)
-        y_target_train = X_train[self.lookback:, :target_dim]
+        y_target_train = X_train[self.lookback :, :target_dim]
 
         y_target_val = None
         if len(X_seq_val) > 5:
-            y_target_val = X_val[self.lookback:, :target_dim]
+            y_target_val = X_val[self.lookback :, :target_dim]
 
         # Train LSTM with self-supervised objective
-        trainer = SelfSupervisedTrainer(
-            self.lstm_model, n_features,
-            lr=0.001, weight_decay=1e-5
-        )
+        trainer = SelfSupervisedTrainer(self.lstm_model, n_features, lr=0.001, weight_decay=1e-5)
         history = trainer.train_full(
-            X_seq_train, y_target_train,
-            X_seq_val, y_target_val,
-            epochs=15, patience=3,
+            X_seq_train,
+            y_target_train,
+            X_seq_val,
+            y_target_val,
+            epochs=15,
+            patience=3,
         )
 
-        _log.debug("LSTM training: %d epochs, final loss: %.4f",
-                    len(history["train_loss"]),
-                    history["train_loss"][-1] if history["train_loss"] else 0)
+        _log.debug(
+            "LSTM training: %d epochs, final loss: %.4f",
+            len(history["train_loss"]),
+            history["train_loss"][-1] if history["train_loss"] else 0,
+        )
 
         # Extract embeddings + combine with raw features
         lstm_train = self.lstm_model.extract_features(X_seq_train)
-        combined_train = np.hstack([lstm_train, X_train[self.lookback:]])
-        y_train_mapped = np.array([self._label_map[l] for l in y_seq_train])
+        combined_train = np.hstack([lstm_train, X_train[self.lookback :]])
+        y_train_mapped = np.array([self._label_map[lbl] for lbl in y_seq_train])
 
         self.xgb_model.fit(combined_train, y_train_mapped)
 
         # Validation accuracy
         if len(X_seq_val) > 0:
             lstm_val = self.lstm_model.extract_features(X_seq_val)
-            combined_val = np.hstack([lstm_val, X_val[self.lookback:]])
-            y_val_mapped = np.array([self._label_map[l] for l in y_seq_val])
-            val_accuracy = float(
-                np.mean(self.xgb_model.predict(combined_val) == y_val_mapped)
-            )
+            combined_val = np.hstack([lstm_val, X_val[self.lookback :]])
+            y_val_mapped = np.array([self._label_map[lbl] for lbl in y_seq_val])
+            val_accuracy = float(np.mean(self.xgb_model.predict(combined_val) == y_val_mapped))
         else:
             val_accuracy = 0.5
 
@@ -513,25 +544,41 @@ class TradingModel:
         X_seq_all, y_seq_all = self._create_sequences(X_all, y_all)
         if len(X_seq_all) > 0:
             lstm_all = self.lstm_model.extract_features(X_seq_all)
-            combined_all = np.hstack([lstm_all, X_all[self.lookback:]])
-            y_all_mapped = np.array([self._label_map[l] for l in y_seq_all])
+            combined_all = np.hstack([lstm_all, X_all[self.lookback :]])
+            y_all_mapped = np.array([self._label_map[lbl] for lbl in y_seq_all])
             self.xgb_model.fit(combined_all, y_all_mapped)
 
         return val_accuracy
 
-    def _train_tier2(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, X_all: np.ndarray, y_all: np.ndarray) -> float:
+    def _train_tier2(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: np.ndarray,
+        y_val: np.ndarray,
+        X_all: np.ndarray,
+        y_all: np.ndarray,
+    ) -> float:
         """Train XGBoost only."""
-        y_train_mapped = np.array([self._label_map[l] for l in y_train])
-        y_val_mapped = np.array([self._label_map[l] for l in y_val])
+        y_train_mapped = np.array([self._label_map[lbl] for lbl in y_train])
+        y_val_mapped = np.array([self._label_map[lbl] for lbl in y_val])
 
         self.xgb_model.fit(X_train, y_train_mapped)
         val_accuracy = float(np.mean(self.xgb_model.predict(X_val) == y_val_mapped))
 
-        y_all_mapped = np.array([self._label_map[l] for l in y_all])
+        y_all_mapped = np.array([self._label_map[lbl] for lbl in y_all])
         self.xgb_model.fit(X_all, y_all_mapped)
         return val_accuracy
 
-    def _train_tier3(self, X_train: np.ndarray, y_train: np.ndarray, X_val: np.ndarray, y_val: np.ndarray, X_all: np.ndarray, y_all: np.ndarray) -> float:
+    def _train_tier3(
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: np.ndarray,
+        y_val: np.ndarray,
+        X_all: np.ndarray,
+        y_all: np.ndarray,
+    ) -> float:
         """Train sklearn ensemble."""
         self.rf_model.fit(X_train, y_train)
         self.gb_model.fit(X_train, y_train)
@@ -580,7 +627,7 @@ class TradingModel:
         if self.lstm_model is None or len(df_ind) < self.lookback + 1:
             return self._predict_tier2(df_ind)
 
-        recent = df_ind[self.feature_cols].iloc[-(self.lookback + 1):].values
+        recent = df_ind[self.feature_cols].iloc[-(self.lookback + 1) :].values
         recent_scaled = self.scaler.transform(recent)
 
         # Create single sequence: (1, lookback, n_features)
@@ -622,20 +669,17 @@ class TradingModel:
         """Return feature importance scores sorted by importance (descending)."""
         if not self.is_trained:
             return {}
-        if self._tier in (1, 2) and hasattr(self, 'xgb_model'):
+        if self._tier in (1, 2) and hasattr(self, "xgb_model"):
             importance = self.xgb_model.feature_importances_
             cols = self.feature_cols
             if len(importance) > len(cols):
                 # LSTM embeddings come first in tier 1
-                raw_importance = importance[len(importance) - len(cols):]
-                return dict(sorted(zip(cols, raw_importance),
-                                   key=lambda x: x[1], reverse=True))
-            return dict(sorted(zip(cols, importance),
-                               key=lambda x: x[1], reverse=True))
-        elif hasattr(self, 'rf_model'):
+                raw_importance = importance[len(importance) - len(cols) :]
+                return dict(sorted(zip(cols, raw_importance), key=lambda x: x[1], reverse=True))
+            return dict(sorted(zip(cols, importance), key=lambda x: x[1], reverse=True))
+        elif hasattr(self, "rf_model"):
             importance = self.rf_model.feature_importances_
-            return dict(sorted(zip(self.feature_cols, importance),
-                               key=lambda x: x[1], reverse=True))
+            return dict(sorted(zip(self.feature_cols, importance), key=lambda x: x[1], reverse=True))
         return {}
 
     # ── v9.0: Model State Serialization ──────────────────────────────
@@ -656,10 +700,7 @@ class TradingModel:
         }
 
         if self._tier == 1 and self.lstm_model is not None:
-            state["lstm_state_dict"] = {
-                k: v.tolist()
-                for k, v in self.lstm_model.state_dict().items()
-            }
+            state["lstm_state_dict"] = {k: v.tolist() for k, v in self.lstm_model.state_dict().items()}
 
         return state
 
@@ -679,8 +720,7 @@ class TradingModel:
             try:
                 n_features = len(state.get("scaler_mean", [0] * 22))
                 self.lstm_model = self._build_lstm(n_features)
-                sd = {k: torch.tensor(v)
-                      for k, v in state["lstm_state_dict"].items()}
+                sd = {k: torch.tensor(v) for k, v in state["lstm_state_dict"].items()}
                 self.lstm_model.load_state_dict(sd)
                 _log.info("LSTM state restored successfully")
             except Exception as e:

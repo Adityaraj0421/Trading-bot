@@ -4,9 +4,8 @@ Unit tests for demo_data.py — generate_ohlcv() deterministic data generator.
 Validates shape, columns, OHLCV invariants, determinism, and timestamp spacing.
 """
 
-import pytest
-import numpy as np
 import pandas as pd
+
 from demo_data import generate_ohlcv
 
 

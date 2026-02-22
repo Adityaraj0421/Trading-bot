@@ -18,10 +18,11 @@ Logic:
 """
 
 import logging
-import numpy as np
-import pandas as pd
-from collections import deque, Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field
+
+import pandas as pd
+
 from indicators import Indicators
 
 _log = logging.getLogger(__name__)
@@ -29,32 +30,36 @@ _log = logging.getLogger(__name__)
 
 # ── Data Classes ──────────────────────────────────────────────────
 
+
 @dataclass
 class TimeframeRegime:
     """Regime state for a single timeframe."""
+
     timeframe: str
-    bias: str            # "bullish", "bearish", "neutral"
-    strength: float      # 0.0 to 1.0
-    trend_alignment: int # MA alignment score (-5 to +5)
+    bias: str  # "bullish", "bearish", "neutral"
+    strength: float  # 0.0 to 1.0
+    trend_alignment: int  # MA alignment score (-5 to +5)
     rsi: float
     macd_direction: str  # "bullish", "bearish"
-    momentum: float      # Recent % return
+    momentum: float  # Recent % return
     details: dict = field(default_factory=dict)
 
 
 @dataclass
 class MultiTFConsensus:
     """Consensus result across all timeframes."""
-    overall_bias: str          # "bullish", "bearish", "neutral", "conflicted"
+
+    overall_bias: str  # "bullish", "bearish", "neutral", "conflicted"
     consensus_strength: float  # 0.0 to 1.0
-    agreement_count: int       # How many TFs agree with majority
+    agreement_count: int  # How many TFs agree with majority
     total_timeframes: int
-    regime_by_tf: dict         # {tf: TimeframeRegime}
-    transition_probs: dict     # Next regime probabilities
+    regime_by_tf: dict  # {tf: TimeframeRegime}
+    transition_probs: dict  # Next regime probabilities
     confidence_multiplier: float  # 0.5 to 1.5 applied to signal confidence
 
 
 # ── Multi-Timeframe Confirmer ─────────────────────────────────────
+
 
 class MultiTimeframeConfirmer:
     """
@@ -65,9 +70,9 @@ class MultiTimeframeConfirmer:
     # Timeframe hierarchy: higher = more weight in consensus
     TIMEFRAME_WEIGHTS = {
         "15m": 0.10,
-        "1h":  0.25,
-        "4h":  0.35,
-        "1d":  0.30,
+        "1h": 0.25,
+        "4h": 0.35,
+        "1d": 0.30,
     }
 
     # Minimum agreement for trading
@@ -108,24 +113,23 @@ class MultiTimeframeConfirmer:
 
         if not regime_by_tf:
             return MultiTFConsensus(
-                overall_bias="neutral", consensus_strength=0.0,
-                agreement_count=0, total_timeframes=0,
-                regime_by_tf={}, transition_probs={},
+                overall_bias="neutral",
+                consensus_strength=0.0,
+                agreement_count=0,
+                total_timeframes=0,
+                regime_by_tf={},
+                transition_probs={},
                 confidence_multiplier=1.0,
             )
 
         # Compute weighted consensus
-        overall_bias, consensus_strength, agreement = self._compute_consensus(
-            regime_by_tf
-        )
+        overall_bias, consensus_strength, agreement = self._compute_consensus(regime_by_tf)
 
         # Track regime transition
         transition_probs = self._update_transitions(overall_bias)
 
         # Compute confidence multiplier based on agreement
-        confidence_mult = self._consensus_to_multiplier(
-            agreement, len(regime_by_tf), consensus_strength
-        )
+        confidence_mult = self._consensus_to_multiplier(agreement, len(regime_by_tf), consensus_strength)
 
         return MultiTFConsensus(
             overall_bias=overall_bias,
@@ -178,8 +182,7 @@ class MultiTimeframeConfirmer:
         self._htf_cache[target_tf] = (key, result)
         return result
 
-    def confirm_signal(self, signal: str, confidence: float,
-                       htf_bias: dict) -> tuple[str, float]:
+    def confirm_signal(self, signal: str, confidence: float, htf_bias: dict) -> tuple[str, float]:
         """Backward-compatible: single-TF confirmation."""
         bias = htf_bias["bias"]
         strength = htf_bias["strength"]
@@ -205,8 +208,7 @@ class MultiTimeframeConfirmer:
 
         return signal, confidence
 
-    def confirm_signal_multi_tf(self, signal: str, confidence: float,
-                                consensus: MultiTFConsensus) -> tuple[str, float]:
+    def confirm_signal_multi_tf(self, signal: str, confidence: float, consensus: MultiTFConsensus) -> tuple[str, float]:
         """
         NEW v2.0: Confirm signal using full multi-timeframe consensus.
 
@@ -256,27 +258,30 @@ class MultiTimeframeConfirmer:
 
     # ── Resampling ────────────────────────────────────────────────
 
-    def resample_to_higher_tf(self, df: pd.DataFrame,
-                               source_tf: str = "1h",
-                               target_tf: str = "4h") -> pd.DataFrame:
+    def resample_to_higher_tf(self, df: pd.DataFrame, source_tf: str = "1h", target_tf: str = "4h") -> pd.DataFrame:
         """Resample OHLCV to higher timeframe with proper aggregation."""
         tf_map = {"15m": "15min", "1h": "1h", "4h": "4h", "1d": "1D", "1w": "1W"}
         resample_rule = tf_map.get(target_tf, "4h")
 
-        htf = df.resample(resample_rule).agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last",
-            "volume": "sum",
-        }).dropna()
+        htf = (
+            df.resample(resample_rule)
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna()
+        )
 
         return htf
 
     # ── Internal: Per-Timeframe Analysis ──────────────────────────
 
-    def _analyze_timeframe(self, df: pd.DataFrame,
-                           target_tf: str) -> TimeframeRegime:
+    def _analyze_timeframe(self, df: pd.DataFrame, target_tf: str) -> TimeframeRegime:
         """Analyze regime for a single timeframe."""
         # The primary timeframe doesn't need resampling
         if target_tf == self.timeframes[0]:
@@ -286,8 +291,12 @@ class MultiTimeframeConfirmer:
 
         if len(htf) < 20:
             return TimeframeRegime(
-                timeframe=target_tf, bias="neutral", strength=0.0,
-                trend_alignment=0, rsi=50.0, macd_direction="neutral",
+                timeframe=target_tf,
+                bias="neutral",
+                strength=0.0,
+                trend_alignment=0,
+                rsi=50.0,
+                macd_direction="neutral",
                 momentum=0.0,
             )
 
@@ -297,8 +306,12 @@ class MultiTimeframeConfirmer:
 
         if len(htf_ind) < 5:
             return TimeframeRegime(
-                timeframe=target_tf, bias="neutral", strength=0.0,
-                trend_alignment=0, rsi=50.0, macd_direction="neutral",
+                timeframe=target_tf,
+                bias="neutral",
+                strength=0.0,
+                trend_alignment=0,
+                rsi=50.0,
+                macd_direction="neutral",
                 momentum=0.0,
             )
 
@@ -324,8 +337,11 @@ class MultiTimeframeConfirmer:
 
         # Momentum: recent bars return
         lookback = min(5, len(htf_ind) - 1)
-        momentum = (float(htf_ind["close"].iloc[-1]) /
-                     float(htf_ind["close"].iloc[-lookback - 1]) - 1) if lookback > 0 else 0.0
+        momentum = (
+            (float(htf_ind["close"].iloc[-1]) / float(htf_ind["close"].iloc[-lookback - 1]) - 1)
+            if lookback > 0
+            else 0.0
+        )
 
         return TimeframeRegime(
             timeframe=target_tf,
@@ -338,8 +354,7 @@ class MultiTimeframeConfirmer:
             details=signals,
         )
 
-    def _compute_directional_signals(self, htf_ind: pd.DataFrame,
-                                      latest: pd.Series) -> dict:
+    def _compute_directional_signals(self, htf_ind: pd.DataFrame, latest: pd.Series) -> dict:
         """Compute directional signals for a timeframe."""
         signals = {}
 
@@ -375,9 +390,7 @@ class MultiTimeframeConfirmer:
 
         # BB position (new for v2.0)
         if "bb_upper" in htf_ind.columns and pd.notna(latest.get("bb_upper")):
-            bb_position = (latest["close"] - latest["bb_lower"]) / (
-                latest["bb_upper"] - latest["bb_lower"] + 1e-10
-            )
+            bb_position = (latest["close"] - latest["bb_lower"]) / (latest["bb_upper"] - latest["bb_lower"] + 1e-10)
             if bb_position > 0.7:
                 signals["bb_position"] = 1
             elif bb_position < 0.3:
@@ -429,13 +442,11 @@ class MultiTimeframeConfirmer:
         consensus_strength = abs(normalized_score)
 
         # Count how many TFs agree with the overall direction
-        agreement = sum(1 for b in biases
-                       if b == overall_bias or (overall_bias == "conflicted" and b != "neutral"))
+        agreement = sum(1 for b in biases if b == overall_bias or (overall_bias == "conflicted" and b != "neutral"))
 
         return overall_bias, consensus_strength, agreement
 
-    def _consensus_to_multiplier(self, agreement: int, total: int,
-                                  strength: float) -> float:
+    def _consensus_to_multiplier(self, agreement: int, total: int, strength: float) -> float:
         """
         Convert consensus metrics to a confidence multiplier.
 
@@ -477,10 +488,7 @@ class MultiTimeframeConfirmer:
         self._regime_sequence.append(current_regime)
 
         # Compute P(next | current)
-        transitions_from_current = {
-            k: v for k, v in self._transition_counts.items()
-            if k[0] == current_regime
-        }
+        transitions_from_current = {k: v for k, v in self._transition_counts.items() if k[0] == current_regime}
         total = sum(transitions_from_current.values())
 
         if total < 3:
@@ -511,9 +519,7 @@ class MultiTimeframeConfirmer:
         """Return current multi-TF state for dashboards."""
         return {
             "timeframes": self.timeframes,
-            "transition_counts": dict(
-                {f"{k[0]}->{k[1]}": v for k, v in self._transition_counts.items()}
-            ),
+            "transition_counts": dict({f"{k[0]}->{k[1]}": v for k, v in self._transition_counts.items()}),
             "regime_history_length": len(self._regime_sequence),
             "last_regime": self._last_regime,
         }

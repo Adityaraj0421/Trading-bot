@@ -14,10 +14,10 @@ from datetime import datetime
 from typing import Any
 
 from backtester import Backtester
-from scenarios import generate_scenario, list_scenarios
-from data_fetcher import DataFetcher
-from walk_forward import WalkForwardValidator, PurgedKFoldCV
 from config import Config
+from data_fetcher import DataFetcher
+from scenarios import generate_scenario, list_scenarios
+from walk_forward import WalkForwardValidator
 
 _log = logging.getLogger(__name__)
 
@@ -39,17 +39,18 @@ class BacktestRunner:
                 continue
             wins = sum(1 for t in trades if t.pnl_net > 0)
             total_pnl = sum(t.pnl_net for t in trades)
-            stats.append({
-                "strategy": strat_name,
-                "trades": n,
-                "win_rate": round(wins / n * 100, 1),
-                "pnl": round(total_pnl, 2),
-            })
+            stats.append(
+                {
+                    "strategy": strat_name,
+                    "trades": n,
+                    "win_rate": round(wins / n * 100, 1),
+                    "pnl": round(total_pnl, 2),
+                }
+            )
         stats.sort(key=lambda s: s["pnl"], reverse=True)
         return stats
 
-    def run_scenario(self, scenario: str, periods: int = 500,
-                     base_price: float = 100000.0) -> dict[str, Any]:
+    def run_scenario(self, scenario: str, periods: int = 500, base_price: float = 100000.0) -> dict[str, Any]:
         """Run backtest on a synthetic market scenario."""
         df = generate_scenario(scenario, periods=periods, base_price=base_price)
         bt = Backtester(
@@ -72,8 +73,7 @@ class BacktestRunner:
         self.results.append(result)
         return result
 
-    def run_multi_pair(self, pairs: list[str] | None = None,
-                       limit: int = 500) -> list[dict[str, Any]]:
+    def run_multi_pair(self, pairs: list[str] | None = None, limit: int = 500) -> list[dict[str, Any]]:
         """Run backtests across multiple trading pairs."""
         pairs = pairs or Config.TRADING_PAIRS
         results = []
@@ -81,11 +81,13 @@ class BacktestRunner:
             try:
                 df = self.fetcher.fetch_ohlcv(symbol=pair, limit=limit)
                 if df is None or df.empty or len(df) < 100:
-                    results.append({
-                        "type": "multi_pair",
-                        "pair": pair,
-                        "error": "insufficient_data",
-                    })
+                    results.append(
+                        {
+                            "type": "multi_pair",
+                            "pair": pair,
+                            "error": "insufficient_data",
+                        }
+                    )
                     continue
 
                 bt = Backtester(
@@ -119,8 +121,7 @@ class BacktestRunner:
             results.append(result)
         return results
 
-    def run_multi_timeframe(self, timeframes: list[str] | None = None,
-                            limit: int = 500) -> list[dict[str, Any]]:
+    def run_multi_timeframe(self, timeframes: list[str] | None = None, limit: int = 500) -> list[dict[str, Any]]:
         """Run backtests across multiple timeframes."""
         timeframes = timeframes or ["15m", "1h", "4h"]
         results = []
@@ -148,10 +149,15 @@ class BacktestRunner:
 
         return results
 
-    def run_walk_forward(self, pair: str | None = None, limit: int = 1000,
-                         train_bars: int = 400, test_bars: int = 100,
-                         step_bars: int = 50,
-                         mc_simulations: int = 500) -> dict[str, Any]:
+    def run_walk_forward(
+        self,
+        pair: str | None = None,
+        limit: int = 1000,
+        train_bars: int = 400,
+        test_bars: int = 100,
+        step_bars: int = 50,
+        mc_simulations: int = 500,
+    ) -> dict[str, Any]:
         """
         Run walk-forward validation with Monte Carlo robustness testing.
         This is the gold standard for strategy validation — trains on rolling
@@ -192,8 +198,7 @@ class BacktestRunner:
         except Exception as e:
             return {"type": "walk_forward", "pair": pair, "error": str(e)}
 
-    def run_walk_forward_multi_pair(self, pairs: list[str] | None = None,
-                                    limit: int = 1000) -> list[dict[str, Any]]:
+    def run_walk_forward_multi_pair(self, pairs: list[str] | None = None, limit: int = 1000) -> list[dict[str, Any]]:
         """Run walk-forward validation across multiple trading pairs."""
         pairs = pairs or Config.TRADING_PAIRS
         results = []

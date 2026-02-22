@@ -16,28 +16,31 @@ Research basis:
   - Empirical crypto market impact studies (2024-2025)
 """
 
-from typing import Any
-import numpy as np
 import logging
-from dataclasses import dataclass
 from collections import deque
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
 
 _log = logging.getLogger(__name__)
 
 
 # ── Data Classes ──────────────────────────────────────────────────
 
+
 @dataclass
 class ExecutionResult:
     """Result of simulated order execution."""
+
     requested_quantity: float
-    filled_quantity: float        # May be less than requested
-    fill_rate: float              # filled / requested (0-1)
-    average_fill_price: float     # Actual average execution price
-    slippage_pct: float           # Total slippage %
-    spread_cost_pct: float        # Cost from bid-ask spread
-    market_impact_pct: float      # Price impact from order size
-    total_cost_pct: float         # slippage + spread + impact + fees
+    filled_quantity: float  # May be less than requested
+    fill_rate: float  # filled / requested (0-1)
+    average_fill_price: float  # Actual average execution price
+    slippage_pct: float  # Total slippage %
+    spread_cost_pct: float  # Cost from bid-ask spread
+    market_impact_pct: float  # Price impact from order size
+    total_cost_pct: float  # slippage + spread + impact + fees
     fees_paid: float
     is_partial_fill: bool
 
@@ -58,16 +61,18 @@ class ExecutionResult:
 @dataclass
 class StressScenario:
     """A market stress scenario for backtesting."""
+
     name: str
-    price_shock_pct: float      # Sudden price move
-    liquidity_mult: float       # 0.1 = 90% liquidity drop
-    spread_mult: float          # How much spread widens
-    latency_ms: float           # Added execution delay
-    duration_bars: int          # How long it lasts
-    probability: float          # Probability per bar (0-1)
+    price_shock_pct: float  # Sudden price move
+    liquidity_mult: float  # 0.1 = 90% liquidity drop
+    spread_mult: float  # How much spread widens
+    latency_ms: float  # Added execution delay
+    duration_bars: int  # How long it lasts
+    probability: float  # Probability per bar (0-1)
 
 
 # ── Market Impact Model ──────────────────────────────────────────
+
 
 class MarketImpactModel:
     """
@@ -81,11 +86,11 @@ class MarketImpactModel:
     """
 
     # Base parameters (calibrated for BTC/USDT on Binance)
-    BASE_SLIPPAGE_PCT = 0.0002      # 0.02% base slippage
+    BASE_SLIPPAGE_PCT = 0.0002  # 0.02% base slippage
     VOLATILITY_SLIPPAGE_MULT = 0.5  # ATR multiplier for vol-adjusted slippage
-    IMPACT_COEFFICIENT = 0.1        # Kyle's lambda (price impact per sqrt-volume)
-    BASE_SPREAD_PCT = 0.0001        # 0.01% base spread (tight for BTC)
-    PARTIAL_FILL_THRESHOLD = 0.05   # Orders > 5% of avg volume may partially fill
+    IMPACT_COEFFICIENT = 0.1  # Kyle's lambda (price impact per sqrt-volume)
+    BASE_SPREAD_PCT = 0.0001  # 0.01% base spread (tight for BTC)
+    PARTIAL_FILL_THRESHOLD = 0.05  # Orders > 5% of avg volume may partially fill
 
     # Stress scenarios
     STRESS_SCENARIOS = [
@@ -96,9 +101,7 @@ class MarketImpactModel:
         StressScenario("whale_dump", -0.08, 0.3, 8.0, 3000, 5, 0.002),
     ]
 
-    def __init__(self, fee_pct: float = 0.001,
-                 enable_partial_fills: bool = True,
-                 enable_stress: bool = True) -> None:
+    def __init__(self, fee_pct: float = 0.001, enable_partial_fills: bool = True, enable_stress: bool = True) -> None:
         self.fee_pct = fee_pct
         self.enable_partial_fills = enable_partial_fills
         self.enable_stress = enable_stress
@@ -110,11 +113,16 @@ class MarketImpactModel:
 
     # ── Public Interface ──────────────────────────────────────────
 
-    def simulate_execution(self, price: float, quantity: float,
-                           side: str, is_entry: bool,
-                           atr_pct: float = 0.01,
-                           avg_volume: float = 1000.0,
-                           bar_volume: float = 100.0) -> ExecutionResult:
+    def simulate_execution(
+        self,
+        price: float,
+        quantity: float,
+        side: str,
+        is_entry: bool,
+        atr_pct: float = 0.01,
+        avg_volume: float = 1000.0,
+        bar_volume: float = 100.0,
+    ) -> ExecutionResult:
         """
         Simulate realistic order execution.
 
@@ -131,21 +139,16 @@ class MarketImpactModel:
         stress_mult = self._get_stress_multipliers()
 
         # 1. Spread cost
-        spread_pct = self._compute_spread(atr_pct, bar_volume, avg_volume,
-                                           stress_mult)
+        spread_pct = self._compute_spread(atr_pct, bar_volume, avg_volume, stress_mult)
 
         # 2. Volatility-correlated slippage
         slippage_pct = self._compute_slippage(atr_pct, stress_mult)
 
         # 3. Market impact (square-root model)
-        impact_pct = self._compute_market_impact(
-            quantity, avg_volume, stress_mult
-        )
+        impact_pct = self._compute_market_impact(quantity, avg_volume, stress_mult)
 
         # 4. Partial fill simulation
-        fill_rate = self._simulate_fill_rate(
-            quantity, bar_volume, avg_volume, stress_mult
-        )
+        fill_rate = self._simulate_fill_rate(quantity, bar_volume, avg_volume, stress_mult)
         filled_qty = quantity * fill_rate
 
         # 5. Compute actual fill price
@@ -234,8 +237,7 @@ class MarketImpactModel:
 
     # ── Internal: Cost Components ─────────────────────────────────
 
-    def _compute_slippage(self, atr_pct: float,
-                          stress_mult: dict[str, float]) -> float:
+    def _compute_slippage(self, atr_pct: float, stress_mult: dict[str, float]) -> float:
         """
         Volatility-correlated slippage.
 
@@ -246,8 +248,7 @@ class MarketImpactModel:
         vol_component = atr_pct * self.VOLATILITY_SLIPPAGE_MULT
         return base + vol_component
 
-    def _compute_market_impact(self, quantity: float, avg_volume: float,
-                                stress_mult: dict[str, float]) -> float:
+    def _compute_market_impact(self, quantity: float, avg_volume: float, stress_mult: dict[str, float]) -> float:
         """
         Square-root market impact model (Almgren-Chriss).
 
@@ -264,8 +265,9 @@ class MarketImpactModel:
         impact = self.IMPACT_COEFFICIENT * np.sqrt(participation_rate)
         return min(impact, 0.05)  # Cap at 5%
 
-    def _compute_spread(self, atr_pct: float, bar_volume: float,
-                        avg_volume: float, stress_mult: dict[str, float]) -> float:
+    def _compute_spread(
+        self, atr_pct: float, bar_volume: float, avg_volume: float, stress_mult: dict[str, float]
+    ) -> float:
         """
         Dynamic spread modeling.
 
@@ -295,9 +297,9 @@ class MarketImpactModel:
 
         return min(base, 0.02)  # Cap at 2%
 
-    def _simulate_fill_rate(self, quantity: float, bar_volume: float,
-                            avg_volume: float,
-                            stress_mult: dict[str, float]) -> float:
+    def _simulate_fill_rate(
+        self, quantity: float, bar_volume: float, avg_volume: float, stress_mult: dict[str, float]
+    ) -> float:
         """
         Simulate partial fills for large orders.
 

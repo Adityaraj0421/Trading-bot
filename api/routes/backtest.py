@@ -1,4 +1,5 @@
 """Backtest routes — run and view backtest results (v2.3)."""
+
 import threading
 from typing import Any
 
@@ -49,8 +50,10 @@ def create_router(store: DataStore) -> APIRouter:
 
         def _run():
             import logging
+
             log = logging.getLogger(__name__)
             from backtest_runner import BacktestRunner
+
             runner = BacktestRunner()
             try:
                 if req.mode == "all_pairs":
@@ -101,6 +104,7 @@ def create_router(store: DataStore) -> APIRouter:
     async def get_scenarios() -> dict[str, Any]:
         """List available backtest scenarios."""
         from scenarios import list_scenarios as ls
+
         return {"scenarios": ls()}
 
     return router

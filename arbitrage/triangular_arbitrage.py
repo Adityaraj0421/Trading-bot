@@ -18,11 +18,10 @@ Also includes:
   - Fee-adjusted profitability
 """
 
-import time
 import logging
+import time
 from collections import deque
-from dataclasses import dataclass, field
-from itertools import permutations
+from dataclasses import dataclass
 from typing import Any
 
 _log = logging.getLogger(__name__)
@@ -30,17 +29,19 @@ _log = logging.getLogger(__name__)
 
 # ── Data Classes ──────────────────────────────────────────────────
 
+
 @dataclass
 class TriangularPath:
     """A triangular arbitrage path."""
+
     exchange: str
-    path: list[str]          # e.g., ["BTC/USDT", "ETH/BTC", "ETH/USDT"]
-    direction: str           # "forward" or "reverse"
-    rates: list[float]       # Exchange rates along the path
-    gross_return: float      # Return before fees
-    fees_pct: float          # Total fees for 3 trades
-    net_return: float        # Return after fees
-    execution_time_ms: float # Estimated execution time
+    path: list[str]  # e.g., ["BTC/USDT", "ETH/BTC", "ETH/USDT"]
+    direction: str  # "forward" or "reverse"
+    rates: list[float]  # Exchange rates along the path
+    gross_return: float  # Return before fees
+    fees_pct: float  # Total fees for 3 trades
+    net_return: float  # Return after fees
+    execution_time_ms: float  # Estimated execution time
     timestamp: float = 0.0
 
     @property
@@ -65,6 +66,7 @@ class TriangularPath:
 @dataclass
 class LatencyProfile:
     """Latency statistics for an exchange."""
+
     exchange: str
     avg_latency_ms: float = 0.0
     p95_latency_ms: float = 0.0
@@ -74,6 +76,7 @@ class LatencyProfile:
 
 
 # ── Triangular Arbitrage Engine ───────────────────────────────────
+
 
 class TriangularArbitrageEngine:
     """
@@ -139,9 +142,7 @@ class TriangularArbitrageEngine:
                         self._record_latency(exchange_name, latency)
                         books[pair] = book
                     except Exception as e:
-                        __import__("logging").getLogger(__name__).debug(
-                            "Order book fetch failed for %s: %s", pair, e
-                        )
+                        __import__("logging").getLogger(__name__).debug("Order book fetch failed for %s: %s", pair, e)
                         break
 
                 if len(books) != 3:
@@ -149,9 +150,7 @@ class TriangularArbitrageEngine:
 
                 # Evaluate forward and reverse paths
                 for direction in ["forward", "reverse"]:
-                    path = self._evaluate_path(
-                        triangle, books, direction, exchange_name
-                    )
+                    path = self._evaluate_path(triangle, books, direction, exchange_name)
                     if path and path.is_profitable:
                         opportunities.append(path)
 
@@ -163,8 +162,7 @@ class TriangularArbitrageEngine:
         self._opportunities = opportunities
         return opportunities
 
-    def scan_triangles_offline(self, prices: dict,
-                                exchange_name: str = "binance") -> list[TriangularPath]:
+    def scan_triangles_offline(self, prices: dict, exchange_name: str = "binance") -> list[TriangularPath]:
         """
         Scan using pre-fetched price data (for backtesting/testing).
 
@@ -187,9 +185,7 @@ class TriangularArbitrageEngine:
                 }
 
             for direction in ["forward", "reverse"]:
-                path = self._evaluate_path(
-                    triangle, books, direction, exchange_name
-                )
+                path = self._evaluate_path(triangle, books, direction, exchange_name)
                 if path and path.is_profitable:
                     opportunities.append(path)
 
@@ -211,17 +207,14 @@ class TriangularArbitrageEngine:
             "active_opportunities": len(self._opportunities),
             "opportunities": [o.to_dict() for o in self._opportunities[:5]],
             "latency_profiles": {
-                k: {"avg_ms": round(v.avg_latency_ms, 1),
-                     "p95_ms": round(v.p95_latency_ms, 1),
-                     "samples": v.samples}
+                k: {"avg_ms": round(v.avg_latency_ms, 1), "p95_ms": round(v.p95_latency_ms, 1), "samples": v.samples}
                 for k, v in self._latency_profiles.items()
             },
         }
 
     # ── Internal: Path Evaluation ─────────────────────────────────
 
-    def _evaluate_path(self, triangle: tuple, books: dict,
-                       direction: str, exchange: str) -> TriangularPath | None:
+    def _evaluate_path(self, triangle: tuple, books: dict, direction: str, exchange: str) -> TriangularPath | None:
         """
         Evaluate a triangular path for profitability.
 

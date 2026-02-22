@@ -4,9 +4,11 @@ All external sends mocked (requests.post, smtplib).
 """
 
 import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from notifier import Notifier, AlertLevel
+
+from notifier import AlertLevel, Notifier
 
 
 @pytest.fixture()
@@ -57,9 +59,14 @@ class TestNotificationMethods:
     def test_notify_trade_open_sends_telegram(self, mock_post, notifier_telegram):
         mock_post.return_value = MagicMock(ok=True)
         notifier_telegram.notify_trade_open(
-            symbol="BTC/USDT", side="long", price=50000,
-            quantity=0.1, sl=49000, tp=52000,
-            strategy="momentum", confidence=0.85,
+            symbol="BTC/USDT",
+            side="long",
+            price=50000,
+            quantity=0.1,
+            sl=49000,
+            tp=52000,
+            strategy="momentum",
+            confidence=0.85,
         )
         # Give daemon thread a moment
         time.sleep(0.1)
@@ -69,9 +76,14 @@ class TestNotificationMethods:
     def test_notify_trade_close_tracks_daily(self, mock_post, notifier_telegram):
         mock_post.return_value = MagicMock(ok=True)
         notifier_telegram.notify_trade_close(
-            symbol="BTC/USDT", side="long", entry=50000,
-            exit_price=51000, pnl=100, reason="take_profit",
-            strategy="momentum", hold_bars=10,
+            symbol="BTC/USDT",
+            side="long",
+            entry=50000,
+            exit_price=51000,
+            pnl=100,
+            reason="take_profit",
+            strategy="momentum",
+            hold_bars=10,
         )
         time.sleep(0.1)
         assert len(notifier_telegram._daily_trades) == 1
@@ -139,7 +151,10 @@ class TestDailySummary:
         notifier_telegram._daily_pnl = 70
 
         notifier_telegram.notify_daily_summary(
-            capital=10000, total_pnl=500, win_rate=65.0, open_positions=1,
+            capital=10000,
+            total_pnl=500,
+            win_rate=65.0,
+            open_positions=1,
         )
 
         # Daily tracking should be reset

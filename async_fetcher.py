@@ -3,13 +3,13 @@ Async Data Fetcher — Uses ccxt.async_support and aiohttp for non-blocking I/O.
 Falls back to sync DataFetcher demo data if async exchange is unavailable.
 """
 
-import logging
 import asyncio
+import logging
+from typing import Any
+
 import aiohttp
 import pandas as pd
-import numpy as np
-from datetime import datetime
-from typing import Any
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ class AsyncDataFetcher:
         if self._exchange is None:
             try:
                 import ccxt.async_support as ccxt_async
+
                 exchange_class = getattr(ccxt_async, Config.EXCHANGE_ID)
                 params = {"enableRateLimit": True}
                 if not Config.is_paper_mode() and Config.API_KEY:
@@ -45,9 +46,7 @@ class AsyncDataFetcher:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Lazy-init aiohttp session."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=5)
-            )
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5))
         return self._session
 
     async def fetch_ohlcv(

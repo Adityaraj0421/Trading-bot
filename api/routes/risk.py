@@ -1,4 +1,5 @@
 """Risk simulation routes — Monte Carlo, VaR, stress testing (v2.0)."""
+
 import threading
 from typing import Any
 
@@ -37,9 +38,9 @@ def create_router(store: DataStore) -> APIRouter:
             return {"status": "rejected", "message": "A simulation is already running."}
 
         def _run():
+            from config import Config
             from risk_simulation.monte_carlo import MonteCarloSimulator
             from risk_simulation.scenarios import StressTestRunner
-            from config import Config
 
             # Get trade returns from backtest results or trade log
             trade_log = store.get_trade_log()
@@ -53,6 +54,7 @@ def create_router(store: DataStore) -> APIRouter:
             else:
                 # Use synthetic returns for demo
                 import numpy as np
+
                 returns = list(np.random.normal(0.001, 0.02, 100))
 
             sim = MonteCarloSimulator(
@@ -66,11 +68,13 @@ def create_router(store: DataStore) -> APIRouter:
             stress = StressTestRunner()
             stress_results = stress.run_stress_test(equity)
 
-            store.update_monte_carlo({
-                "monte_carlo": result.to_dict(),
-                "stress_tests": stress_results,
-                "status": "completed",
-            })
+            store.update_monte_carlo(
+                {
+                    "monte_carlo": result.to_dict(),
+                    "stress_tests": stress_results,
+                    "status": "completed",
+                }
+            )
 
         _state["active_thread"] = threading.Thread(target=_run, daemon=True)
         _state["active_thread"].start()
@@ -80,6 +84,7 @@ def create_router(store: DataStore) -> APIRouter:
     async def get_stress_scenarios() -> dict[str, Any]:
         """List available stress test scenarios."""
         from risk_simulation.scenarios import StressTestRunner
+
         runner = StressTestRunner()
         return {"scenarios": runner.list_scenarios()}
 

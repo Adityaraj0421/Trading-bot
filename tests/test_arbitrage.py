@@ -1,11 +1,10 @@
 """Tests for the arbitrage module."""
-import pytest
-from unittest.mock import MagicMock, patch
+
+from arbitrage.execution_engine import ArbitrageExecutor
 from arbitrage.fee_calculator import FeeCalculator
+from arbitrage.latency_tracker import LatencyTracker
 from arbitrage.opportunity_detector import ArbitrageDetector
 from arbitrage.price_monitor import PriceMonitor
-from arbitrage.latency_tracker import LatencyTracker
-from arbitrage.execution_engine import ArbitrageExecutor
 
 
 class TestFeeCalculator:
@@ -92,15 +91,17 @@ class TestArbitrageExecutor:
     def test_paper_execute(self):
         executor = ArbitrageExecutor()
         executor.set_capital(10000.0)
-        result = executor.execute({
-            "buy_exchange": "binance",
-            "sell_exchange": "kraken",
-            "pair": "BTC/USDT",
-            "buy_price": 95000.0,
-            "sell_price": 95500.0,
-            "spread_pct": 0.005,
-            "net_profit_pct": 0.002,
-        })
+        result = executor.execute(
+            {
+                "buy_exchange": "binance",
+                "sell_exchange": "kraken",
+                "pair": "BTC/USDT",
+                "buy_price": 95000.0,
+                "sell_price": 95500.0,
+                "spread_pct": 0.005,
+                "net_profit_pct": 0.002,
+            }
+        )
         assert result["status"] == "paper_executed"
         assert result["mode"] == "paper"
         assert result["net_pnl"] is not None
@@ -110,27 +111,31 @@ class TestArbitrageExecutor:
 
     def test_no_capital_skipped(self):
         executor = ArbitrageExecutor()
-        result = executor.execute({
-            "buy_exchange": "binance",
-            "sell_exchange": "kraken",
-            "pair": "BTC/USDT",
-            "buy_price": 95000.0,
-            "sell_price": 95500.0,
-        })
+        result = executor.execute(
+            {
+                "buy_exchange": "binance",
+                "sell_exchange": "kraken",
+                "pair": "BTC/USDT",
+                "buy_price": 95000.0,
+                "sell_price": 95500.0,
+            }
+        )
         assert result["status"] == "skipped"
 
     def test_summary_tracking(self):
         executor = ArbitrageExecutor()
         executor.set_capital(10000.0)
-        executor.execute({
-            "buy_exchange": "binance",
-            "sell_exchange": "kraken",
-            "pair": "BTC/USDT",
-            "buy_price": 95000.0,
-            "sell_price": 95500.0,
-            "spread_pct": 0.005,
-            "net_profit_pct": 0.002,
-        })
+        executor.execute(
+            {
+                "buy_exchange": "binance",
+                "sell_exchange": "kraken",
+                "pair": "BTC/USDT",
+                "buy_price": 95000.0,
+                "sell_price": 95500.0,
+                "spread_pct": 0.005,
+                "net_profit_pct": 0.002,
+            }
+        )
         summary = executor.get_summary()
         assert summary["total_trades"] == 1
         assert summary["total_fees"] > 0

@@ -22,12 +22,13 @@ API preserved: predict(df_ind, regime) → (signal, confidence)
 """
 
 import ast
+import contextlib
 import logging
+from collections import deque
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from collections import deque
-from dataclasses import dataclass
 
 _log = logging.getLogger(__name__)
 
@@ -35,8 +36,9 @@ _log = logging.getLogger(__name__)
 try:
     import torch
     import torch.nn as nn
-    import torch.optim as optim
     import torch.nn.functional as F
+    import torch.optim as optim
+
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
@@ -46,8 +48,9 @@ except ImportError:
 @dataclass
 class RLTrade:
     """Track an RL agent's trade outcome."""
+
     agent_id: int
-    action: str   # BUY, SELL, HOLD
+    action: str  # BUY, SELL, HOLD
     reward: float
     state_key: tuple
 
@@ -56,9 +59,18 @@ class RLTrade:
 #  FEATURE NAMES — shared across all agents
 # ============================================================
 FEATURE_NAMES = [
-    "regime_code", "rsi", "macd_hist", "returns_5",
-    "volume_ratio", "adx", "bb_position", "close_to_vwap",
-    "stoch_k", "obv_divergence", "ema_cross", "rolling_vol_10",
+    "regime_code",
+    "rsi",
+    "macd_hist",
+    "returns_5",
+    "volume_ratio",
+    "adx",
+    "bb_position",
+    "close_to_vwap",
+    "stoch_k",
+    "obv_divergence",
+    "ema_cross",
+    "rolling_vol_10",
 ]
 STATE_DIM = len(FEATURE_NAMES)
 NUM_ACTIONS = 3  # BUY, SELL, HOLD
@@ -74,8 +86,7 @@ class ReplayBuffer:
     def __init__(self, capacity: int = 10_000):
         self.buffer: deque = deque(maxlen=capacity)
 
-    def push(self, state: np.ndarray, action_idx: int, reward: float,
-             next_state: np.ndarray, done: float) -> None:
+    def push(self, state: np.ndarray, action_idx: int, reward: float, next_state: np.ndarray, done: float) -> None:
         """Store a transition tuple in the replay buffer."""
         self.buffer.append((state, action_idx, reward, next_state, done))
 
@@ -123,16 +134,22 @@ if HAS_TORCH:
             advantage = self.advantage_stream(features)
             return value + advantage - advantage.mean(dim=-1, keepdim=True)
 
-
     class DQNAgent:
         """
         Deep Q-Network agent with experience replay and target network.
         Uses continuous state space (no discretization) for better generalization.
         """
 
-        def __init__(self, agent_id: int, feature_indices: list[int],
-                     lr: float = 1e-3, gamma: float = 0.95, epsilon: float = 0.2,
-                     tau: float = 0.005, batch_size: int = 32) -> None:
+        def __init__(
+            self,
+            agent_id: int,
+            feature_indices: list[int],
+            lr: float = 1e-3,
+            gamma: float = 0.95,
+            epsilon: float = 0.2,
+            tau: float = 0.005,
+            batch_size: int = 32,
+        ) -> None:
             self.agent_id = agent_id
             self.feature_indices = feature_indices
             self.state_dim = len(feature_indices)
@@ -171,15 +188,15 @@ if HAS_TORCH:
             probs = F.softmax(q_values, dim=0).numpy()
             return ACTIONS[action_idx], float(probs[action_idx])
 
-        def update(self, features: dict[str, float], action: str, reward: float,
-                   next_features: dict[str, float] | None = None) -> None:
+        def update(
+            self, features: dict[str, float], action: str, reward: float, next_features: dict[str, float] | None = None
+        ) -> None:
             """Store experience and trigger a training step if buffer is large enough."""
             state = self._extract_state(features)
             action_idx = ACTIONS.index(action)
             done = next_features is None
             next_state = (
-                self._extract_state(next_features) if next_features
-                else np.zeros(self.state_dim, dtype=np.float32)
+                self._extract_state(next_features) if next_features else np.zeros(self.state_dim, dtype=np.float32)
             )
 
             self.replay.push(state, action_idx, reward, next_state, float(done))
@@ -192,9 +209,7 @@ if HAS_TORCH:
 
         def _train_step(self) -> None:
             """Run one Double-DQN training step with soft target network update."""
-            states, actions, rewards, next_states, dones = self.replay.sample(
-                self.batch_size
-            )
+            states, actions, rewards, next_states, dones = self.replay.sample(self.batch_size)
             states_t = torch.FloatTensor(states)
             actions_t = torch.LongTensor(actions).unsqueeze(1)
             rewards_t = torch.FloatTensor(rewards).unsqueeze(1)
@@ -216,12 +231,8 @@ if HAS_TORCH:
             self.optimizer.step()
 
             # Soft update target network
-            for param, target_param in zip(
-                self.q_net.parameters(), self.target_net.parameters()
-            ):
-                target_param.data.copy_(
-                    self.tau * param.data + (1 - self.tau) * target_param.data
-                )
+            for param, target_param in zip(self.q_net.parameters(), self.target_net.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             self.train_steps += 1
 
         def get_sharpe(self) -> float:
@@ -233,7 +244,6 @@ if HAS_TORCH:
             if std_r < 1e-8:
                 return 0.0
             return float(returns.mean() / std_r)
-
 
     # ============================================================
     #  PPO Meta-Agent
@@ -258,16 +268,21 @@ if HAS_TORCH:
             shared = self.shared(x)
             return self.actor(shared), self.critic(shared)
 
-
     class PPOAgent:
         """
         Proximal Policy Optimization meta-agent.
         Sees ALL features and learns portfolio-level policy.
         """
 
-        def __init__(self, agent_id: int = 4, lr: float = 3e-4,
-                     gamma: float = 0.99, clip_eps: float = 0.2,
-                     epochs: int = 4, batch_size: int = 32) -> None:
+        def __init__(
+            self,
+            agent_id: int = 4,
+            lr: float = 3e-4,
+            gamma: float = 0.99,
+            clip_eps: float = 0.2,
+            epochs: int = 4,
+            batch_size: int = 32,
+        ) -> None:
             self.agent_id = agent_id
             self.gamma = gamma
             self.clip_eps = clip_eps
@@ -287,9 +302,7 @@ if HAS_TORCH:
 
         def predict(self, features: dict[str, float]) -> tuple[str, float]:
             """Sample action from policy with epsilon-greedy exploration."""
-            state = np.array(
-                [features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32
-            )
+            state = np.array([features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32)
             if np.random.random() < self.epsilon:
                 return ACTIONS[np.random.randint(NUM_ACTIONS)], 0.4
 
@@ -301,12 +314,11 @@ if HAS_TORCH:
             action_idx = torch.multinomial(probs, 1).item()
             return ACTIONS[action_idx], float(probs[action_idx])
 
-        def update(self, features: dict[str, float], action: str, reward: float,
-                   next_features: dict[str, float] | None = None) -> None:
+        def update(
+            self, features: dict[str, float], action: str, reward: float, next_features: dict[str, float] | None = None
+        ) -> None:
             """Append transition to trajectory; train PPO when batch is full."""
-            state = np.array(
-                [features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32
-            )
+            state = np.array([features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32)
             action_idx = ACTIONS.index(action)
 
             with torch.no_grad():
@@ -315,10 +327,15 @@ if HAS_TORCH:
                 probs = F.softmax(logits, dim=-1)
                 log_prob = torch.log(probs[0, action_idx])
 
-            self.trajectory.append({
-                "state": state, "action": action_idx, "reward": reward,
-                "log_prob": log_prob.item(), "value": value.item(),
-            })
+            self.trajectory.append(
+                {
+                    "state": state,
+                    "action": action_idx,
+                    "reward": reward,
+                    "log_prob": log_prob.item(),
+                    "value": value.item(),
+                }
+            )
             self.trade_history.append(reward)
             self.total_trades += 1
             self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
@@ -359,9 +376,7 @@ if HAS_TORCH:
 
                 ratio = torch.exp(new_log_probs - old_log_probs_t)
                 surr1 = ratio * advantages_t
-                surr2 = torch.clamp(
-                    ratio, 1 - self.clip_eps, 1 + self.clip_eps
-                ) * advantages_t
+                surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * advantages_t
                 actor_loss = -torch.min(surr1, surr2).mean()
                 critic_loss = F.smooth_l1_loss(values.squeeze(), returns_t)
                 loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy
@@ -389,11 +404,18 @@ if HAS_TORCH:
 #  Tabular Fallback (when PyTorch unavailable)
 # ============================================================
 
+
 class QLearnerAgent:
     """Tabular Q-learning fallback agent (no PyTorch needed)."""
 
-    def __init__(self, agent_id: int, state_bins: dict[str, list[float]],
-                 alpha: float = 0.1, gamma: float = 0.95, epsilon: float = 0.15) -> None:
+    def __init__(
+        self,
+        agent_id: int,
+        state_bins: dict[str, list[float]],
+        alpha: float = 0.1,
+        gamma: float = 0.95,
+        epsilon: float = 0.15,
+    ) -> None:
         self.agent_id = agent_id
         self.state_bins = state_bins
         self.alpha = alpha
@@ -434,8 +456,9 @@ class QLearnerAgent:
             confidence = 0.34
         return action, confidence
 
-    def update(self, features: dict[str, float], action: str, reward: float,
-               next_features: dict[str, float] | None = None) -> None:
+    def update(
+        self, features: dict[str, float], action: str, reward: float, next_features: dict[str, float] | None = None
+    ) -> None:
         """Update Q-value for the state-action pair using TD learning."""
         state_key = self._discretize(features)
         q_vals = self._get_q(state_key)
@@ -464,6 +487,7 @@ class QLearnerAgent:
 #  RLEnsemble — main entry point (API preserved from v1.0)
 # ============================================================
 
+
 class RLEnsemble:
     """
     Multi-agent Deep RL ensemble (v2.0).
@@ -483,26 +507,32 @@ class RLEnsemble:
             self.agent_momentum = DQNAgent(
                 agent_id=1,
                 feature_indices=[0, 1, 2, 3],
-                lr=1e-3, gamma=0.95, epsilon=0.2,
+                lr=1e-3,
+                gamma=0.95,
+                epsilon=0.2,
             )
             self.agent_volume = DQNAgent(
                 agent_id=2,
                 feature_indices=[4, 5, 6, 7],
-                lr=8e-4, gamma=0.9, epsilon=0.2,
+                lr=8e-4,
+                gamma=0.9,
+                epsilon=0.2,
             )
             self.agent_reversion = DQNAgent(
                 agent_id=3,
                 feature_indices=[8, 9, 10, 11],
-                lr=1.2e-3, gamma=0.85, epsilon=0.2,
+                lr=1.2e-3,
+                gamma=0.85,
+                epsilon=0.2,
             )
             self.agent_meta = PPOAgent(agent_id=4, lr=3e-4, gamma=0.99)
             self.agents = [
-                self.agent_momentum, self.agent_volume,
-                self.agent_reversion, self.agent_meta,
+                self.agent_momentum,
+                self.agent_volume,
+                self.agent_reversion,
+                self.agent_meta,
             ]
-            _log.info(
-                "RL Ensemble v2.0: 3 DQN agents + 1 PPO meta-agent (PyTorch)"
-            )
+            _log.info("RL Ensemble v2.0: 3 DQN agents + 1 PPO meta-agent (PyTorch)")
         else:
             self.agent_momentum = QLearnerAgent(
                 agent_id=1,
@@ -512,7 +542,9 @@ class RLEnsemble:
                     "macd_hist": [-0.02, -0.01, 0, 0.01, 0.02],
                     "returns_5": [-0.03, -0.01, 0, 0.01, 0.03],
                 },
-                alpha=0.1, gamma=0.95, epsilon=0.2,
+                alpha=0.1,
+                gamma=0.95,
+                epsilon=0.2,
             )
             self.agent_volume = QLearnerAgent(
                 agent_id=2,
@@ -522,7 +554,9 @@ class RLEnsemble:
                     "bb_position": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
                     "close_to_vwap": [-0.02, -0.01, 0, 0.01, 0.02],
                 },
-                alpha=0.08, gamma=0.9, epsilon=0.2,
+                alpha=0.08,
+                gamma=0.9,
+                epsilon=0.2,
             )
             self.agent_reversion = QLearnerAgent(
                 agent_id=3,
@@ -532,7 +566,9 @@ class RLEnsemble:
                     "ema_cross": [-0.5, 0.5],
                     "rolling_vol_10": [0.005, 0.01, 0.02, 0.03, 0.05],
                 },
-                alpha=0.12, gamma=0.85, epsilon=0.2,
+                alpha=0.12,
+                gamma=0.85,
+                epsilon=0.2,
             )
             self.agents = [self.agent_momentum, self.agent_volume, self.agent_reversion]
             _log.info("RL Ensemble v2.0: 3 tabular Q-learning agents (fallback)")
@@ -543,8 +579,12 @@ class RLEnsemble:
     def _encode_regime(self, regime: str) -> float:
         """Map regime string to numeric code for RL state representation."""
         mapping = {
-            "ranging": 0, "trending_up": 1, "trending_down": 2,
-            "high_volatility": 3, "volatile": 3, "crash": 3,
+            "ranging": 0,
+            "trending_up": 1,
+            "trending_down": 2,
+            "high_volatility": 3,
+            "volatile": 3,
+            "crash": 3,
             "breakout": 1,
         }
         return float(mapping.get(regime, 0))
@@ -645,19 +685,10 @@ class RLEnsemble:
                     "epsilon": agent.epsilon,
                 }
                 if hasattr(agent, "q_net"):
-                    agent_data["q_net_state"] = {
-                        k: v.tolist()
-                        for k, v in agent.q_net.state_dict().items()
-                    }
-                    agent_data["target_net_state"] = {
-                        k: v.tolist()
-                        for k, v in agent.target_net.state_dict().items()
-                    }
+                    agent_data["q_net_state"] = {k: v.tolist() for k, v in agent.q_net.state_dict().items()}
+                    agent_data["target_net_state"] = {k: v.tolist() for k, v in agent.target_net.state_dict().items()}
                 if hasattr(agent, "network"):
-                    agent_data["network_state"] = {
-                        k: v.tolist()
-                        for k, v in agent.network.state_dict().items()
-                    }
+                    agent_data["network_state"] = {k: v.tolist() for k, v in agent.network.state_dict().items()}
                 data[key] = agent_data
         else:
             for agent in self.agents:
@@ -682,29 +713,18 @@ class RLEnsemble:
                 agent_data = data[key]
                 agent.total_trades = agent_data.get("total_trades", 0)
                 agent.epsilon = agent_data.get("epsilon", 0.2)
-                agent.trade_history = deque(
-                    agent_data.get("trade_history", []), maxlen=200
-                )
+                agent.trade_history = deque(agent_data.get("trade_history", []), maxlen=200)
                 if hasattr(agent, "q_net") and "q_net_state" in agent_data:
                     try:
-                        state_dict = {
-                            k: torch.tensor(v)
-                            for k, v in agent_data["q_net_state"].items()
-                        }
+                        state_dict = {k: torch.tensor(v) for k, v in agent_data["q_net_state"].items()}
                         agent.q_net.load_state_dict(state_dict)
-                        target_dict = {
-                            k: torch.tensor(v)
-                            for k, v in agent_data["target_net_state"].items()
-                        }
+                        target_dict = {k: torch.tensor(v) for k, v in agent_data["target_net_state"].items()}
                         agent.target_net.load_state_dict(target_dict)
                     except Exception as e:
                         _log.warning("Could not restore DQN agent %d: %s", agent.agent_id, e)
                 if hasattr(agent, "network") and "network_state" in agent_data:
                     try:
-                        state_dict = {
-                            k: torch.tensor(v)
-                            for k, v in agent_data["network_state"].items()
-                        }
+                        state_dict = {k: torch.tensor(v) for k, v in agent_data["network_state"].items()}
                         agent.network.load_state_dict(state_dict)
                     except Exception as e:
                         _log.warning("Could not restore PPO agent: %s", e)
@@ -718,14 +738,10 @@ class RLEnsemble:
                 agent_data = data[key]
                 agent.q_table = {}
                 for k, v in agent_data.get("q_table", {}).items():
-                    try:
+                    with contextlib.suppress(ValueError, SyntaxError):
                         agent.q_table[ast.literal_eval(k)] = v
-                    except (ValueError, SyntaxError):
-                        pass
                 agent.epsilon = agent_data.get("epsilon", 0.15)
                 agent.total_trades = agent_data.get("total_trades", 0)
-                agent.trade_history = deque(
-                    agent_data.get("trade_history", []), maxlen=100
-                )
+                agent.trade_history = deque(agent_data.get("trade_history", []), maxlen=100)
 
         _log.info("RL Ensemble state restored (v%s)", version)

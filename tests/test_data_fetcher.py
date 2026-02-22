@@ -4,11 +4,12 @@ Unit tests for data_fetcher.py — DataFetcher with CCXT exchange + demo fallbac
 Mocks the ccxt exchange class so no real network calls are made.
 """
 
-import pytest
-import pandas as pd
-import numpy as np
+from unittest.mock import MagicMock
+
 import ccxt
-from unittest.mock import MagicMock, patch
+import pandas as pd
+import pytest
+
 from config import Config
 from data_fetcher import DataFetcher
 
@@ -25,7 +26,10 @@ def mock_exchange():
         [1704081600000, 42250, 42800, 42200, 42700, 1100],
     ]
     exchange.fetch_ticker.return_value = {
-        "last": 42700, "bid": 42699, "ask": 42701, "baseVolume": 5000,
+        "last": 42700,
+        "bid": 42699,
+        "ask": 42701,
+        "baseVolume": 5000,
     }
     exchange.fetch_order_book.return_value = {
         "bids": [[42699, 1.5], [42698, 2.0]],
@@ -47,6 +51,7 @@ def fetcher(mock_exchange, monkeypatch):
 # ---------------------------------------------------------------------------
 # fetch_ohlcv
 # ---------------------------------------------------------------------------
+
 
 class TestFetchOhlcv:
     def test_success_returns_dataframe(self, fetcher):
@@ -91,6 +96,7 @@ class TestFetchOhlcv:
 # fetch_ticker
 # ---------------------------------------------------------------------------
 
+
 class TestFetchTicker:
     def test_success(self, fetcher):
         result = fetcher.fetch_ticker()
@@ -113,6 +119,7 @@ class TestFetchTicker:
 # ---------------------------------------------------------------------------
 # fetch_order_book
 # ---------------------------------------------------------------------------
+
 
 class TestFetchOrderBook:
     def test_success(self, fetcher):
@@ -142,6 +149,7 @@ class TestFetchOrderBook:
 # get_available_pairs
 # ---------------------------------------------------------------------------
 
+
 class TestGetAvailablePairs:
     def test_returns_market_list(self, fetcher):
         pairs = fetcher.get_available_pairs()
@@ -159,6 +167,7 @@ class TestGetAvailablePairs:
 # _generate_demo_data
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateDemoData:
     def test_returns_valid_dataframe(self, fetcher):
         df = fetcher._generate_demo_data()
@@ -175,6 +184,7 @@ class TestGenerateDemoData:
 # ---------------------------------------------------------------------------
 # _init_exchange
 # ---------------------------------------------------------------------------
+
 
 class TestInitExchange:
     def test_paper_mode_no_keys(self, monkeypatch):

@@ -16,9 +16,9 @@ class FeeCalculator:
 
     # Approximate BTC withdrawal fees
     WITHDRAWAL_FEES = {
-        "binance": 0.0001,   # BTC
-        "coinbase": 0.0,     # Free for Coinbase Pro
-        "kraken": 0.00015,   # BTC
+        "binance": 0.0001,  # BTC
+        "coinbase": 0.0,  # Free for Coinbase Pro
+        "kraken": 0.00015,  # BTC
     }
 
     def trading_fee(self, exchange: str, amount: float, side: str = "taker") -> float:
@@ -31,8 +31,7 @@ class FeeCalculator:
         """Get withdrawal fee in BTC for an exchange."""
         return self.WITHDRAWAL_FEES.get(exchange, 0.0005)
 
-    def total_round_trip_cost(self, buy_exchange: str, sell_exchange: str,
-                               amount: float) -> float:
+    def total_round_trip_cost(self, buy_exchange: str, sell_exchange: str, amount: float) -> float:
         """Calculate total cost of buy on one exchange + sell on another."""
         buy_fee = self.trading_fee(buy_exchange, amount, "taker")
         sell_fee = self.trading_fee(sell_exchange, amount, "taker")

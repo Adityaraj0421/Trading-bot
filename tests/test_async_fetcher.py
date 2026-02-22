@@ -3,9 +3,11 @@ Tests for AsyncDataFetcher — demo fallback, session lifecycle.
 No real exchange connections: tests the fallback path and data shapes.
 """
 
-import pytest
 import asyncio
+
 import pandas as pd
+import pytest
+
 from async_fetcher import AsyncDataFetcher
 
 
@@ -61,6 +63,7 @@ class TestSessionLifecycle:
         async def _do():
             await fetcher.fetch_ohlcv(limit=50)
             await fetcher.close()
+
         asyncio.run(_do())
 
 

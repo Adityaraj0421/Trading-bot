@@ -16,20 +16,20 @@ Usage:
 """
 
 import logging
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
 
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field
-from collections import defaultdict
-from typing import Any
 
-from indicators import Indicators
-from model import TradingModel, Signal
-from regime_detector import RegimeDetector, MarketRegime
-from sentiment import SentimentAnalyzer
-from strategies import StrategyEngine, StrategySignal
 from config import Config
+from indicators import Indicators
+from model import TradingModel
+from regime_detector import RegimeDetector
+from sentiment import SentimentAnalyzer
+from strategies import StrategyEngine
 
 _log = logging.getLogger(__name__)
 
@@ -37,15 +37,16 @@ _log = logging.getLogger(__name__)
 @dataclass
 class BacktestTrade:
     """Record of a completed backtest trade with costs and attribution."""
+
     symbol: str
     side: str
     entry_price: float
     exit_price: float
-    entry_price_actual: float   # After slippage
-    exit_price_actual: float    # After slippage
+    entry_price_actual: float  # After slippage
+    exit_price_actual: float  # After slippage
     quantity: float
-    pnl_gross: float            # Before fees
-    pnl_net: float              # After fees + slippage
+    pnl_gross: float  # Before fees
+    pnl_net: float  # After fees + slippage
     fees_paid: float
     slippage_cost: float
     entry_time: datetime
@@ -59,6 +60,7 @@ class BacktestTrade:
 @dataclass
 class BacktestPosition:
     """Tracks an open position during backtesting."""
+
     symbol: str
     side: str
     entry_price: float
@@ -68,9 +70,9 @@ class BacktestPosition:
     entry_time: datetime
     stop_loss: float
     take_profit: float
-    trailing_stop: float        # Trailing stop level
-    highest_price: float        # For trailing stop (longs)
-    lowest_price: float         # For trailing stop (shorts)
+    trailing_stop: float  # Trailing stop level
+    highest_price: float  # For trailing stop (longs)
+    lowest_price: float  # For trailing stop (shorts)
     strategy_name: str
     regime: str
 
@@ -84,12 +86,12 @@ class Backtester:
     def __init__(
         self,
         initial_capital: float | None = None,
-        fee_pct: float = 0.001,         # 0.1% maker/taker fee (Binance default)
-        slippage_pct: float = 0.0005,   # 0.05% slippage estimate
+        fee_pct: float = 0.001,  # 0.1% maker/taker fee (Binance default)
+        slippage_pct: float = 0.0005,  # 0.05% slippage estimate
         trailing_stop_pct: float = 0.015,  # 1.5% trailing stop activation
-        max_hold_bars: int = 100,        # Force close after 100 bars
+        max_hold_bars: int = 100,  # Force close after 100 bars
         min_confidence: float | None = None,
-        symbol: str | None = None,             # v7.0: explicit symbol for multi-pair
+        symbol: str | None = None,  # v7.0: explicit symbol for multi-pair
     ):
         self.initial_capital = initial_capital or Config.INITIAL_CAPITAL
         self.fee_pct = fee_pct
@@ -133,9 +135,16 @@ class Backtester:
         """Calculate trading fees for a given notional value."""
         return price * quantity * self.fee_pct
 
-    def _open_position(self, bar_idx: int, timestamp: Any, price: float,
-                       signal: str, confidence: float,
-                       strat_sig: Any, regime_name: str) -> None:
+    def _open_position(
+        self,
+        bar_idx: int,
+        timestamp: Any,
+        price: float,
+        signal: str,
+        confidence: float,
+        strat_sig: Any,
+        regime_name: str,
+    ) -> None:
         """Open a new position with slippage, fees, and risk limits applied."""
         side = "long" if signal == "BUY" else "short"
         risk_amount = self.capital * Config.MAX_POSITION_PCT
@@ -146,7 +155,7 @@ class Backtester:
         if actual_entry * quantity + entry_fee > self.capital:
             return  # Can't afford
 
-        self.capital -= (actual_entry * quantity + entry_fee)
+        self.capital -= actual_entry * quantity + entry_fee
 
         sl_pct = strat_sig.suggested_sl_pct
         tp_pct = strat_sig.suggested_tp_pct
@@ -160,18 +169,24 @@ class Backtester:
             trailing = actual_entry * (1 + self.trailing_stop_pct)
 
         pos = BacktestPosition(
-            symbol=self.symbol, side=side,
-            entry_price=price, entry_price_actual=actual_entry,
-            quantity=quantity, entry_bar=bar_idx, entry_time=timestamp,
-            stop_loss=sl, take_profit=tp,
+            symbol=self.symbol,
+            side=side,
+            entry_price=price,
+            entry_price_actual=actual_entry,
+            quantity=quantity,
+            entry_bar=bar_idx,
+            entry_time=timestamp,
+            stop_loss=sl,
+            take_profit=tp,
             trailing_stop=trailing,
-            highest_price=price, lowest_price=price,
-            strategy_name=strat_sig.strategy_name, regime=regime_name,
+            highest_price=price,
+            lowest_price=price,
+            strategy_name=strat_sig.strategy_name,
+            regime=regime_name,
         )
         self.positions.append(pos)
 
-    def _close_position(self, pos: BacktestPosition, bar_idx: int,
-                        timestamp: Any, price: float, reason: str) -> None:
+    def _close_position(self, pos: BacktestPosition, bar_idx: int, timestamp: Any, price: float, reason: str) -> None:
         """Close a position, record trade with PnL, fees, and slippage."""
         actual_exit = self._apply_slippage(price, pos.side, is_entry=False)
         exit_fee = self._calculate_fees(actual_exit, pos.quantity)
@@ -184,21 +199,27 @@ class Backtester:
             pnl_net = (pos.entry_price_actual - actual_exit) * pos.quantity - exit_fee
 
         entry_fee = self._calculate_fees(pos.entry_price_actual, pos.quantity)
-        slippage = abs(pos.entry_price_actual - pos.entry_price) * pos.quantity + \
-                   abs(actual_exit - price) * pos.quantity
+        slippage = (
+            abs(pos.entry_price_actual - pos.entry_price) * pos.quantity + abs(actual_exit - price) * pos.quantity
+        )
 
         trade = BacktestTrade(
-            symbol=pos.symbol, side=pos.side,
-            entry_price=pos.entry_price, exit_price=price,
+            symbol=pos.symbol,
+            side=pos.side,
+            entry_price=pos.entry_price,
+            exit_price=price,
             entry_price_actual=pos.entry_price_actual,
             exit_price_actual=actual_exit,
             quantity=pos.quantity,
-            pnl_gross=pnl_gross, pnl_net=pnl_net,
+            pnl_gross=pnl_gross,
+            pnl_net=pnl_net,
             fees_paid=entry_fee + exit_fee,
             slippage_cost=slippage,
-            entry_time=pos.entry_time, exit_time=timestamp,
+            entry_time=pos.entry_time,
+            exit_time=timestamp,
             exit_reason=reason,
-            strategy_name=pos.strategy_name, regime=pos.regime,
+            strategy_name=pos.strategy_name,
+            regime=pos.regime,
             hold_bars=bar_idx - pos.entry_bar,
         )
         self.trades.append(trade)
@@ -218,10 +239,7 @@ class Backtester:
             if pos.side == "long":
                 if high > pos.highest_price:
                     pos.highest_price = high
-                    pos.trailing_stop = max(
-                        pos.trailing_stop,
-                        high * (1 - self.trailing_stop_pct)
-                    )
+                    pos.trailing_stop = max(pos.trailing_stop, high * (1 - self.trailing_stop_pct))
                 # Check exits: SL, TP, trailing, max duration
                 if low <= pos.stop_loss:
                     self._close_position(pos, bar_idx, timestamp, pos.stop_loss, "stop_loss")
@@ -234,10 +252,7 @@ class Backtester:
             else:  # short
                 if low < pos.lowest_price:
                     pos.lowest_price = low
-                    pos.trailing_stop = min(
-                        pos.trailing_stop,
-                        low * (1 + self.trailing_stop_pct)
-                    )
+                    pos.trailing_stop = min(pos.trailing_stop, low * (1 + self.trailing_stop_pct))
                 if high >= pos.stop_loss:
                     self._close_position(pos, bar_idx, timestamp, pos.stop_loss, "stop_loss")
                 elif low <= pos.take_profit:
@@ -247,8 +262,9 @@ class Backtester:
                 elif bar_idx - pos.entry_bar >= self.max_hold_bars:
                     self._close_position(pos, bar_idx, timestamp, price, "max_duration")
 
-    def run(self, df: pd.DataFrame, train_split: float = 0.3,
-            retrain_every: int = 50, verbose: bool = True) -> dict[str, Any]:
+    def run(
+        self, df: pd.DataFrame, train_split: float = 0.3, retrain_every: int = 50, verbose: bool = True
+    ) -> dict[str, Any]:
         """
         Run backtest on historical OHLCV data.
 
@@ -301,13 +317,14 @@ class Backtester:
 
             # Equity snapshot (mark-to-market)
             unrealized = sum(
-                (price - p.entry_price_actual) * p.quantity if p.side == "long"
+                (price - p.entry_price_actual) * p.quantity
+                if p.side == "long"
                 else (p.entry_price_actual - price) * p.quantity
                 for p in self.positions
             )
-            self.equity_curve.append(self.capital + unrealized + sum(
-                p.entry_price_actual * p.quantity for p in self.positions
-            ))
+            self.equity_curve.append(
+                self.capital + unrealized + sum(p.entry_price_actual * p.quantity for p in self.positions)
+            )
             self.equity_timestamps.append(timestamp)
 
             # Check existing positions
@@ -325,51 +342,53 @@ class Backtester:
                 continue
 
             # Analysis (use a window of data up to current bar)
-            window = df_ind.iloc[max(0, i-200):i+1]
+            window = df_ind.iloc[max(0, i - 200) : i + 1]
             if len(window) < 50:
                 continue
 
-            regime_state = self.regime_detector.detect(
-                df.iloc[max(0, i-200):i+1], df_ind=window
-            )
-            sentiment_state = self.sentiment.analyze(
-                df.iloc[max(0, i-200):i+1], df_ind=window
-            )
-            strat_signal = self.strategy_engine.run(
-                window, regime_state.regime, sentiment_state
-            )
+            regime_state = self.regime_detector.detect(df.iloc[max(0, i - 200) : i + 1], df_ind=window)
+            sentiment_state = self.sentiment.analyze(df.iloc[max(0, i - 200) : i + 1], df_ind=window)
+            strat_signal = self.strategy_engine.run(window, regime_state.regime, sentiment_state)
             ml_signal, ml_conf = self.model.predict(df_ind=window)
 
             # Combine
             final_signal, final_conf = self._combine(strat_signal, ml_signal, ml_conf)
 
-            self.signals_log.append({
-                "bar": bar_idx, "timestamp": str(timestamp),
-                "price": price, "signal": final_signal,
-                "confidence": final_conf, "regime": regime_state.regime.value,
-                "strategy": strat_signal.strategy_name,
-            })
+            self.signals_log.append(
+                {
+                    "bar": bar_idx,
+                    "timestamp": str(timestamp),
+                    "price": price,
+                    "signal": final_signal,
+                    "confidence": final_conf,
+                    "regime": regime_state.regime.value,
+                    "strategy": strat_signal.strategy_name,
+                }
+            )
 
             # Execute
             if final_signal in ("BUY", "SELL") and final_conf >= self.min_confidence:
                 # Check no conflicting/duplicate positions
-                target_side = "long" if final_signal == "BUY" else "short"
-                has_conflict = any(
-                    p.symbol == self.symbol
-                    for p in self.positions
-                )
+                has_conflict = any(p.symbol == self.symbol for p in self.positions)
                 if not has_conflict:
                     self._open_position(
-                        bar_idx, timestamp, price, final_signal, final_conf,
-                        strat_signal, regime_state.regime.value,
+                        bar_idx,
+                        timestamp,
+                        price,
+                        final_signal,
+                        final_conf,
+                        strat_signal,
+                        regime_state.regime.value,
                     )
 
             # Progress
             if verbose and bar_idx % 100 == 0 and bar_idx > 0:
                 pct = bar_idx / total_bars * 100
-                print(f"  Bar {bar_idx}/{total_bars} ({pct:.0f}%) | "
-                      f"Trades: {len(self.trades)} | "
-                      f"Equity: ${self.equity_curve[-1]:,.2f}")
+                print(
+                    f"  Bar {bar_idx}/{total_bars} ({pct:.0f}%) | "
+                    f"Trades: {len(self.trades)} | "
+                    f"Equity: ${self.equity_curve[-1]:,.2f}"
+                )
 
         # Close remaining positions at last price
         last_price = df_ind["close"].iloc[-1]
@@ -417,7 +436,6 @@ class Backtester:
                 "sharpe_ratio": 0,
                 "sortino_ratio": 0,
                 "calmar_ratio": 0,
-                "total_trades": 0,
                 "win_rate": 0,
                 "profit_factor": 0,
                 "avg_win": 0,
@@ -461,7 +479,7 @@ class Backtester:
 
         gross_profit = sum(t.pnl_net for t in winning)
         gross_loss = abs(sum(t.pnl_net for t in losing))
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
         avg_win = np.mean([t.pnl_net for t in winning]) if winning else 0
         avg_loss = np.mean([t.pnl_net for t in losing]) if losing else 0
@@ -520,18 +538,17 @@ class Backtester:
         print(f"  Cost Drag:        ${results['total_fees'] + results['total_slippage']:,.2f}")
 
         if results.get("exit_reasons"):
-            print(f"\n  Exit Reasons:")
+            print("\n  Exit Reasons:")
             for reason, count in sorted(results["exit_reasons"].items(), key=lambda x: -x[1]):
                 print(f"    {reason:20s} {count}")
 
         # Per-strategy attribution
         if self.strategy_trades:
-            print(f"\n  Strategy Performance:")
+            print("\n  Strategy Performance:")
             print(f"  {'Strategy':<30s} {'Trades':>6s} {'Win%':>6s} {'PnL':>10s} {'Avg':>8s}")
-            print(f"  {'-'*62}")
+            print(f"  {'-' * 62}")
             for strat_name, trades in sorted(
-                self.strategy_trades.items(),
-                key=lambda x: sum(t.pnl_net for t in x[1]), reverse=True
+                self.strategy_trades.items(), key=lambda x: sum(t.pnl_net for t in x[1]), reverse=True
             ):
                 n = len(trades)
                 wins = sum(1 for t in trades if t.pnl_net > 0)
@@ -588,21 +605,21 @@ canvas {{ background: #161b22; border-radius: 8px; padding: 10px; margin: 15px 0
 <h1>Backtest Results</h1>
 <div class="metrics">
 <div class="metric"><div class="label">Total Return</div>
-<div class="value {'positive' if equity[-1] > equity[0] else 'negative'}">{((equity[-1]/equity[0])-1)*100:+.2f}%</div></div>
+<div class="value {"positive" if equity[-1] > equity[0] else "negative"}">{((equity[-1] / equity[0]) - 1) * 100:+.2f}%</div></div>
 <div class="metric"><div class="label">Sharpe Ratio</div>
-<div class="value">{self._compute_metrics()['sharpe_ratio']:.3f}</div></div>
+<div class="value">{self._compute_metrics()["sharpe_ratio"]:.3f}</div></div>
 <div class="metric"><div class="label">Max Drawdown</div>
 <div class="value negative">{min(drawdown):.2f}%</div></div>
 <div class="metric"><div class="label">Win Rate</div>
-<div class="value">{self._compute_metrics()['win_rate']}%</div></div>
+<div class="value">{self._compute_metrics()["win_rate"]}%</div></div>
 </div>
 <canvas id="equityChart" height="300"></canvas>
 <canvas id="drawdownChart" height="150"></canvas>
 </div>
 <script>
-const labels = {timestamps[:500] if len(timestamps)>500 else timestamps};
-const equity = {[round(e,2) for e in equity[:500]] if len(equity)>500 else [round(e,2) for e in equity]};
-const dd = {[round(d,2) for d in drawdown[:500]] if len(drawdown)>500 else [round(d,2) for d in drawdown]};
+const labels = {timestamps[:500] if len(timestamps) > 500 else timestamps};
+const equity = {[round(e, 2) for e in equity[:500]] if len(equity) > 500 else [round(e, 2) for e in equity]};
+const dd = {[round(d, 2) for d in drawdown[:500]] if len(drawdown) > 500 else [round(d, 2) for d in drawdown]};
 
 new Chart(document.getElementById('equityChart'), {{
   type: 'line',

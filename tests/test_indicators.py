@@ -5,11 +5,11 @@ Validates that all technical indicators are computed correctly, values are
 in expected ranges, and caching works as expected.
 """
 
-import pytest
 import pandas as pd
-import numpy as np
+import pytest
+
 from demo_data import generate_ohlcv
-from indicators import Indicators, FEATURE_COLUMNS
+from indicators import FEATURE_COLUMNS, Indicators
 
 
 @pytest.fixture()
@@ -28,6 +28,7 @@ def _clear_cache():
 # ---------------------------------------------------------------------------
 # add_all — output shape and columns
 # ---------------------------------------------------------------------------
+
 
 class TestIndicatorsAddAll:
     def test_returns_dataframe(self, sample_ohlcv):
@@ -110,6 +111,7 @@ class TestIndicatorsAddAll:
 # Caching
 # ---------------------------------------------------------------------------
 
+
 class TestIndicatorsCache:
     def test_cache_hit_same_data(self, sample_ohlcv):
         r1 = Indicators.add_all(sample_ohlcv)
@@ -133,6 +135,7 @@ class TestIndicatorsCache:
 # ---------------------------------------------------------------------------
 # FEATURE_COLUMNS
 # ---------------------------------------------------------------------------
+
 
 class TestFeatureColumns:
     def test_get_feature_columns_returns_list(self):

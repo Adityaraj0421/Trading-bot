@@ -12,9 +12,8 @@ v1.0: Random search with Pareto front tracking.
 
 import logging
 import random
-import numpy as np
-from dataclasses import dataclass, field
 from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -24,8 +23,9 @@ _log = logging.getLogger(__name__)
 _HAS_OPTUNA = False
 try:
     import optuna
-    from optuna.samplers import TPESampler
     from optuna.pruners import HyperbandPruner
+    from optuna.samplers import TPESampler
+
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     _HAS_OPTUNA = True
 except ImportError:
@@ -35,6 +35,7 @@ except ImportError:
 @dataclass
 class HyperparamBound:
     """Defines the search range for a single hyperparameter."""
+
     name: str
     low: float
     high: float
@@ -51,6 +52,7 @@ class HyperparamBound:
 @dataclass
 class TrialResult:
     """Result of one optimization trial."""
+
     params: dict[str, Any]
     metrics: dict[str, Any]
     timestamp: datetime = field(default_factory=datetime.now)
@@ -75,24 +77,17 @@ class TrialResult:
 
 # Default hyperparameter search space
 DEFAULT_SEARCH_SPACE = {
-    "stop_loss_pct": HyperparamBound("stop_loss_pct", 0.5, 5.0, float, 2.0,
-                                      "Stop-loss percentage"),
-    "take_profit_pct": HyperparamBound("take_profit_pct", 1.0, 10.0, float, 3.0,
-                                        "Take-profit percentage"),
-    "trailing_stop_pct": HyperparamBound("trailing_stop_pct", 0.5, 4.0, float, 1.5,
-                                          "Trailing stop percentage"),
-    "confidence_threshold": HyperparamBound("confidence_threshold", 0.3, 0.8, float, 0.5,
-                                             "Minimum confidence to trade"),
-    "lookback_bars": HyperparamBound("lookback_bars", 50, 500, int, 200,
-                                      "Historical bars for analysis"),
-    "max_hold_bars": HyperparamBound("max_hold_bars", 20, 200, int, 100,
-                                      "Maximum bars to hold a position"),
-    "position_size_pct": HyperparamBound("position_size_pct", 1.0, 20.0, float, 10.0,
-                                          "Position size as % of capital"),
-    "max_open_positions": HyperparamBound("max_open_positions", 1, 5, int, 3,
-                                           "Maximum simultaneous positions"),
-    "retrain_hours": HyperparamBound("retrain_hours", 1, 24, float, 6.0,
-                                      "Hours between model retraining"),
+    "stop_loss_pct": HyperparamBound("stop_loss_pct", 0.5, 5.0, float, 2.0, "Stop-loss percentage"),
+    "take_profit_pct": HyperparamBound("take_profit_pct", 1.0, 10.0, float, 3.0, "Take-profit percentage"),
+    "trailing_stop_pct": HyperparamBound("trailing_stop_pct", 0.5, 4.0, float, 1.5, "Trailing stop percentage"),
+    "confidence_threshold": HyperparamBound(
+        "confidence_threshold", 0.3, 0.8, float, 0.5, "Minimum confidence to trade"
+    ),
+    "lookback_bars": HyperparamBound("lookback_bars", 50, 500, int, 200, "Historical bars for analysis"),
+    "max_hold_bars": HyperparamBound("max_hold_bars", 20, 200, int, 100, "Maximum bars to hold a position"),
+    "position_size_pct": HyperparamBound("position_size_pct", 1.0, 20.0, float, 10.0, "Position size as % of capital"),
+    "max_open_positions": HyperparamBound("max_open_positions", 1, 5, int, 3, "Maximum simultaneous positions"),
+    "retrain_hours": HyperparamBound("retrain_hours", 1, 24, float, 6.0, "Hours between model retraining"),
 }
 
 
@@ -111,9 +106,12 @@ class AutoOptimizer:
     API is backward-compatible with v1.0 (all methods preserved).
     """
 
-    def __init__(self, search_space: dict[str, HyperparamBound] | None = None,
-                 max_trials: int = 100,
-                 storage_path: str | None = None) -> None:
+    def __init__(
+        self,
+        search_space: dict[str, HyperparamBound] | None = None,
+        max_trials: int = 100,
+        storage_path: str | None = None,
+    ) -> None:
         self.search_space = search_space or DEFAULT_SEARCH_SPACE
         self.max_trials = max_trials
         self.trials: deque[TrialResult] = deque(maxlen=max_trials)
@@ -131,8 +129,7 @@ class AutoOptimizer:
         if _HAS_OPTUNA:
             self._init_optuna_study()
 
-        print(f"  [Optimizer] Engine: {self.engine} | "
-              f"Max trials: {max_trials}")
+        print(f"  [Optimizer] Engine: {self.engine} | Max trials: {max_trials}")
 
     def _init_optuna_study(self) -> None:
         """Initialize Optuna multi-objective study."""
@@ -143,11 +140,11 @@ class AutoOptimizer:
         sampler = TPESampler(
             seed=42,
             n_startup_trials=10,  # Random exploration first
-            multivariate=True,    # Model parameter interactions
+            multivariate=True,  # Model parameter interactions
         )
 
         pruner = HyperbandPruner(
-            min_resource=5,       # Minimum trials before pruning
+            min_resource=5,  # Minimum trials before pruning
             max_resource=self.max_trials,
             reduction_factor=3,
         )
@@ -166,13 +163,9 @@ class AutoOptimizer:
         params = {}
         for name, bound in self.search_space.items():
             if bound.dtype == int:
-                params[name] = trial.suggest_int(
-                    name, int(bound.low), int(bound.high)
-                )
+                params[name] = trial.suggest_int(name, int(bound.low), int(bound.high))
             else:
-                params[name] = round(
-                    trial.suggest_float(name, bound.low, bound.high), 4
-                )
+                params[name] = round(trial.suggest_float(name, bound.low, bound.high), 4)
         return params
 
     def suggest_params(self) -> dict[str, Any]:
@@ -185,12 +178,9 @@ class AutoOptimizer:
             trial = self._study.ask(
                 fixed_distributions={
                     name: (
-                        optuna.distributions.IntDistribution(
-                            int(bound.low), int(bound.high)
-                        ) if bound.dtype == int
-                        else optuna.distributions.FloatDistribution(
-                            bound.low, bound.high
-                        )
+                        optuna.distributions.IntDistribution(int(bound.low), int(bound.high))
+                        if bound.dtype == int
+                        else optuna.distributions.FloatDistribution(bound.low, bound.high)
                     )
                     for name, bound in self.search_space.items()
                 }
@@ -203,8 +193,7 @@ class AutoOptimizer:
             # Store trial number for later tell()
             params["_optuna_trial_number"] = trial.number
             self._pending_params.append(params)
-            return {k: v for k, v in params.items()
-                    if not k.startswith("_")}
+            return {k: v for k, v in params.items() if not k.startswith("_")}
 
         # Fallback: random search
         params = {}
@@ -249,8 +238,10 @@ class AutoOptimizer:
         # Update best
         if self.best_result is None or result.score > self.best_result.score:
             self.best_result = result
-            print(f"  [Optimizer] New best: score={result.score:.3f} "
-                  f"sharpe={result.sharpe:.3f} return={result.total_return:.2f}%")
+            print(
+                f"  [Optimizer] New best: score={result.score:.3f} "
+                f"sharpe={result.sharpe:.3f} return={result.total_return:.2f}%"
+            )
 
         # Update Pareto front
         self._update_pareto(result)
@@ -260,10 +251,7 @@ class AutoOptimizer:
         # Find matching pending trial
         trial_number = None
         for pending in self._pending_params:
-            match = all(
-                pending.get(k) == params.get(k)
-                for k in self.search_space
-            )
+            match = all(pending.get(k) == params.get(k) for k in self.search_space)
             if match:
                 trial_number = pending.get("_optuna_trial_number")
                 self._pending_params.remove(pending)
@@ -278,18 +266,12 @@ class AutoOptimizer:
         else:
             # No matching trial — add as external observation
             trial = optuna.trial.create_trial(
-                params={
-                    name: params[name]
-                    for name in self.search_space if name in params
-                },
+                params={name: params[name] for name in self.search_space if name in params},
                 distributions={
                     name: (
-                        optuna.distributions.IntDistribution(
-                            int(bound.low), int(bound.high)
-                        ) if bound.dtype == int
-                        else optuna.distributions.FloatDistribution(
-                            bound.low, bound.high
-                        )
+                        optuna.distributions.IntDistribution(int(bound.low), int(bound.high))
+                        if bound.dtype == int
+                        else optuna.distributions.FloatDistribution(bound.low, bound.high)
                     )
                     for name, bound in self.search_space.items()
                 },
@@ -326,21 +308,29 @@ class AutoOptimizer:
         to_remove = []
 
         for i, existing in enumerate(self.pareto_front):
-            if (existing.sharpe >= new_result.sharpe and
-                existing.max_drawdown <= new_result.max_drawdown and
-                existing.total_trades >= new_result.total_trades):
-                if (existing.sharpe > new_result.sharpe or
-                    existing.max_drawdown < new_result.max_drawdown or
-                    existing.total_trades > new_result.total_trades):
+            if (  # noqa: SIM102
+                existing.sharpe >= new_result.sharpe
+                and existing.max_drawdown <= new_result.max_drawdown
+                and existing.total_trades >= new_result.total_trades
+            ):
+                if (
+                    existing.sharpe > new_result.sharpe
+                    or existing.max_drawdown < new_result.max_drawdown
+                    or existing.total_trades > new_result.total_trades
+                ):
                     dominated = True
                     break
 
-            if (new_result.sharpe >= existing.sharpe and
-                new_result.max_drawdown <= existing.max_drawdown and
-                new_result.total_trades >= existing.total_trades):
-                if (new_result.sharpe > existing.sharpe or
-                    new_result.max_drawdown < existing.max_drawdown or
-                    new_result.total_trades > existing.total_trades):
+            if (  # noqa: SIM102
+                new_result.sharpe >= existing.sharpe
+                and new_result.max_drawdown <= existing.max_drawdown
+                and new_result.total_trades >= existing.total_trades
+            ):
+                if (
+                    new_result.sharpe > existing.sharpe
+                    or new_result.max_drawdown < existing.max_drawdown
+                    or new_result.total_trades > existing.total_trades
+                ):
                     to_remove.append(i)
 
         if not dominated:
@@ -373,12 +363,14 @@ class AutoOptimizer:
             if best_trials:
                 front = []
                 for t in best_trials[:10]:
-                    front.append({
-                        "params": dict(t.params),
-                        "sharpe": t.values[0],
-                        "max_drawdown": t.values[1],
-                        "trial_number": t.number,
-                    })
+                    front.append(
+                        {
+                            "params": dict(t.params),
+                            "sharpe": t.values[0],
+                            "max_drawdown": t.values[1],
+                            "trial_number": t.number,
+                        }
+                    )
                 return front
 
         return [r.to_dict() for r in self.pareto_front]
@@ -396,9 +388,7 @@ class AutoOptimizer:
             else:
                 # Fallback: same logic as v1.0
                 if i == 0 and self.best_result:
-                    params = self.suggest_nearby(
-                        self.best_result.params, spread=0.15
-                    )
+                    params = self.suggest_nearby(self.best_result.params, spread=0.15)
                 elif i < 3 and self.pareto_front:
                     base = random.choice(self.pareto_front)
                     params = self.suggest_nearby(base.params, spread=0.2)
@@ -423,24 +413,22 @@ class AutoOptimizer:
         history = []
         for t in trials:
             if t.state == optuna.trial.TrialState.COMPLETE:
-                history.append({
-                    "trial": t.number,
-                    "params": dict(t.params),
-                    "sharpe": t.values[0] if t.values else 0,
-                    "drawdown": t.values[1] if t.values and len(t.values) > 1 else 0,
-                })
+                history.append(
+                    {
+                        "trial": t.number,
+                        "params": dict(t.params),
+                        "sharpe": t.values[0] if t.values else 0,
+                        "drawdown": t.values[1] if t.values and len(t.values) > 1 else 0,
+                    }
+                )
 
         # Parameter importance (requires enough trials)
         importance = {}
         if len(trials) >= 10:
             try:
                 for i, direction in enumerate(["sharpe", "drawdown"]):
-                    imp = optuna.importance.get_param_importances(
-                        self._study, target=lambda t: t.values[i]
-                    )
-                    importance[direction] = {
-                        k: round(v, 4) for k, v in imp.items()
-                    }
+                    imp = optuna.importance.get_param_importances(self._study, target=lambda t, idx=i: t.values[idx])
+                    importance[direction] = {k: round(v, 4) for k, v in imp.items()}
             except Exception as e:
                 __import__("logging").getLogger(__name__).debug("Param importance calc failed: %s", e)
 
@@ -480,10 +468,7 @@ class AutoOptimizer:
             "best_sharpe": self.best_result.sharpe if self.best_result else 0,
             "best_return": self.best_result.total_return if self.best_result else 0,
             "pareto_size": len(self.pareto_front),
-            "last_optimization": (
-                self.last_optimization.isoformat()
-                if self.last_optimization else None
-            ),
+            "last_optimization": (self.last_optimization.isoformat() if self.last_optimization else None),
         }
 
         if _HAS_OPTUNA and self._study is not None:

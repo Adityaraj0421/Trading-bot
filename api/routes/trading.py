@@ -77,11 +77,13 @@ def create_router(store: DataStore) -> APIRouter:
         running = 0.0
         for t in closed:
             running += t.get("pnl_net", 0)
-            cum_pnl.append({
-                "pnl": round(running, 2),
-                "timestamp": t.get("exit_time", t.get("entry_time", "")),
-                "symbol": t.get("symbol", ""),
-            })
+            cum_pnl.append(
+                {
+                    "pnl": round(running, 2),
+                    "timestamp": t.get("exit_time", t.get("entry_time", "")),
+                    "symbol": t.get("symbol", ""),
+                }
+            )
 
         return {
             "by_pair": by_pair,

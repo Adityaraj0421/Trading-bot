@@ -6,9 +6,9 @@ Uses tmp_path for file I/O and MagicMock for the agent object.
 
 import json
 import os
-import pytest
-from unittest.mock import MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock
+
 from state_manager import StateManager
 
 
@@ -52,6 +52,7 @@ def _make_mock_agent(trained=False, has_decision=False):
 # Init
 # ---------------------------------------------------------------------------
 
+
 class TestStateManagerInit:
     def test_custom_state_file(self, tmp_path):
         path = str(tmp_path / "state.json")
@@ -74,6 +75,7 @@ class TestStateManagerInit:
 # exists
 # ---------------------------------------------------------------------------
 
+
 class TestExists:
     def test_false_initially(self, tmp_path):
         sm = StateManager(state_file=str(tmp_path / "state.json"))
@@ -89,6 +91,7 @@ class TestExists:
 # ---------------------------------------------------------------------------
 # save / load
 # ---------------------------------------------------------------------------
+
 
 class TestSaveLoad:
     def test_save_returns_true(self, tmp_path):
@@ -190,6 +193,7 @@ class TestSaveLoad:
 # clear
 # ---------------------------------------------------------------------------
 
+
 class TestClear:
     def test_removes_all_files(self, tmp_path):
         path = str(tmp_path / "state.json")
@@ -212,6 +216,7 @@ class TestClear:
 # ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
+
 
 class TestErrorHandling:
     def test_save_error_returns_false(self, tmp_path):

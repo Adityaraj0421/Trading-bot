@@ -15,14 +15,16 @@ This is a market-neutral strategy — profit comes from funding payments,
 not price movement.
 """
 
-import time
 import logging
-import requests
-import numpy as np
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from collections import deque
 from typing import Any
+
+import numpy as np
+import requests
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -31,12 +33,13 @@ _log = logging.getLogger(__name__)
 @dataclass
 class FundingPosition:
     """Represents an active delta-neutral funding arbitrage position."""
+
     pair: str
-    direction: str       # "long_basis" (long spot, short perp) or "short_basis"
-    spot_entry: float    # Spot entry price
-    perp_entry: float    # Perp entry price
-    size_usd: float      # Position size in USD
-    entry_funding: float # Funding rate at entry
+    direction: str  # "long_basis" (long spot, short perp) or "short_basis"
+    spot_entry: float  # Spot entry price
+    perp_entry: float  # Perp entry price
+    size_usd: float  # Position size in USD
+    entry_funding: float  # Funding rate at entry
     entry_time: datetime
     total_funding_collected: float = 0.0
     funding_payments: int = 0
@@ -63,16 +66,17 @@ class FundingPosition:
         if self.size_usd <= 0:
             return 0.0
         hours_held = max(1, (datetime.now() - self.entry_time).total_seconds() / 3600)
-        return_pct = (self.total_funding_collected / self.size_usd)
+        return_pct = self.total_funding_collected / self.size_usd
         return return_pct * (8760 / hours_held) * 100
 
 
 @dataclass
 class FundingSnapshot:
     """Point-in-time funding rate data."""
+
     pair: str
-    funding_rate: float      # Current 8h funding rate
-    predicted_rate: float    # Predicted next funding rate
+    funding_rate: float  # Current 8h funding rate
+    predicted_rate: float  # Predicted next funding rate
     next_funding_time: str
     timestamp: float
 
@@ -85,12 +89,12 @@ class FundingArbitrageEngine:
     """
 
     # --- Entry/exit thresholds ---
-    MIN_FUNDING_RATE = 0.0003    # 0.03% per 8h — minimum to enter a position
-    EXIT_FUNDING_RATE = 0.0001   # 0.01% per 8h — close when funding drops here
-    MAX_POSITION_SIZE_PCT = 0.15 # 15% of capital per funding arb pair
-    STABILITY_LOOKBACK = 10      # Minimum consistent funding readings before entry
-    MIN_STABILITY = 0.5          # Minimum stability score (0-1) to enter
-    MIN_PAYMENTS_BEFORE_EXIT = 3 # Collect at least N payments before allowing negative-yield exit
+    MIN_FUNDING_RATE = 0.0003  # 0.03% per 8h — minimum to enter a position
+    EXIT_FUNDING_RATE = 0.0001  # 0.01% per 8h — close when funding drops here
+    MAX_POSITION_SIZE_PCT = 0.15  # 15% of capital per funding arb pair
+    STABILITY_LOOKBACK = 10  # Minimum consistent funding readings before entry
+    MIN_STABILITY = 0.5  # Minimum stability score (0-1) to enter
+    MIN_PAYMENTS_BEFORE_EXIT = 3  # Collect at least N payments before allowing negative-yield exit
 
     # Funding rate math constants
     FUNDING_PERIODS_PER_DAY = 3  # Binance: 3 × 8h funding periods
@@ -102,14 +106,10 @@ class FundingArbitrageEngine:
     BINANCE_FUTURES_API = "https://fapi.binance.com"
 
     def __init__(self, symbols: list[str] | None = None, capital: float | None = None) -> None:
-        self.symbols = symbols or [
-            p.replace("/", "") for p in Config.TRADING_PAIRS
-        ]
+        self.symbols = symbols or [p.replace("/", "") for p in Config.TRADING_PAIRS]
         self.capital = capital or Config.INITIAL_CAPITAL
         self.positions: list[FundingPosition] = []
-        self._funding_history: dict[str, deque] = {
-            s: deque(maxlen=self.FUNDING_HISTORY_MAXLEN) for s in self.symbols
-        }
+        self._funding_history: dict[str, deque] = {s: deque(maxlen=self.FUNDING_HISTORY_MAXLEN) for s in self.symbols}
         self._last_scan: dict = {}
         self._total_yield: float = 0.0
 
@@ -183,24 +183,22 @@ class FundingArbitrageEngine:
             # Check if we already have a position
             has_position = any(p.pair == symbol for p in self.positions)
 
-            opportunities.append({
-                "pair": symbol,
-                "funding_rate": fr,
-                "predicted_rate": snapshot.predicted_rate,
-                "direction": direction,
-                "annualized_yield_pct": round(annualized_yield, 2),
-                "net_annualized_yield_pct": round(net_annualized, 2),
-                "stability": round(stability, 2),
-                "has_position": has_position,
-                "recommended_size_usd": round(
-                    self.capital * self.MAX_POSITION_SIZE_PCT * stability, 2
-                ),
-            })
+            opportunities.append(
+                {
+                    "pair": symbol,
+                    "funding_rate": fr,
+                    "predicted_rate": snapshot.predicted_rate,
+                    "direction": direction,
+                    "annualized_yield_pct": round(annualized_yield, 2),
+                    "net_annualized_yield_pct": round(net_annualized, 2),
+                    "stability": round(stability, 2),
+                    "has_position": has_position,
+                    "recommended_size_usd": round(self.capital * self.MAX_POSITION_SIZE_PCT * stability, 2),
+                }
+            )
 
         # Sort by net yield
-        opportunities.sort(
-            key=lambda x: x["net_annualized_yield_pct"], reverse=True
-        )
+        opportunities.sort(key=lambda x: x["net_annualized_yield_pct"], reverse=True)
         return opportunities
 
     def _compute_stability(self, history: list[FundingSnapshot]) -> float:
@@ -226,11 +224,11 @@ class FundingArbitrageEngine:
         else:
             magnitude_stability = 0.0
 
-        return (direction_consistency * 0.7 + magnitude_stability * 0.3)
+        return direction_consistency * 0.7 + magnitude_stability * 0.3
 
-    def open_position(self, pair: str, spot_price: float,
-                      perp_price: float, funding_rate: float,
-                      size_usd: float = None) -> FundingPosition:
+    def open_position(
+        self, pair: str, spot_price: float, perp_price: float, funding_rate: float, size_usd: float = None
+    ) -> FundingPosition:
         """Open a delta-neutral funding arbitrage position."""
         size = size_usd or (self.capital * self.MAX_POSITION_SIZE_PCT * 0.5)
 
@@ -247,20 +245,17 @@ class FundingArbitrageEngine:
         )
         self.positions.append(pos)
 
-        _log.info(
-            f"[FundingArb] OPENED {direction} {pair}: "
-            f"size=${size:,.2f}, funding={funding_rate:.4%}"
-        )
+        _log.info(f"[FundingArb] OPENED {direction} {pair}: size=${size:,.2f}, funding={funding_rate:.4%}")
         return pos
 
-    def process_funding_payment(self, pair: str,
-                                funding_rate: float) -> float:
+    def process_funding_payment(self, pair: str, funding_rate: float) -> float:
         """Record a funding payment for active position."""
         for pos in self.positions:
             if pos.pair == pair:
                 # We collect funding when our direction matches
-                if (pos.direction == "long_basis" and funding_rate > 0) or \
-                   (pos.direction == "short_basis" and funding_rate < 0):
+                if (pos.direction == "long_basis" and funding_rate > 0) or (
+                    pos.direction == "short_basis" and funding_rate < 0
+                ):
                     payment = abs(funding_rate) * pos.size_usd
                 else:
                     payment = -abs(funding_rate) * pos.size_usd
@@ -290,10 +285,12 @@ class FundingArbitrageEngine:
                 reason = "funding_normalized"
 
             # Exit if funding flipped direction
-            if pos.direction == "long_basis" and current_rate < 0:
-                should_exit = True
-                reason = "funding_flipped"
-            elif pos.direction == "short_basis" and current_rate > 0:
+            if (
+                pos.direction == "long_basis"
+                and current_rate < 0
+                or pos.direction == "short_basis"
+                and current_rate > 0
+            ):
                 should_exit = True
                 reason = "funding_flipped"
 
@@ -303,17 +300,18 @@ class FundingArbitrageEngine:
                 reason = "negative_yield"
 
             if should_exit:
-                exits.append({
-                    "pair": pos.pair,
-                    "reason": reason,
-                    "total_collected": round(pos.total_funding_collected, 4),
-                    "payments": pos.funding_payments,
-                    "annualized_yield": round(pos.annualized_yield_pct, 2),
-                })
+                exits.append(
+                    {
+                        "pair": pos.pair,
+                        "reason": reason,
+                        "total_collected": round(pos.total_funding_collected, 4),
+                        "payments": pos.funding_payments,
+                        "annualized_yield": round(pos.annualized_yield_pct, 2),
+                    }
+                )
                 self.positions.remove(pos)
                 _log.info(
-                    f"[FundingArb] CLOSED {pos.pair}: "
-                    f"reason={reason}, collected=${pos.total_funding_collected:.4f}"
+                    f"[FundingArb] CLOSED {pos.pair}: reason={reason}, collected=${pos.total_funding_collected:.4f}"
                 )
 
         return exits
@@ -324,9 +322,7 @@ class FundingArbitrageEngine:
             "active_positions": len(self.positions),
             "total_yield": round(self._total_yield, 4),
             "positions": [p.to_dict() for p in self.positions],
-            "current_rates": {
-                k: f"{v:.4%}" for k, v in self._last_scan.items()
-            },
+            "current_rates": {k: f"{v:.4%}" for k, v in self._last_scan.items()},
             "symbols_monitored": self.symbols,
         }
 

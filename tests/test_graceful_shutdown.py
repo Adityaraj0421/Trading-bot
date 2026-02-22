@@ -4,11 +4,7 @@ Covers: callback registration, LIFO ordering, idempotent shutdown,
         rate limiter tracking, and wait_if_needed.
 """
 
-import time
-import pytest
-from unittest.mock import MagicMock
 from graceful_shutdown import GracefulShutdown, RateLimiter
-
 
 # ── GracefulShutdown ──────────────────────────────────────────────
 

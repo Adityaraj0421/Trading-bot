@@ -12,8 +12,7 @@ class VaRCalculator:
     """Computes Value at Risk metrics."""
 
     @staticmethod
-    def historical_var(returns: list[float], confidence: float = 0.95,
-                       portfolio_value: float = 1000.0) -> dict:
+    def historical_var(returns: list[float], confidence: float = 0.95, portfolio_value: float = 1000.0) -> dict:
         """
         Historical VaR — uses actual return distribution.
 
@@ -42,8 +41,7 @@ class VaRCalculator:
         }
 
     @staticmethod
-    def parametric_var(returns: list[float], confidence: float = 0.95,
-                       portfolio_value: float = 1000.0) -> dict:
+    def parametric_var(returns: list[float], confidence: float = 0.95, portfolio_value: float = 1000.0) -> dict:
         """
         Parametric (Gaussian) VaR — assumes normal distribution.
 

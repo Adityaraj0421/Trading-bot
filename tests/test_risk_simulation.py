@@ -1,8 +1,10 @@
 """Tests for the risk simulation module."""
-import pytest
+
 import numpy as np
-from risk_simulation.monte_carlo import MonteCarloSimulator, MonteCarloResult
-from risk_simulation.scenarios import StressTestRunner, HISTORICAL_SCENARIOS
+import pytest
+
+from risk_simulation.monte_carlo import MonteCarloResult, MonteCarloSimulator
+from risk_simulation.scenarios import HISTORICAL_SCENARIOS, StressTestRunner
 from risk_simulation.var_calculator import VaRCalculator
 from risk_simulation.visualizer import RiskVisualizer
 
@@ -115,22 +117,30 @@ class TestVaRCalculator:
 
 class TestRiskVisualizer:
     def test_stress_test_comparison(self):
-        stress_results = [
-            {"name": "Test", "projected_loss_pct": 10.0, "survived": True}
-        ]
+        stress_results = [{"name": "Test", "projected_loss_pct": 10.0, "survived": True}]
         chart_data = RiskVisualizer.stress_test_comparison(stress_results)
         assert len(chart_data) == 1
         assert chart_data[0]["scenario"] == "Test"
 
     def test_fan_chart_data_empty(self):
         result = MonteCarloResult(
-            n_simulations=0, n_days=0, initial_equity=1000,
-            var_95=0, var_99=0, cvar_95=0, cvar_99=0,
-            max_drawdown_median=0, max_drawdown_95th=0,
-            probability_of_ruin=0, median_final_equity=1000,
-            percentile_5=1000, percentile_25=1000,
-            percentile_75=1000, percentile_95=1000,
-            mean_final_equity=1000, paths_summary=[],
+            n_simulations=0,
+            n_days=0,
+            initial_equity=1000,
+            var_95=0,
+            var_99=0,
+            cvar_95=0,
+            cvar_99=0,
+            max_drawdown_median=0,
+            max_drawdown_95th=0,
+            probability_of_ruin=0,
+            median_final_equity=1000,
+            percentile_5=1000,
+            percentile_25=1000,
+            percentile_75=1000,
+            percentile_95=1000,
+            mean_final_equity=1000,
+            paths_summary=[],
         )
         data = RiskVisualizer.fan_chart_data(result)
         assert data == []

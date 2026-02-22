@@ -4,8 +4,9 @@ Arbitrage Opportunity Detector — finds profitable spread differences.
 
 from dataclasses import dataclass
 from datetime import datetime
-from arbitrage.price_monitor import PriceMonitor
+
 from arbitrage.fee_calculator import FeeCalculator
+from arbitrage.price_monitor import PriceMonitor
 from config import Config
 
 
@@ -67,10 +68,9 @@ class ArbitrageDetector:
                 spread_pct = (sell_bid - buy_ask) / buy_ask
 
                 # Calculate fees
-                fees_pct = (
-                    self.fee_calculator.TRADING_FEES.get(buy_ex, {}).get("taker", 0.002) +
-                    self.fee_calculator.TRADING_FEES.get(sell_ex, {}).get("taker", 0.002)
-                )
+                fees_pct = self.fee_calculator.TRADING_FEES.get(buy_ex, {}).get(
+                    "taker", 0.002
+                ) + self.fee_calculator.TRADING_FEES.get(sell_ex, {}).get("taker", 0.002)
 
                 net_profit_pct = spread_pct - fees_pct
 

@@ -6,10 +6,15 @@ trial recording, and state serialization.
 """
 
 import random
-import pytest
 from datetime import datetime
+
+import pytest
+
 from auto_optimizer import (
-    HyperparamBound, TrialResult, AutoOptimizer, DEFAULT_SEARCH_SPACE,
+    DEFAULT_SEARCH_SPACE,
+    AutoOptimizer,
+    HyperparamBound,
+    TrialResult,
 )
 
 
@@ -50,6 +55,7 @@ def make_params():
 # HyperparamBound
 # ---------------------------------------------------------------------------
 
+
 class TestHyperparamBound:
     def test_sample_within_bounds(self):
         bound = HyperparamBound("test", low=1.0, high=10.0, dtype=float)
@@ -80,12 +86,12 @@ class TestHyperparamBound:
 # TrialResult
 # ---------------------------------------------------------------------------
 
+
 class TestTrialResult:
     def test_to_dict_keys(self):
         tr = TrialResult(params={"a": 1}, metrics={}, score=2.0, sharpe=1.0)
         d = tr.to_dict()
-        expected_keys = {"params", "total_return", "sharpe", "max_drawdown",
-                         "total_trades", "score", "timestamp"}
+        expected_keys = {"params", "total_return", "sharpe", "max_drawdown", "total_trades", "score", "timestamp"}
         assert set(d.keys()) == expected_keys
 
     def test_timestamp_iso_format(self):
@@ -98,6 +104,7 @@ class TestTrialResult:
 # ---------------------------------------------------------------------------
 # suggest_params
 # ---------------------------------------------------------------------------
+
 
 class TestSuggestParams:
     def test_returns_all_keys(self, optimizer):
@@ -121,6 +128,7 @@ class TestSuggestParams:
 # suggest_nearby
 # ---------------------------------------------------------------------------
 
+
 class TestSuggestNearby:
     def test_within_bounds(self, optimizer):
         random.seed(42)
@@ -142,47 +150,41 @@ class TestSuggestNearby:
 # _compute_score
 # ---------------------------------------------------------------------------
 
+
 class TestComputeScore:
     def test_sharpe_base(self, optimizer):
-        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=-1.0,
-                         max_drawdown=3.0, total_trades=10)
+        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=-1.0, max_drawdown=3.0, total_trades=10)
         score = optimizer._compute_score(tr)
         # base = 2.0 * 2.0 = 4.0, no return bonus, no drawdown penalty,
         # trades=10 is NOT > 10 so no trade bonus
         assert score == pytest.approx(4.0, abs=0.01)
 
     def test_positive_return_bonus(self, optimizer):
-        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=10.0,
-                         max_drawdown=3.0, total_trades=10)
+        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=10.0, max_drawdown=3.0, total_trades=10)
         score = optimizer._compute_score(tr)
         # base = 4.0, return bonus = 10*0.1 = 1.0, trades=10 (no trade bonus) → 5.0
         assert score == pytest.approx(5.0, abs=0.01)
 
     def test_no_bonus_negative_return(self, optimizer):
-        tr1 = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=-5.0,
-                          max_drawdown=3.0, total_trades=10)
-        tr2 = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0,
-                          max_drawdown=3.0, total_trades=10)
+        tr1 = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=-5.0, max_drawdown=3.0, total_trades=10)
+        tr2 = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0, max_drawdown=3.0, total_trades=10)
         # Both should have no return bonus
         assert optimizer._compute_score(tr1) == optimizer._compute_score(tr2)
 
     def test_drawdown_penalty(self, optimizer):
-        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0,
-                         max_drawdown=10.0, total_trades=10)
+        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0, max_drawdown=10.0, total_trades=10)
         score = optimizer._compute_score(tr)
         # base = 4.0, drawdown penalty = -(10-5)*0.3 = -1.5, no trade bonus → 2.5
         assert score == pytest.approx(2.5, abs=0.01)
 
     def test_low_trade_penalty(self, optimizer):
-        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0,
-                         max_drawdown=3.0, total_trades=3)
+        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0, max_drawdown=3.0, total_trades=3)
         score = optimizer._compute_score(tr)
         # base = 4.0, * 0.5 = 2.0 (no other bonuses/penalties)
         assert score == pytest.approx(2.0, abs=0.01)
 
     def test_high_trade_bonus(self, optimizer):
-        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0,
-                         max_drawdown=3.0, total_trades=15)
+        tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0, max_drawdown=3.0, total_trades=15)
         score = optimizer._compute_score(tr)
         # base = 4.0 + 0.5 (trade bonus) = 4.5
         assert score == pytest.approx(4.5, abs=0.01)
@@ -191,6 +193,7 @@ class TestComputeScore:
 # ---------------------------------------------------------------------------
 # record_result
 # ---------------------------------------------------------------------------
+
 
 class TestRecordResult:
     def test_appends_to_trials(self, optimizer):
@@ -214,6 +217,7 @@ class TestRecordResult:
 # ---------------------------------------------------------------------------
 # _update_pareto
 # ---------------------------------------------------------------------------
+
 
 class TestUpdatePareto:
     def test_non_dominated_added(self, optimizer):
@@ -250,6 +254,7 @@ class TestUpdatePareto:
 # ---------------------------------------------------------------------------
 # Serialization & status
 # ---------------------------------------------------------------------------
+
 
 class TestSerializationAndStatus:
     def test_to_dict_structure(self, optimizer):

@@ -8,8 +8,9 @@ The API reads them. All operations are thread-safe via a single lock.
 
 import threading
 from collections import deque
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 
 class DataStore:

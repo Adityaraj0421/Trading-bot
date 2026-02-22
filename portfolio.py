@@ -11,11 +11,12 @@ Usage:
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -26,8 +27,8 @@ class PairAllocation:
     """Capital allocation for a single trading pair after risk adjustments."""
 
     pair: str
-    weight: float           # Portfolio weight (0-1)
-    max_position_pct: float # Max capital to allocate
+    weight: float  # Portfolio weight (0-1)
+    max_position_pct: float  # Max capital to allocate
     correlation_penalty: float  # Reduce if highly correlated with existing positions
     is_tradeable: bool
 
@@ -95,7 +96,7 @@ class PortfolioManager:
                 if pos_pair in self.correlations.columns and pair in self.correlations.index:
                     corr = abs(self.correlations.loc[pair, pos_pair])
                     if corr > 0.7:
-                        corr_penalty *= (1 - (corr - 0.7))  # Reduce by (corr-0.7)
+                        corr_penalty *= 1 - (corr - 0.7)  # Reduce by (corr-0.7)
 
         adjusted_weight = base_weight * vol_adj * corr_penalty
         max_pct = Config.MAX_POSITION_PCT * adjusted_weight / base_weight
@@ -121,8 +122,8 @@ class PortfolioManager:
         # Exposure by pair
         pair_exposure = {}
         for pos in positions:
-            pair = pos.symbol if hasattr(pos, 'symbol') else pos.get('symbol', '')
-            value = pos.notional_value if hasattr(pos, 'notional_value') else 0
+            pair = pos.symbol if hasattr(pos, "symbol") else pos.get("symbol", "")
+            value = pos.notional_value if hasattr(pos, "notional_value") else 0
             pair_exposure[pair] = pair_exposure.get(pair, 0) + value
 
         total = sum(pair_exposure.values())
@@ -131,7 +132,7 @@ class PortfolioManager:
 
         # Herfindahl index (concentration)
         weights = [v / total for v in pair_exposure.values()]
-        herfindahl = sum(w ** 2 for w in weights)
+        herfindahl = sum(w**2 for w in weights)
 
         # Correlation risk
         corr_risk = "low"
@@ -140,7 +141,7 @@ class PortfolioManager:
             avg_corr = 0
             count = 0
             for i, p1 in enumerate(pairs):
-                for p2 in pairs[i+1:]:
+                for p2 in pairs[i + 1 :]:
                     if p1 in self.correlations.index and p2 in self.correlations.columns:
                         avg_corr += abs(self.correlations.loc[p1, p2])
                         count += 1
@@ -172,7 +173,4 @@ class PortfolioManager:
             inv_vols[pair] = 1.0 / vol if vol > 0 else 50.0
 
         total_inv_vol = sum(inv_vols.values())
-        self.weights = {
-            pair: round(inv_vol / total_inv_vol, 4)
-            for pair, inv_vol in inv_vols.items()
-        }
+        self.weights = {pair: round(inv_vol / total_inv_vol, 4) for pair, inv_vol in inv_vols.items()}

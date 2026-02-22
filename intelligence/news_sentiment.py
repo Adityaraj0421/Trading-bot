@@ -9,11 +9,13 @@ Sources:
 Uses keyword matching with weighted scoring and recency bias.
 """
 
-import time
 import logging
-import requests
+import time
 from collections import deque
 from typing import Any
+
+import requests
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -21,25 +23,67 @@ _log = logging.getLogger(__name__)
 
 # Weighted keyword lists (keyword, weight)
 BULLISH_KEYWORDS = [
-    ("surge", 1.5), ("rally", 1.5), ("bull", 1.0), ("breakout", 1.3),
-    ("adoption", 1.2), ("partnership", 0.8), ("institutional", 1.3),
-    ("etf approved", 2.0), ("etf", 1.0), ("all-time high", 2.0),
-    ("ath", 1.5), ("upgrade", 0.8), ("bullish", 1.5), ("soars", 1.5),
-    ("gains", 1.0), ("accumulate", 1.2), ("buy", 0.5), ("moon", 0.8),
-    ("halving", 1.0), ("recovery", 1.0), ("approval", 1.2),
-    ("green", 0.5), ("pump", 0.8), ("listing", 0.7), ("launch", 0.6),
-    ("treasury", 1.0), ("reserve", 1.0), ("inflows", 1.0),
+    ("surge", 1.5),
+    ("rally", 1.5),
+    ("bull", 1.0),
+    ("breakout", 1.3),
+    ("adoption", 1.2),
+    ("partnership", 0.8),
+    ("institutional", 1.3),
+    ("etf approved", 2.0),
+    ("etf", 1.0),
+    ("all-time high", 2.0),
+    ("ath", 1.5),
+    ("upgrade", 0.8),
+    ("bullish", 1.5),
+    ("soars", 1.5),
+    ("gains", 1.0),
+    ("accumulate", 1.2),
+    ("buy", 0.5),
+    ("moon", 0.8),
+    ("halving", 1.0),
+    ("recovery", 1.0),
+    ("approval", 1.2),
+    ("green", 0.5),
+    ("pump", 0.8),
+    ("listing", 0.7),
+    ("launch", 0.6),
+    ("treasury", 1.0),
+    ("reserve", 1.0),
+    ("inflows", 1.0),
 ]
 
 BEARISH_KEYWORDS = [
-    ("crash", 2.0), ("dump", 1.5), ("bear", 1.0), ("hack", 1.5),
-    ("regulation", 0.8), ("ban", 2.0), ("lawsuit", 1.2), ("sec", 0.8),
-    ("fraud", 1.5), ("bankrupt", 2.0), ("collapse", 2.0), ("sell-off", 1.5),
-    ("plunge", 1.5), ("bearish", 1.5), ("fear", 1.0), ("liquidation", 1.3),
-    ("ponzi", 1.5), ("scam", 1.5), ("rug pull", 2.0), ("exploit", 1.3),
-    ("outflows", 1.0), ("red", 0.5), ("tank", 1.0), ("bubble", 1.0),
-    ("crackdown", 1.5), ("investigation", 1.0), ("warning", 0.8),
-    ("delisted", 1.2), ("withdraw", 0.7), ("selling", 0.8),
+    ("crash", 2.0),
+    ("dump", 1.5),
+    ("bear", 1.0),
+    ("hack", 1.5),
+    ("regulation", 0.8),
+    ("ban", 2.0),
+    ("lawsuit", 1.2),
+    ("sec", 0.8),
+    ("fraud", 1.5),
+    ("bankrupt", 2.0),
+    ("collapse", 2.0),
+    ("sell-off", 1.5),
+    ("plunge", 1.5),
+    ("bearish", 1.5),
+    ("fear", 1.0),
+    ("liquidation", 1.3),
+    ("ponzi", 1.5),
+    ("scam", 1.5),
+    ("rug pull", 2.0),
+    ("exploit", 1.3),
+    ("outflows", 1.0),
+    ("red", 0.5),
+    ("tank", 1.0),
+    ("bubble", 1.0),
+    ("crackdown", 1.5),
+    ("investigation", 1.0),
+    ("warning", 0.8),
+    ("delisted", 1.2),
+    ("withdraw", 0.7),
+    ("selling", 0.8),
 ]
 
 
@@ -49,8 +93,8 @@ class NewsSentimentAnalyzer:
     CACHE_TTL = 180  # 3 min cache
     REDDIT_HEADERS = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/120.0.0.0 Safari/537.36",
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json",
     }
     CRYPTOPANIC_API = "https://cryptopanic.com/api/v1"
@@ -68,19 +112,25 @@ class NewsSentimentAnalyzer:
         try:
             headlines = self._fetch_all_headlines()
             if not headlines:
-                return {"source": "news_sentiment", "signal": "neutral", "strength": 0.0,
-                        "data": {"error": "no_headlines"}}
+                return {
+                    "source": "news_sentiment",
+                    "signal": "neutral",
+                    "strength": 0.0,
+                    "data": {"error": "no_headlines"},
+                }
 
             analysis = self._analyze_headlines(headlines)
             signal = analysis["signal"]
             strength = analysis["strength"]
 
             # Track history for trend analysis
-            self._history.append({
-                "ts": time.time(),
-                "signal": signal,
-                "ratio": analysis["sentiment_ratio"],
-            })
+            self._history.append(
+                {
+                    "ts": time.time(),
+                    "signal": signal,
+                    "ratio": analysis["sentiment_ratio"],
+                }
+            )
 
             # Trend amplification: if sentiment is consistently moving in one direction
             trend_mult = self._compute_trend_multiplier()
@@ -183,13 +233,15 @@ class NewsSentimentAnalyzer:
                     change_usd = 0
 
                 direction = "surging" if change_usd > 5 else "dropping" if change_usd < -5 else "trending"
-                headlines.append({
-                    "title": f"{name} ({symbol}) {direction} - 24h change {change_usd:.1f}%",
-                    "score": abs(change_usd) * 10,
-                    "source": "coingecko_trending",
-                    "upvote_ratio": 0.5,
-                    "num_comments": 0,
-                })
+                headlines.append(
+                    {
+                        "title": f"{name} ({symbol}) {direction} - 24h change {change_usd:.1f}%",
+                        "score": abs(change_usd) * 10,
+                        "source": "coingecko_trending",
+                        "upvote_ratio": 0.5,
+                        "num_comments": 0,
+                    }
+                )
             return headlines
         except Exception as e:
             _log.debug("CoinGecko trending fetch failed: %s", e)
@@ -209,9 +261,7 @@ class NewsSentimentAnalyzer:
             return [
                 {
                     "title": r.get("title", ""),
-                    "score": {"positive": 100, "negative": -100, "important": 50}.get(
-                        r.get("kind", ""), 0
-                    ),
+                    "score": {"positive": 100, "negative": -100, "important": 50}.get(r.get("kind", ""), 0),
                     "source": "cryptopanic",
                     "upvote_ratio": 0.5,
                     "num_comments": r.get("comments_count", 0),
@@ -260,12 +310,14 @@ class NewsSentimentAnalyzer:
                     h_bear += weight * engagement_mult
 
             if h_bull > 0 or h_bear > 0:
-                matched_headlines.append({
-                    "title": h["title"][:80],
-                    "source": h.get("source", "unknown"),
-                    "bullish": round(h_bull, 2),
-                    "bearish": round(h_bear, 2),
-                })
+                matched_headlines.append(
+                    {
+                        "title": h["title"][:80],
+                        "source": h.get("source", "unknown"),
+                        "bullish": round(h_bull, 2),
+                        "bearish": round(h_bear, 2),
+                    }
+                )
 
             bullish_score += h_bull
             bearish_score += h_bear
@@ -273,10 +325,14 @@ class NewsSentimentAnalyzer:
         total = bullish_score + bearish_score
         if total == 0:
             return {
-                "signal": "neutral", "strength": 0.0,
-                "headline_count": len(headlines), "matched_count": 0,
-                "bullish_score": 0, "bearish_score": 0,
-                "sentiment_ratio": 0.0, "top_headlines": [],
+                "signal": "neutral",
+                "strength": 0.0,
+                "headline_count": len(headlines),
+                "matched_count": 0,
+                "bullish_score": 0,
+                "bearish_score": 0,
+                "sentiment_ratio": 0.0,
+                "top_headlines": [],
             }
 
         ratio = (bullish_score - bearish_score) / total  # -1 to +1

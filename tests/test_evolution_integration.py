@@ -3,22 +3,25 @@ Integration tests for strategy evolution → live strategy hot-reload,
 and auto-optimizer → backtester integration.
 """
 
-import pytest
 import numpy as np
-import pandas as pd
-from strategies import (
-    MomentumStrategy, MeanReversionStrategy, BreakoutStrategy,
-    GridStrategy, ScalpingStrategy, SentimentDrivenStrategy,
-    StrategyEngine,
-)
-from strategy_evolver import StrategyEvolver, DEFAULT_PARAMS
+
 from auto_optimizer import AutoOptimizer
 from decision_engine import DecisionEngine
-
+from strategies import (
+    BreakoutStrategy,
+    GridStrategy,
+    MeanReversionStrategy,
+    MomentumStrategy,
+    ScalpingStrategy,
+    SentimentDrivenStrategy,
+    StrategyEngine,
+)
+from strategy_evolver import StrategyEvolver
 
 # ---------------------------------------------------------------------------
 # Strategy parameterization
 # ---------------------------------------------------------------------------
+
 
 class TestStrategyParamInjection:
     """Verify strategies accept and use evolved parameters."""
@@ -55,9 +58,7 @@ class TestStrategyParamInjection:
         assert s.volume_spike == 3.0
 
     def test_sentiment_accepts_params(self):
-        s = SentimentDrivenStrategy(params={
-            "fear_threshold": 20, "greed_threshold": 80, "composite_threshold": 0.4
-        })
+        s = SentimentDrivenStrategy(params={"fear_threshold": 20, "greed_threshold": 80, "composite_threshold": 0.4})
         assert s.fear_threshold == 20
         assert s.greed_threshold == 80
         assert s.composite_threshold == 0.4
@@ -66,6 +67,7 @@ class TestStrategyParamInjection:
 # ---------------------------------------------------------------------------
 # StrategyEngine evolved params hot-reload
 # ---------------------------------------------------------------------------
+
 
 class TestStrategyEngineEvolution:
     def test_engine_accepts_evolved_params(self):
@@ -83,9 +85,11 @@ class TestStrategyEngineEvolution:
         engine = StrategyEngine()
         assert engine.strategies["Momentum"].rsi_oversold == 30  # default
 
-        engine.apply_evolved_params({
-            "Momentum": {"rsi_oversold": 22, "rsi_overbought": 72},
-        })
+        engine.apply_evolved_params(
+            {
+                "Momentum": {"rsi_oversold": 22, "rsi_overbought": 72},
+            }
+        )
         assert engine.strategies["Momentum"].rsi_oversold == 22
         assert engine.strategies["Momentum"].rsi_overbought == 72
 
@@ -99,6 +103,7 @@ class TestStrategyEngineEvolution:
 # ---------------------------------------------------------------------------
 # Evolution → Engine pipeline
 # ---------------------------------------------------------------------------
+
 
 class TestEvolutionPipeline:
     def test_evolver_best_params_feed_into_engine(self):
@@ -123,11 +128,7 @@ class TestEvolutionPipeline:
 
         # Get best params
         best = evolver.get_all_best()
-        evolved_params = {
-            name: data["parameters"]
-            for name, data in best.items()
-            if data.get("parameters")
-        }
+        evolved_params = {name: data["parameters"] for name, data in best.items() if data.get("parameters")}
 
         # Feed into engine
         engine = StrategyEngine(evolved_params=evolved_params)
@@ -143,6 +144,7 @@ class TestEvolutionPipeline:
 # ---------------------------------------------------------------------------
 # Auto-Optimizer
 # ---------------------------------------------------------------------------
+
 
 class TestAutoOptimizerIntegration:
     def test_optimizer_suggest_and_record(self):
@@ -170,10 +172,15 @@ class TestAutoOptimizerIntegration:
     def test_optimizer_apply_best_to_config(self):
         optimizer = AutoOptimizer()
         params = optimizer.suggest_params()
-        optimizer.record_result(params, {
-            "total_return_pct": 10.0, "sharpe_ratio": 2.0,
-            "max_drawdown_pct": -2.0, "total_trades": 20,
-        })
+        optimizer.record_result(
+            params,
+            {
+                "total_return_pct": 10.0,
+                "sharpe_ratio": 2.0,
+                "max_drawdown_pct": -2.0,
+                "total_trades": 20,
+            },
+        )
         config_update = optimizer.apply_best_to_config()
         assert config_update is not None
         assert "STOP_LOSS_PCT" in config_update
@@ -183,6 +190,7 @@ class TestAutoOptimizerIntegration:
 # ---------------------------------------------------------------------------
 # DecisionEngine evolved params passthrough
 # ---------------------------------------------------------------------------
+
 
 class TestDecisionEngineEvolution:
     def test_instructions_include_evolved_params(self):
@@ -199,13 +207,18 @@ class TestDecisionEngineEvolution:
         engine = DecisionEngine(initial_capital=10000)
         # Record a trial result so optimizer has a best
         engine.optimizer.record_result(
-            {"stop_loss_pct": 2.5, "take_profit_pct": 5.0,
-             "trailing_stop_pct": 1.5, "confidence_threshold": 0.55,
-             "lookback_bars": 200, "max_hold_bars": 80,
-             "position_size_pct": 8.0, "max_open_positions": 3,
-             "retrain_hours": 4.0},
-            {"total_return_pct": 8.0, "sharpe_ratio": 1.8,
-             "max_drawdown_pct": -3.0, "total_trades": 18},
+            {
+                "stop_loss_pct": 2.5,
+                "take_profit_pct": 5.0,
+                "trailing_stop_pct": 1.5,
+                "confidence_threshold": 0.55,
+                "lookback_bars": 200,
+                "max_hold_bars": 80,
+                "position_size_pct": 8.0,
+                "max_open_positions": 3,
+                "retrain_hours": 4.0,
+            },
+            {"total_return_pct": 8.0, "sharpe_ratio": 1.8, "max_drawdown_pct": -3.0, "total_trades": 18},
         )
         instructions = engine.orchestrate(1, 10000, 0)
         assert "optimized_config" in instructions

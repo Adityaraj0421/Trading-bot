@@ -11,13 +11,14 @@ Replaces JSON-based trade history with a proper database for:
 Uses SQLite (zero config, file-based) with WAL mode for concurrent reads.
 """
 
-import os
-import sqlite3
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Any
+import os
+import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
+from typing import Any
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -27,9 +28,7 @@ class TradeDB:
     """SQLite-backed trade and performance database."""
 
     def __init__(self, db_path: str | None = None) -> None:
-        self.db_path = db_path or os.path.join(
-            getattr(Config, "DATA_DIR", "."), "trades.db"
-        )
+        self.db_path = db_path or os.path.join(getattr(Config, "DATA_DIR", "."), "trades.db")
         self._init_db()
 
     @contextmanager
@@ -129,41 +128,84 @@ class TradeDB:
 
     # --- Trade Operations ---
 
-    def record_trade_open(self, symbol: str, side: str, entry_price: float,
-                          quantity: float, strategy: str, regime: str,
-                          confidence: float, sl: float, tp: float,
-                          trailing: float) -> int:
+    def record_trade_open(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        quantity: float,
+        strategy: str,
+        regime: str,
+        confidence: float,
+        sl: float,
+        tp: float,
+        trailing: float,
+    ) -> int:
         """Record a new trade opening. Returns trade ID."""
         with self._conn() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 INSERT INTO trades (symbol, side, entry_price, quantity,
                     entry_time, strategy_name, regime, confidence,
                     stop_loss, take_profit, trailing_stop, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
-            """, (symbol, side, entry_price, quantity,
-                  datetime.now().isoformat(), strategy, regime,
-                  confidence, sl, tp, trailing))
+            """,
+                (
+                    symbol,
+                    side,
+                    entry_price,
+                    quantity,
+                    datetime.now().isoformat(),
+                    strategy,
+                    regime,
+                    confidence,
+                    sl,
+                    tp,
+                    trailing,
+                ),
+            )
             return cursor.lastrowid
 
-    def record_trade_close(self, trade_id: int | None = None, symbol: str | None = None,
-                           side: str | None = None, exit_price: float = 0,
-                           pnl_gross: float = 0, pnl_net: float = 0,
-                           fees: float = 0, slippage: float = 0,
-                           reason: str = "", hold_bars: int = 0) -> None:
+    def record_trade_close(
+        self,
+        trade_id: int | None = None,
+        symbol: str | None = None,
+        side: str | None = None,
+        exit_price: float = 0,
+        pnl_gross: float = 0,
+        pnl_net: float = 0,
+        fees: float = 0,
+        slippage: float = 0,
+        reason: str = "",
+        hold_bars: int = 0,
+    ) -> None:
         """Record a trade closing."""
         with self._conn() as conn:
             if trade_id:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE trades SET exit_price=?, pnl_gross=?, pnl_net=?,
                         fees_paid=?, slippage_cost=?, exit_time=?,
                         exit_reason=?, hold_bars=?, status='closed'
                     WHERE id=?
-                """, (exit_price, pnl_gross, pnl_net, fees, slippage,
-                      datetime.now().isoformat(), reason, hold_bars, trade_id))
+                """,
+                    (
+                        exit_price,
+                        pnl_gross,
+                        pnl_net,
+                        fees,
+                        slippage,
+                        datetime.now().isoformat(),
+                        reason,
+                        hold_bars,
+                        trade_id,
+                    ),
+                )
             elif symbol and side:
                 # Close by symbol/side (fallback) — uses subquery because
                 # standard SQLite doesn't support ORDER BY in UPDATE
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE trades SET exit_price=?, pnl_gross=?, pnl_net=?,
                         fees_paid=?, slippage_cost=?, exit_time=?,
                         exit_reason=?, hold_bars=?, status='closed'
@@ -172,20 +214,30 @@ class TradeDB:
                         WHERE symbol=? AND side=? AND status='open'
                         ORDER BY entry_time DESC LIMIT 1
                     )
-                """, (exit_price, pnl_gross, pnl_net, fees, slippage,
-                      datetime.now().isoformat(), reason, hold_bars,
-                      symbol, side))
+                """,
+                    (
+                        exit_price,
+                        pnl_gross,
+                        pnl_net,
+                        fees,
+                        slippage,
+                        datetime.now().isoformat(),
+                        reason,
+                        hold_bars,
+                        symbol,
+                        side,
+                    ),
+                )
 
     def get_open_trades(self) -> list[dict[str, Any]]:
         """Get all currently open trades."""
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM trades WHERE status='open' ORDER BY entry_time"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM trades WHERE status='open' ORDER BY entry_time").fetchall()
             return [dict(r) for r in rows]
 
-    def get_trade_history(self, limit: int = 100, strategy: str | None = None,
-                          since: str | None = None) -> list[dict[str, Any]]:
+    def get_trade_history(
+        self, limit: int = 100, strategy: str | None = None, since: str | None = None
+    ) -> list[dict[str, Any]]:
         """Get trade history with optional filters."""
         query = "SELECT * FROM trades WHERE status='closed'"
         params = []
@@ -206,17 +258,19 @@ class TradeDB:
 
     # --- Equity Snapshots ---
 
-    def record_equity(self, equity: float, capital: float,
-                      unrealized_pnl: float, open_positions: int,
-                      cycle: int) -> None:
+    def record_equity(
+        self, equity: float, capital: float, unrealized_pnl: float, open_positions: int, cycle: int
+    ) -> None:
         """Record an equity snapshot."""
         with self._conn() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO equity_snapshots
                     (timestamp, equity, capital, unrealized_pnl, open_positions, cycle)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (datetime.now().isoformat(), equity, capital,
-                  unrealized_pnl, open_positions, cycle))
+            """,
+                (datetime.now().isoformat(), equity, capital, unrealized_pnl, open_positions, cycle),
+            )
 
     def get_equity_curve(self, since: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
         """Get equity curve data."""
@@ -234,15 +288,18 @@ class TradeDB:
 
     # --- Events ---
 
-    def record_event(self, event_type: str, description: str,
-                     severity: str = "info", data: dict[str, Any] | None = None) -> None:
+    def record_event(
+        self, event_type: str, description: str, severity: str = "info", data: dict[str, Any] | None = None
+    ) -> None:
         """Record a system event."""
         with self._conn() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO events (timestamp, event_type, severity, description, data)
                 VALUES (?, ?, ?, ?, ?)
-            """, (datetime.now().isoformat(), event_type, severity,
-                  description, json.dumps(data or {})))
+            """,
+                (datetime.now().isoformat(), event_type, severity, description, json.dumps(data or {})),
+            )
 
     def get_events(self, event_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """Get system events."""
@@ -266,17 +323,18 @@ class TradeDB:
 
         with self._conn() as conn:
             # Check if already exists
-            existing = conn.execute(
-                "SELECT * FROM daily_summaries WHERE date=?", (date,)
-            ).fetchone()
+            existing = conn.execute("SELECT * FROM daily_summaries WHERE date=?", (date,)).fetchone()
             if existing:
                 return dict(existing)
 
             # Generate from trades
-            trades = conn.execute("""
+            trades = conn.execute(
+                """
                 SELECT * FROM trades
                 WHERE status='closed' AND date(exit_time)=?
-            """, (date,)).fetchall()
+            """,
+                (date,),
+            ).fetchall()
 
             if not trades:
                 return {"date": date, "trade_count": 0}
@@ -302,17 +360,27 @@ class TradeDB:
             }
 
             # Store
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO daily_summaries
                     (date, total_pnl, trade_count, win_count, loss_count,
                      best_trade, worst_trade, total_fees,
                      strategies_used, regimes_seen)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (date, summary["total_pnl"], summary["trade_count"],
-                  summary["win_count"], summary["loss_count"],
-                  summary["best_trade"], summary["worst_trade"],
-                  summary["total_fees"], summary["strategies_used"],
-                  summary["regimes_seen"]))
+            """,
+                (
+                    date,
+                    summary["total_pnl"],
+                    summary["trade_count"],
+                    summary["win_count"],
+                    summary["loss_count"],
+                    summary["best_trade"],
+                    summary["worst_trade"],
+                    summary["total_fees"],
+                    summary["strategies_used"],
+                    summary["regimes_seen"],
+                ),
+            )
 
             return summary
 

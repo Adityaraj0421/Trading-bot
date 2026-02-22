@@ -7,15 +7,13 @@ and verify response shapes, status codes, and data visibility.
 import pytest
 from fastapi.testclient import TestClient
 
-from api.data_store import DataStore
-from api.routes import status, trading, autonomous, backtest, intelligence, arbitrage, risk
 from api.server import create_app, data_store
 from config import Config
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def client():
@@ -54,6 +52,7 @@ def _reset_data_store():
 # =========================================================================
 # Status routes
 # =========================================================================
+
 
 class TestHealthEndpoint:
     def test_health_returns_200(self, client):
@@ -94,10 +93,19 @@ class TestConfigEndpoint:
     def test_config_contains_expected_keys(self, client):
         body = client.get("/config").json()
         expected_keys = {
-            "exchange", "pair", "pairs", "timeframe",
-            "confirmation_timeframe", "mode", "initial_capital",
-            "max_position_pct", "stop_loss_pct", "take_profit_pct",
-            "trailing_stop_pct", "fee_pct", "slippage_pct",
+            "exchange",
+            "pair",
+            "pairs",
+            "timeframe",
+            "confirmation_timeframe",
+            "mode",
+            "initial_capital",
+            "max_position_pct",
+            "stop_loss_pct",
+            "take_profit_pct",
+            "trailing_stop_pct",
+            "fee_pct",
+            "slippage_pct",
             "agent_interval_seconds",
         }
         assert expected_keys.issubset(body.keys())
@@ -106,6 +114,7 @@ class TestConfigEndpoint:
 # =========================================================================
 # Trading routes
 # =========================================================================
+
 
 class TestTradesEndpoint:
     def test_trades_empty(self, client):
@@ -135,11 +144,13 @@ class TestPositionsEndpoint:
         assert body == {"positions": [], "count": 0}
 
     def test_positions_from_snapshot(self, client):
-        data_store.update_snapshot({
-            "positions": [
-                {"pair": "BTC/USDT", "side": "long", "size": 0.1},
-            ]
-        })
+        data_store.update_snapshot(
+            {
+                "positions": [
+                    {"pair": "BTC/USDT", "side": "long", "size": 0.1},
+                ]
+            }
+        )
         body = client.get("/positions").json()
         assert body["count"] == 1
         assert body["positions"][0]["pair"] == "BTC/USDT"
@@ -170,15 +181,14 @@ class TestEquityEndpoint:
 # Autonomous routes
 # =========================================================================
 
+
 class TestAutonomousStatus:
     def test_autonomous_not_running(self, client):
         body = client.get("/autonomous/status").json()
         assert body["status"] == "not_running"
 
     def test_autonomous_running(self, client):
-        data_store.update_snapshot({
-            "autonomous": {"mode": "aggressive", "uptime": 3600}
-        })
+        data_store.update_snapshot({"autonomous": {"mode": "aggressive", "uptime": 3600}})
         body = client.get("/autonomous/status").json()
         # Route returns the autonomous dict directly when populated
         assert body["mode"] == "aggressive"
@@ -207,6 +217,7 @@ class TestAutonomousEvents:
 # Backtest routes (Phase 4 — real implementation)
 # =========================================================================
 
+
 class TestBacktest:
     def test_run_starts_background(self, client):
         body = client.post("/backtest/run", json={"scenario": "bull_run"}).json()
@@ -233,9 +244,11 @@ class TestBacktest:
 # Intelligence routes (Phase 5 — real implementation)
 # =========================================================================
 
+
 class TestIntelligence:
     def test_signals_not_enabled(self, client):
         from unittest.mock import patch
+
         with patch("config.Config.any_intelligence_enabled", return_value=False):
             body = client.get("/intelligence/signals").json()
         assert body["status"] == "not_enabled"
@@ -250,6 +263,7 @@ class TestIntelligence:
 # =========================================================================
 # Arbitrage routes (Phase 6 — real implementation)
 # =========================================================================
+
 
 class TestArbitrage:
     def test_opportunities_not_enabled(self, client):
@@ -266,6 +280,7 @@ class TestArbitrage:
 # =========================================================================
 # Risk routes (Phase 7 — real implementation)
 # =========================================================================
+
 
 class TestRisk:
     def test_simulation_not_run(self, client):
@@ -286,6 +301,7 @@ class TestRisk:
 # =========================================================================
 # Cross-cutting: data visibility through endpoints
 # =========================================================================
+
 
 class TestDataVisibility:
     """Verify that pushing data into the global data_store is visible

@@ -16,11 +16,11 @@ Inspired by: QuantInsti, Freqtrade, 3Commas, Renaissance Technologies research
 """
 
 import logging
-
-import numpy as np
-import pandas as pd
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+import pandas as pd
+
 from regime_detector import MarketRegime
 from sentiment import SentimentState
 
@@ -31,23 +31,22 @@ _log = logging.getLogger(__name__)
 class StrategySignal:
     """Trading signal produced by a strategy with confidence and risk parameters."""
 
-    signal: str          # BUY, SELL, HOLD
-    confidence: float    # 0.0 to 1.0
+    signal: str  # BUY, SELL, HOLD
+    confidence: float  # 0.0 to 1.0
     strategy_name: str
     reason: str
-    suggested_sl_pct: float = 0.02   # Suggested stop-loss %
-    suggested_tp_pct: float = 0.05   # Suggested take-profit %
+    suggested_sl_pct: float = 0.02  # Suggested stop-loss %
+    suggested_tp_pct: float = 0.05  # Suggested take-profit %
 
 
 class BaseStrategy(ABC):
     """Base class for all trading strategies."""
+
     name: str = "base"
     best_regimes: list[MarketRegime] = []
 
     @abstractmethod
-    def generate_signal(
-        self, df: pd.DataFrame, sentiment: SentimentState | None = None
-    ) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         """Generate a BUY/SELL/HOLD signal from indicator-enriched OHLCV data."""
 
 
@@ -63,6 +62,7 @@ class MomentumStrategy(BaseStrategy):
 
     Source: Top quant fund strategy, 70% of algo trading volume uses momentum.
     """
+
     name = "Momentum"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
@@ -97,40 +97,52 @@ class MomentumStrategy(BaseStrategy):
         vol_confirm = latest["volume_ratio"] > 1.0
 
         # Score
-        buy_score = sum([
-            ma_bullish * 0.3,
-            macd_bullish * 0.2,
-            macd_cross_up * 0.2,
-            rsi_ok_buy * 0.15,
-            vol_confirm * 0.15,
-        ])
+        buy_score = sum(
+            [
+                ma_bullish * 0.3,
+                macd_bullish * 0.2,
+                macd_cross_up * 0.2,
+                rsi_ok_buy * 0.15,
+                vol_confirm * 0.15,
+            ]
+        )
 
-        sell_score = sum([
-            ma_bearish * 0.3,
-            macd_bearish * 0.2,
-            macd_cross_down * 0.2,
-            rsi_ok_sell * 0.15,
-            vol_confirm * 0.15,
-        ])
+        sell_score = sum(
+            [
+                ma_bearish * 0.3,
+                macd_bearish * 0.2,
+                macd_cross_down * 0.2,
+                rsi_ok_sell * 0.15,
+                vol_confirm * 0.15,
+            ]
+        )
 
         atr_pct = latest.get("atr_pct", 0.02)
 
         if buy_score > 0.5:
             return StrategySignal(
-                signal="BUY", confidence=min(buy_score, 0.95),
-                strategy_name=self.name, reason="Momentum bullish alignment",
-                suggested_sl_pct=atr_pct * 2, suggested_tp_pct=atr_pct * 3,
+                signal="BUY",
+                confidence=min(buy_score, 0.95),
+                strategy_name=self.name,
+                reason="Momentum bullish alignment",
+                suggested_sl_pct=atr_pct * 2,
+                suggested_tp_pct=atr_pct * 3,
             )
         elif sell_score > 0.5:
             return StrategySignal(
-                signal="SELL", confidence=min(sell_score, 0.95),
-                strategy_name=self.name, reason="Momentum bearish alignment",
-                suggested_sl_pct=atr_pct * 2, suggested_tp_pct=atr_pct * 3,
+                signal="SELL",
+                confidence=min(sell_score, 0.95),
+                strategy_name=self.name,
+                reason="Momentum bearish alignment",
+                suggested_sl_pct=atr_pct * 2,
+                suggested_tp_pct=atr_pct * 3,
             )
         else:
             return StrategySignal(
-                signal="HOLD", confidence=0.5,
-                strategy_name=self.name, reason="No clear momentum signal",
+                signal="HOLD",
+                confidence=0.5,
+                strategy_name=self.name,
+                reason="No clear momentum signal",
             )
 
 
@@ -146,6 +158,7 @@ class MeanReversionStrategy(BaseStrategy):
 
     Source: Works best in sideways markets. Bear market short-squeeze rallies.
     """
+
     name = "MeanReversion"
     best_regimes = [MarketRegime.RANGING]
 
@@ -167,43 +180,53 @@ class MeanReversionStrategy(BaseStrategy):
         close_to_mean = latest.get("close_to_sma20", 0)
 
         # Oversold: price near lower BB, RSI low, stoch low — evolved params
-        oversold_score = sum([
-            (bb_pos < 0.1) * 0.3,
-            (bb_pos < 0.2) * 0.1,
-            (rsi < self.rsi_low) * 0.25,
-            (rsi < self.rsi_low + 10) * 0.1,
-            (stoch_k < 20) * 0.15,
-            (close_to_mean < -0.02) * 0.1,
-        ])
+        oversold_score = sum(
+            [
+                (bb_pos < 0.1) * 0.3,
+                (bb_pos < 0.2) * 0.1,
+                (rsi < self.rsi_low) * 0.25,
+                (rsi < self.rsi_low + 10) * 0.1,
+                (stoch_k < 20) * 0.15,
+                (close_to_mean < -0.02) * 0.1,
+            ]
+        )
 
         # Overbought: price near upper BB, RSI high, stoch high — evolved params
-        overbought_score = sum([
-            (bb_pos > 0.9) * 0.3,
-            (bb_pos > 0.8) * 0.1,
-            (rsi > self.rsi_high) * 0.25,
-            (rsi > self.rsi_high - 10) * 0.1,
-            (stoch_k > 80) * 0.15,
-            (close_to_mean > 0.02) * 0.1,
-        ])
+        overbought_score = sum(
+            [
+                (bb_pos > 0.9) * 0.3,
+                (bb_pos > 0.8) * 0.1,
+                (rsi > self.rsi_high) * 0.25,
+                (rsi > self.rsi_high - 10) * 0.1,
+                (stoch_k > 80) * 0.15,
+                (close_to_mean > 0.02) * 0.1,
+            ]
+        )
 
         if oversold_score > 0.4:
             return StrategySignal(
-                signal="BUY", confidence=min(oversold_score, 0.9),
+                signal="BUY",
+                confidence=min(oversold_score, 0.9),
                 strategy_name=self.name,
                 reason=f"Oversold (BB:{bb_pos:.2f}, RSI:{rsi:.0f})",
-                suggested_sl_pct=0.015, suggested_tp_pct=0.025,
+                suggested_sl_pct=0.015,
+                suggested_tp_pct=0.025,
             )
         elif overbought_score > 0.4:
             return StrategySignal(
-                signal="SELL", confidence=min(overbought_score, 0.9),
+                signal="SELL",
+                confidence=min(overbought_score, 0.9),
                 strategy_name=self.name,
                 reason=f"Overbought (BB:{bb_pos:.2f}, RSI:{rsi:.0f})",
-                suggested_sl_pct=0.015, suggested_tp_pct=0.025,
+                suggested_sl_pct=0.015,
+                suggested_tp_pct=0.025,
             )
         else:
             return StrategySignal(
-                signal="HOLD", confidence=0.5,
-                strategy_name=self.name, reason="Price near mean — no reversion signal",
+                signal="HOLD",
+                confidence=0.5,
+                strategy_name=self.name,
+                reason="Price near mean — no reversion signal",
             )
 
 
@@ -219,6 +242,7 @@ class BreakoutStrategy(BaseStrategy):
 
     Source: Capitalizes on volatility expansion after compression (squeeze).
     """
+
     name = "Breakout"
     best_regimes = [MarketRegime.RANGING, MarketRegime.HIGH_VOLATILITY]
 
@@ -231,16 +255,13 @@ class BreakoutStrategy(BaseStrategy):
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
         """Identify Bollinger Band breakouts confirmed by volume surge."""
         latest = df.iloc[-1]
-        prev = df.iloc[-2]
 
         bb_pos = latest.get("bb_position", 0.5)
-        bb_width = latest.get("bb_width", 0)
         vol_ratio = latest.get("volume_ratio", 1.0)
 
         # Bollinger squeeze: width narrowing then expanding
         bb_widths = df["bb_width"].tail(20) if "bb_width" in df.columns else pd.Series([0])
         was_squeezed = bb_widths.iloc[-5:].mean() < bb_widths.mean() * 0.8
-        expanding = bb_width > prev.get("bb_width", 0)
 
         # Price breaking bands with volume — evolved params
         break_up = bb_pos > 1.0 and vol_ratio > self.volume_mult
@@ -255,23 +276,29 @@ class BreakoutStrategy(BaseStrategy):
         if (break_up or at_high) and vol_ratio > 1.2:
             conf = 0.5 + (vol_ratio - 1.0) * 0.2 + was_squeezed * 0.15
             return StrategySignal(
-                signal="BUY", confidence=min(conf, 0.9),
+                signal="BUY",
+                confidence=min(conf, 0.9),
                 strategy_name=self.name,
                 reason=f"Breakout UP (vol:{vol_ratio:.1f}x, squeeze:{was_squeezed})",
-                suggested_sl_pct=0.01, suggested_tp_pct=0.04,
+                suggested_sl_pct=0.01,
+                suggested_tp_pct=0.04,
             )
         elif (break_down or at_low) and vol_ratio > 1.2:
             conf = 0.5 + (vol_ratio - 1.0) * 0.2 + was_squeezed * 0.15
             return StrategySignal(
-                signal="SELL", confidence=min(conf, 0.9),
+                signal="SELL",
+                confidence=min(conf, 0.9),
                 strategy_name=self.name,
                 reason=f"Breakout DOWN (vol:{vol_ratio:.1f}x, squeeze:{was_squeezed})",
-                suggested_sl_pct=0.01, suggested_tp_pct=0.04,
+                suggested_sl_pct=0.01,
+                suggested_tp_pct=0.04,
             )
         else:
             return StrategySignal(
-                signal="HOLD", confidence=0.5,
-                strategy_name=self.name, reason="No breakout detected",
+                signal="HOLD",
+                confidence=0.5,
+                strategy_name=self.name,
+                reason="No breakout detected",
             )
 
 
@@ -287,10 +314,13 @@ class GridStrategy(BaseStrategy):
 
     Source: Pionex, Bitsgap, 3Commas grid bots.
     """
+
     name = "Grid"
     best_regimes = [MarketRegime.RANGING]
 
-    def __init__(self, grid_spacing_pct: float = 0.01, grid_levels: int = 5, params: dict[str, float] | None = None) -> None:
+    def __init__(
+        self, grid_spacing_pct: float = 0.01, grid_levels: int = 5, params: dict[str, float] | None = None
+    ) -> None:
         p = params or {}
         self.grid_spacing = p.get("grid_size_pct", grid_spacing_pct * 100) / 100.0
         self.grid_levels = p.get("num_levels", grid_levels)
@@ -314,7 +344,8 @@ class GridStrategy(BaseStrategy):
         if grid_level < -1.5:
             conf = min(0.5 + abs(grid_level) * 0.1, 0.85)
             return StrategySignal(
-                signal="BUY", confidence=conf,
+                signal="BUY",
+                confidence=conf,
                 strategy_name=self.name,
                 reason=f"Grid level {grid_level:.1f} (below center)",
                 suggested_sl_pct=self.grid_spacing * 2,
@@ -323,7 +354,8 @@ class GridStrategy(BaseStrategy):
         elif grid_level > 1.5:
             conf = min(0.5 + abs(grid_level) * 0.1, 0.85)
             return StrategySignal(
-                signal="SELL", confidence=conf,
+                signal="SELL",
+                confidence=conf,
                 strategy_name=self.name,
                 reason=f"Grid level {grid_level:.1f} (above center)",
                 suggested_sl_pct=self.grid_spacing * 2,
@@ -331,7 +363,8 @@ class GridStrategy(BaseStrategy):
             )
         else:
             return StrategySignal(
-                signal="HOLD", confidence=0.5,
+                signal="HOLD",
+                confidence=0.5,
                 strategy_name=self.name,
                 reason=f"Grid level {grid_level:.1f} (near center)",
             )
@@ -349,6 +382,7 @@ class ScalpingStrategy(BaseStrategy):
 
     Source: CryptoRobotics, Pionex scalping bots.
     """
+
     name = "Scalping"
     best_regimes = [MarketRegime.RANGING, MarketRegime.HIGH_VOLATILITY]
 
@@ -361,12 +395,13 @@ class ScalpingStrategy(BaseStrategy):
         """Detect reversal candle patterns (hammer/shooting star) with volume spike."""
         if len(df) < 5:
             return StrategySignal(
-                signal="HOLD", confidence=0.0,
-                strategy_name=self.name, reason="Not enough data",
+                signal="HOLD",
+                confidence=0.0,
+                strategy_name=self.name,
+                reason="Not enough data",
             )
 
         latest = df.iloc[-1]
-        prev = df.iloc[-2]
 
         rsi = latest["rsi"]
         close = latest["close"]
@@ -382,8 +417,10 @@ class ScalpingStrategy(BaseStrategy):
 
         if total_range == 0:
             return StrategySignal(
-                signal="HOLD", confidence=0.0,
-                strategy_name=self.name, reason="No price movement",
+                signal="HOLD",
+                confidence=0.0,
+                strategy_name=self.name,
+                reason="No price movement",
             )
 
         # Pin bar / hammer detection (reversal candle)
@@ -399,22 +436,28 @@ class ScalpingStrategy(BaseStrategy):
 
         if (is_hammer or rsi_oversold_bounce) and vol_spike:
             return StrategySignal(
-                signal="BUY", confidence=0.7,
+                signal="BUY",
+                confidence=0.7,
                 strategy_name=self.name,
                 reason=f"Scalp reversal (hammer:{is_hammer}, RSI:{rsi:.0f})",
-                suggested_sl_pct=0.005, suggested_tp_pct=0.01,
+                suggested_sl_pct=0.005,
+                suggested_tp_pct=0.01,
             )
         elif (is_shooting_star or rsi_overbought_drop) and vol_spike:
             return StrategySignal(
-                signal="SELL", confidence=0.7,
+                signal="SELL",
+                confidence=0.7,
                 strategy_name=self.name,
                 reason=f"Scalp reversal (star:{is_shooting_star}, RSI:{rsi:.0f})",
-                suggested_sl_pct=0.005, suggested_tp_pct=0.01,
+                suggested_sl_pct=0.005,
+                suggested_tp_pct=0.01,
             )
         else:
             return StrategySignal(
-                signal="HOLD", confidence=0.3,
-                strategy_name=self.name, reason="No scalp setup",
+                signal="HOLD",
+                confidence=0.3,
+                strategy_name=self.name,
+                reason="No scalp setup",
             )
 
 
@@ -431,10 +474,13 @@ class SentimentDrivenStrategy(BaseStrategy):
 
     Source: Alternative.me, CoinGecko sentiment research.
     """
+
     name = "Sentiment"
     best_regimes = [
-        MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN,
-        MarketRegime.RANGING, MarketRegime.HIGH_VOLATILITY,
+        MarketRegime.TRENDING_UP,
+        MarketRegime.TRENDING_DOWN,
+        MarketRegime.RANGING,
+        MarketRegime.HIGH_VOLATILITY,
     ]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
@@ -444,55 +490,63 @@ class SentimentDrivenStrategy(BaseStrategy):
         self.composite_threshold = p.get("composite_threshold", 0.3)
         self.confidence_base = p.get("confidence_base", 0.5)
 
-    def generate_signal(
-        self, df: pd.DataFrame, sentiment: SentimentState = None
-    ) -> StrategySignal:
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState = None) -> StrategySignal:
         """Generate contrarian signals at Fear & Greed extremes."""
         if sentiment is None:
             return StrategySignal(
-                signal="HOLD", confidence=0.0,
-                strategy_name=self.name, reason="No sentiment data",
+                signal="HOLD",
+                confidence=0.0,
+                strategy_name=self.name,
+                reason="No sentiment data",
             )
 
         fg = sentiment.fear_greed_index
         composite = sentiment.composite_score
-        contrarian = sentiment.contrarian_signal
 
         # Strong contrarian signals at extremes — evolved params
         extreme_fear = self.fear_threshold - 10
         extreme_greed = self.greed_threshold + 10
         if fg <= extreme_fear and composite < -self.composite_threshold * 1.5:
             return StrategySignal(
-                signal="BUY", confidence=0.8,
+                signal="BUY",
+                confidence=0.8,
                 strategy_name=self.name,
                 reason=f"Extreme fear ({fg}) — contrarian buy",
-                suggested_sl_pct=0.03, suggested_tp_pct=0.08,
+                suggested_sl_pct=0.03,
+                suggested_tp_pct=0.08,
             )
         elif fg >= extreme_greed and composite > self.composite_threshold * 1.5:
             return StrategySignal(
-                signal="SELL", confidence=0.8,
+                signal="SELL",
+                confidence=0.8,
                 strategy_name=self.name,
                 reason=f"Extreme greed ({fg}) — contrarian sell",
-                suggested_sl_pct=0.03, suggested_tp_pct=0.08,
+                suggested_sl_pct=0.03,
+                suggested_tp_pct=0.08,
             )
         # Moderate signals — evolved params
         elif fg <= self.fear_threshold and composite < -self.composite_threshold:
             return StrategySignal(
-                signal="BUY", confidence=0.6,
+                signal="BUY",
+                confidence=0.6,
                 strategy_name=self.name,
                 reason=f"Fear zone ({fg}) — cautious buy",
-                suggested_sl_pct=0.02, suggested_tp_pct=0.05,
+                suggested_sl_pct=0.02,
+                suggested_tp_pct=0.05,
             )
         elif fg >= self.greed_threshold and composite > self.composite_threshold:
             return StrategySignal(
-                signal="SELL", confidence=0.6,
+                signal="SELL",
+                confidence=0.6,
                 strategy_name=self.name,
                 reason=f"Greed zone ({fg}) — cautious sell",
-                suggested_sl_pct=0.02, suggested_tp_pct=0.05,
+                suggested_sl_pct=0.02,
+                suggested_tp_pct=0.05,
             )
         else:
             return StrategySignal(
-                signal="HOLD", confidence=0.4,
+                signal="HOLD",
+                confidence=0.4,
                 strategy_name=self.name,
                 reason=f"Neutral sentiment ({fg})",
             )
@@ -510,6 +564,7 @@ class VWAPStrategy(BaseStrategy):
 
     Source: Institutional order flow research; VWAP is the #1 institutional benchmark.
     """
+
     name = "VWAP"
     best_regimes = [MarketRegime.RANGING, MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
@@ -525,30 +580,35 @@ class VWAPStrategy(BaseStrategy):
         vwap_dev = latest.get("close_to_vwap", 0)
         rsi = latest.get("rsi", 50)
         vol_ratio = latest.get("volume_ratio", 1.0)
-        adx = latest.get("adx", 25)
 
         # Strong deviation from VWAP with confirming RSI
         if vwap_dev < -self.deviation_threshold and rsi < 40:
             strength = min(abs(vwap_dev) / 0.03, 1.0)
             conf = 0.5 + strength * 0.3 + (vol_ratio > 1.2) * 0.1
             return StrategySignal(
-                signal="BUY", confidence=min(conf, 0.9),
+                signal="BUY",
+                confidence=min(conf, 0.9),
                 strategy_name=self.name,
                 reason=f"Below VWAP ({vwap_dev:.2%}, RSI:{rsi:.0f})",
-                suggested_sl_pct=0.015, suggested_tp_pct=abs(vwap_dev) * 0.8,
+                suggested_sl_pct=0.015,
+                suggested_tp_pct=abs(vwap_dev) * 0.8,
             )
         elif vwap_dev > self.deviation_threshold and rsi > 60:
             strength = min(abs(vwap_dev) / 0.03, 1.0)
             conf = 0.5 + strength * 0.3 + (vol_ratio > 1.2) * 0.1
             return StrategySignal(
-                signal="SELL", confidence=min(conf, 0.9),
+                signal="SELL",
+                confidence=min(conf, 0.9),
                 strategy_name=self.name,
                 reason=f"Above VWAP ({vwap_dev:+.2%}, RSI:{rsi:.0f})",
-                suggested_sl_pct=0.015, suggested_tp_pct=abs(vwap_dev) * 0.8,
+                suggested_sl_pct=0.015,
+                suggested_tp_pct=abs(vwap_dev) * 0.8,
             )
         return StrategySignal(
-            signal="HOLD", confidence=0.4,
-            strategy_name=self.name, reason=f"Near VWAP ({vwap_dev:+.2%})",
+            signal="HOLD",
+            confidence=0.4,
+            strategy_name=self.name,
+            reason=f"Near VWAP ({vwap_dev:+.2%})",
         )
 
 
@@ -565,6 +625,7 @@ class OBVDivergenceStrategy(BaseStrategy):
 
     Source: Joe Granville's OBV theory; divergence is a leading indicator.
     """
+
     name = "OBVDivergence"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN, MarketRegime.RANGING]
 
@@ -586,25 +647,31 @@ class OBVDivergenceStrategy(BaseStrategy):
             # Stronger signal if RSI is oversold and trend is weakening
             conf = 0.55 + (rsi < 35) * 0.15 + (vol_ratio > 1.0) * 0.1 + (adx < 25) * 0.1
             return StrategySignal(
-                signal="BUY", confidence=min(conf, 0.85),
+                signal="BUY",
+                confidence=min(conf, 0.85),
                 strategy_name=self.name,
                 reason=f"Bullish OBV divergence (RSI:{rsi:.0f}, ADX:{adx:.0f})",
-                suggested_sl_pct=0.02, suggested_tp_pct=0.04,
+                suggested_sl_pct=0.02,
+                suggested_tp_pct=0.04,
             )
 
         # Bearish divergence — price up but OBV down (distribution)
         elif obv_div == -1:
             conf = 0.55 + (rsi > 65) * 0.15 + (vol_ratio > 1.0) * 0.1 + (adx < 25) * 0.1
             return StrategySignal(
-                signal="SELL", confidence=min(conf, 0.85),
+                signal="SELL",
+                confidence=min(conf, 0.85),
                 strategy_name=self.name,
                 reason=f"Bearish OBV divergence (RSI:{rsi:.0f}, ADX:{adx:.0f})",
-                suggested_sl_pct=0.02, suggested_tp_pct=0.04,
+                suggested_sl_pct=0.02,
+                suggested_tp_pct=0.04,
             )
 
         return StrategySignal(
-            signal="HOLD", confidence=0.3,
-            strategy_name=self.name, reason="No OBV divergence",
+            signal="HOLD",
+            confidence=0.3,
+            strategy_name=self.name,
+            reason="No OBV divergence",
         )
 
 
@@ -620,6 +687,7 @@ class EMACrossoverStrategy(BaseStrategy):
 
     Source: Classic crossover enhanced with trend strength filter.
     """
+
     name = "EMACrossover"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
@@ -643,18 +711,22 @@ class EMACrossoverStrategy(BaseStrategy):
         if ema_cross == 1 and trend_strong:
             conf = 0.55 + min((adx - 20) / 40, 0.2) + (vol_ratio > 1.2) * 0.1
             return StrategySignal(
-                signal="BUY", confidence=min(conf, 0.9),
+                signal="BUY",
+                confidence=min(conf, 0.9),
                 strategy_name=self.name,
                 reason=f"EMA 9/21 golden cross (ADX:{adx:.0f}, vol:{vol_ratio:.1f}x)",
-                suggested_sl_pct=0.015, suggested_tp_pct=0.035,
+                suggested_sl_pct=0.015,
+                suggested_tp_pct=0.035,
             )
         elif ema_cross == -1 and trend_strong:
             conf = 0.55 + min((adx - 20) / 40, 0.2) + (vol_ratio > 1.2) * 0.1
             return StrategySignal(
-                signal="SELL", confidence=min(conf, 0.9),
+                signal="SELL",
+                confidence=min(conf, 0.9),
                 strategy_name=self.name,
                 reason=f"EMA 9/21 death cross (ADX:{adx:.0f}, vol:{vol_ratio:.1f}x)",
-                suggested_sl_pct=0.015, suggested_tp_pct=0.035,
+                suggested_sl_pct=0.015,
+                suggested_tp_pct=0.035,
             )
 
         # No crossover this bar, but check trend alignment
@@ -663,21 +735,26 @@ class EMACrossoverStrategy(BaseStrategy):
         if ema_9 and ema_21 and trend_strong:
             if ema_9 > ema_21 * 1.002 and rsi > 50:
                 return StrategySignal(
-                    signal="BUY", confidence=0.45,
+                    signal="BUY",
+                    confidence=0.45,
                     strategy_name=self.name,
                     reason=f"EMA bullish alignment (ADX:{adx:.0f})",
-                    suggested_sl_pct=0.015, suggested_tp_pct=0.03,
+                    suggested_sl_pct=0.015,
+                    suggested_tp_pct=0.03,
                 )
             elif ema_9 < ema_21 * 0.998 and rsi < 50:
                 return StrategySignal(
-                    signal="SELL", confidence=0.45,
+                    signal="SELL",
+                    confidence=0.45,
                     strategy_name=self.name,
                     reason=f"EMA bearish alignment (ADX:{adx:.0f})",
-                    suggested_sl_pct=0.015, suggested_tp_pct=0.03,
+                    suggested_sl_pct=0.015,
+                    suggested_tp_pct=0.03,
                 )
 
         return StrategySignal(
-            signal="HOLD", confidence=0.3,
+            signal="HOLD",
+            confidence=0.3,
             strategy_name=self.name,
             reason=f"No EMA cross (ADX:{adx:.0f})",
         )
@@ -686,6 +763,7 @@ class EMACrossoverStrategy(BaseStrategy):
 # ────────────────────────────────────────────────────────────
 #  STRATEGY ENGINE — Adaptive strategy selection
 # ────────────────────────────────────────────────────────────
+
 
 class StrategyEngine:
     """
@@ -759,7 +837,9 @@ class StrategyEngine:
                     self.strategies[name] = cls(params=params)
 
     def run(
-        self, df: pd.DataFrame, regime: MarketRegime,
+        self,
+        df: pd.DataFrame,
+        regime: MarketRegime,
         sentiment: SentimentState | None = None,
     ) -> StrategySignal:
         """
@@ -824,8 +904,10 @@ class StrategyEngine:
         total = buy_score + sell_score + hold_score
         if total == 0:
             return StrategySignal(
-                signal="HOLD", confidence=0.5,
-                strategy_name="Ensemble", reason="No signals",
+                signal="HOLD",
+                confidence=0.5,
+                strategy_name="Ensemble",
+                reason="No signals",
             )
 
         if buy_score > sell_score and buy_score > hold_score and best_buy_sig:

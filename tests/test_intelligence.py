@@ -5,14 +5,15 @@ Liquidation, Cascade). New providers don't have ENABLE_* flags — they
 use network calls and catch exceptions. Aggregator tests now mock all
 provider get_signal() calls to test aggregation logic in isolation.
 """
-import pytest
-from unittest.mock import patch, MagicMock
+
+from unittest.mock import MagicMock, patch
+
 from intelligence.aggregator import IntelligenceAggregator
+from intelligence.correlation import CorrelationAnalyzer
+from intelligence.news_sentiment import NewsSentimentAnalyzer
 from intelligence.onchain import OnChainAnalyzer
 from intelligence.orderbook import OrderBookAnalyzer
-from intelligence.news_sentiment import NewsSentimentAnalyzer
 from intelligence.whale_tracker import WhaleTracker
-from intelligence.correlation import CorrelationAnalyzer
 
 
 class TestOnChainAnalyzer:
@@ -89,9 +90,7 @@ class TestAggregator:
         if signals is None:
             signals = [_make_neutral_signal() for _ in range(9)]
         for i, provider in enumerate(agg.providers):
-            provider.get_signal = MagicMock(
-                return_value=signals[i] if i < len(signals) else _make_neutral_signal()
-            )
+            provider.get_signal = MagicMock(return_value=signals[i] if i < len(signals) else _make_neutral_signal())
         return agg
 
     def test_all_disabled_returns_neutral(self):
@@ -118,18 +117,18 @@ class TestAggregator:
             assert sig["signal"] in ("bullish", "bearish", "neutral")
 
     def test_bullish_signals_raise_factor(self):
-        signals = [
-            {"source": "test", "signal": "bullish", "strength": 0.8}
-        ] + [_make_neutral_signal() for _ in range(8)]
+        signals = [{"source": "test", "signal": "bullish", "strength": 0.8}] + [
+            _make_neutral_signal() for _ in range(8)
+        ]
         agg = self._create_mocked_aggregator(signals=signals)
         result = agg.get_signals()
         assert result["adjustment_factor"] > 1.0
         assert result["bias"] == "bullish"
 
     def test_bearish_signals_lower_factor(self):
-        signals = [
-            {"source": "test", "signal": "bearish", "strength": 0.8}
-        ] + [_make_neutral_signal() for _ in range(8)]
+        signals = [{"source": "test", "signal": "bearish", "strength": 0.8}] + [
+            _make_neutral_signal() for _ in range(8)
+        ]
         agg = self._create_mocked_aggregator(signals=signals)
         result = agg.get_signals()
         assert result["adjustment_factor"] < 1.0

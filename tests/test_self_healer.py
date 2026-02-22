@@ -5,17 +5,22 @@ Tests circuit breaker state machine (CLOSED→OPEN→HALF_OPEN→CLOSED),
 error recording, recovery actions, data/model freshness, and health metrics.
 """
 
-import pytest
 from datetime import datetime, timedelta
-from self_healer import (
-    ErrorSeverity, CircuitState, CircuitBreaker,
-    HealthMetrics, ErrorRecord, SelfHealer,
-)
 
+import pytest
+
+from self_healer import (
+    CircuitBreaker,
+    CircuitState,
+    ErrorSeverity,
+    HealthMetrics,
+    SelfHealer,
+)
 
 # ---------------------------------------------------------------------------
 # HealthMetrics
 # ---------------------------------------------------------------------------
+
 
 class TestHealthMetrics:
     def test_overall_healthy_when_all_good(self):
@@ -47,6 +52,7 @@ class TestHealthMetrics:
 # CircuitBreaker defaults
 # ---------------------------------------------------------------------------
 
+
 class TestCircuitBreaker:
     def test_default_state_is_closed(self):
         cb = CircuitBreaker()
@@ -62,6 +68,7 @@ class TestCircuitBreaker:
 # ---------------------------------------------------------------------------
 # SelfHealer
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def healer():
@@ -185,6 +192,7 @@ class TestRecoveryActions:
     def test_failed_recovery_returns_false(self, healer):
         def fail():
             raise RuntimeError("recovery failed")
+
         healer.register_recovery_action("model", fail)
         result = healer.attempt_recovery("model")
         assert result is False
@@ -195,10 +203,13 @@ class TestRecoveryActions:
 
     def test_register_multiple_actions(self, healer):
         calls = []
+
         def action_a():
             raise RuntimeError("a fails")
+
         def action_b():
             calls.append("b")
+
         healer.register_recovery_action("model", action_a)
         healer.register_recovery_action("model", action_b)
         result = healer.attempt_recovery("model")

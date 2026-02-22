@@ -7,26 +7,32 @@ Covers:
     daily loss limits, max hold duration, serialization
 """
 
-import pytest
-from datetime import datetime, date
-from risk_manager import Position, RiskManager, TradeRecord
-from config import Config
+from datetime import date, datetime
 
+import pytest
+
+from config import Config
+from risk_manager import Position, RiskManager, TradeRecord
 
 # ---------------------------------------------------------------------------
 # Position dataclass
 # ---------------------------------------------------------------------------
 
+
 class TestPosition:
     """Tests for the Position dataclass and its methods."""
 
-    def _make_pos(self, side="long", entry_price=50000.0, quantity=0.01,
-                  stop_loss=49000.0, take_profit=52500.0, entry_bar=0):
+    def _make_pos(
+        self, side="long", entry_price=50000.0, quantity=0.01, stop_loss=49000.0, take_profit=52500.0, entry_bar=0
+    ):
         return Position(
-            symbol="BTC/USDT", side=side,
-            entry_price=entry_price, quantity=quantity,
+            symbol="BTC/USDT",
+            side=side,
+            entry_price=entry_price,
+            quantity=quantity,
             entry_time=datetime.now(),
-            stop_loss=stop_loss, take_profit=take_profit,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
             entry_bar=entry_bar,
         )
 
@@ -40,8 +46,7 @@ class TestPosition:
         assert pos.trailing_stop == expected
 
     def test_trailing_stop_initialized_short(self):
-        pos = self._make_pos(side="short", entry_price=50000.0,
-                             stop_loss=51000.0, take_profit=47500.0)
+        pos = self._make_pos(side="short", entry_price=50000.0, stop_loss=51000.0, take_profit=47500.0)
         expected = 50000.0 * (1 + Config.TRAILING_STOP_PCT)
         assert pos.trailing_stop == expected
 
@@ -66,8 +71,7 @@ class TestPosition:
         assert pos.trailing_stop == high_trail
 
     def test_trailing_stop_ratchets_down_for_short(self):
-        pos = self._make_pos(side="short", entry_price=50000.0,
-                             stop_loss=51000.0, take_profit=47500.0)
+        pos = self._make_pos(side="short", entry_price=50000.0, stop_loss=51000.0, take_profit=47500.0)
         initial_trail = pos.trailing_stop
 
         # Price drops — trail should move down
@@ -76,8 +80,7 @@ class TestPosition:
         assert pos.lowest_price == 48000.0
 
     def test_trailing_stop_never_rises_for_short(self):
-        pos = self._make_pos(side="short", entry_price=50000.0,
-                             stop_loss=51000.0, take_profit=47500.0)
+        pos = self._make_pos(side="short", entry_price=50000.0, stop_loss=51000.0, take_profit=47500.0)
         pos.update_trailing_stop(current_high=49000.0, current_low=46000.0)
         low_trail = pos.trailing_stop
 
@@ -100,13 +103,11 @@ class TestPosition:
         assert pos.check_exit(50500.0) is None
 
     def test_stop_loss_exit_short(self):
-        pos = self._make_pos(side="short", entry_price=50000.0,
-                             stop_loss=51000.0, take_profit=47500.0)
+        pos = self._make_pos(side="short", entry_price=50000.0, stop_loss=51000.0, take_profit=47500.0)
         assert pos.check_exit(51500.0) == "stop_loss"
 
     def test_take_profit_exit_short(self):
-        pos = self._make_pos(side="short", entry_price=50000.0,
-                             stop_loss=51000.0, take_profit=47500.0)
+        pos = self._make_pos(side="short", entry_price=50000.0, stop_loss=51000.0, take_profit=47500.0)
         assert pos.check_exit(47000.0) == "take_profit"
 
     def test_max_duration_exit(self):
@@ -122,8 +123,7 @@ class TestPosition:
 
     def test_trailing_stop_exit_long(self):
         """Trailing stop triggers only when it's above fixed stop-loss."""
-        pos = self._make_pos(side="long", entry_price=50000.0,
-                             stop_loss=48000.0, take_profit=60000.0)
+        pos = self._make_pos(side="long", entry_price=50000.0, stop_loss=48000.0, take_profit=60000.0)
         # Push price up so trailing stop ratchets above fixed SL
         pos.update_trailing_stop(current_high=56000.0, current_low=55000.0)
         trail = pos.trailing_stop
@@ -143,19 +143,18 @@ class TestPosition:
         assert pos.unrealized_pnl(49000.0) == pytest.approx(-10.0)
 
     def test_unrealized_pnl_short_profit(self):
-        pos = self._make_pos(side="short", entry_price=50000.0, quantity=0.01,
-                             stop_loss=51000.0, take_profit=47500.0)
+        pos = self._make_pos(side="short", entry_price=50000.0, quantity=0.01, stop_loss=51000.0, take_profit=47500.0)
         assert pos.unrealized_pnl(49000.0) == pytest.approx(10.0)
 
     def test_unrealized_pnl_short_loss(self):
-        pos = self._make_pos(side="short", entry_price=50000.0, quantity=0.01,
-                             stop_loss=51000.0, take_profit=47500.0)
+        pos = self._make_pos(side="short", entry_price=50000.0, quantity=0.01, stop_loss=51000.0, take_profit=47500.0)
         assert pos.unrealized_pnl(51000.0) == pytest.approx(-10.0)
 
 
 # ---------------------------------------------------------------------------
 # RiskManager
 # ---------------------------------------------------------------------------
+
 
 class TestRiskManager:
     """Tests for the RiskManager class."""
@@ -179,34 +178,49 @@ class TestRiskManager:
     def test_rejects_at_max_positions(self, rm):
         # Fill up to max positions
         for i in range(Config.MAX_OPEN_POSITIONS):
-            rm.positions.append(Position(
-                symbol=f"PAIR{i}/USDT", side="long",
-                entry_price=50000.0, quantity=0.01,
-                entry_time=datetime.now(),
-                stop_loss=49000.0, take_profit=52000.0,
-            ))
+            rm.positions.append(
+                Position(
+                    symbol=f"PAIR{i}/USDT",
+                    side="long",
+                    entry_price=50000.0,
+                    quantity=0.01,
+                    entry_time=datetime.now(),
+                    stop_loss=49000.0,
+                    take_profit=52000.0,
+                )
+            )
         ok, msg = rm.can_open_position("BUY", 0.9)
         assert ok is False
         assert "Max positions" in msg
 
     def test_rejects_conflicting_position(self, rm):
-        rm.positions.append(Position(
-            symbol="BTC/USDT", side="short",
-            entry_price=50000.0, quantity=0.01,
-            entry_time=datetime.now(),
-            stop_loss=51000.0, take_profit=47500.0,
-        ))
+        rm.positions.append(
+            Position(
+                symbol="BTC/USDT",
+                side="short",
+                entry_price=50000.0,
+                quantity=0.01,
+                entry_time=datetime.now(),
+                stop_loss=51000.0,
+                take_profit=47500.0,
+            )
+        )
         ok, msg = rm.can_open_position("BUY", 0.9, symbol="BTC/USDT")
         assert ok is False
         assert "Conflicting" in msg
 
     def test_rejects_duplicate_direction(self, rm):
-        rm.positions.append(Position(
-            symbol="BTC/USDT", side="long",
-            entry_price=50000.0, quantity=0.01,
-            entry_time=datetime.now(),
-            stop_loss=49000.0, take_profit=52000.0,
-        ))
+        rm.positions.append(
+            Position(
+                symbol="BTC/USDT",
+                side="long",
+                entry_price=50000.0,
+                quantity=0.01,
+                entry_time=datetime.now(),
+                stop_loss=49000.0,
+                take_profit=52000.0,
+            )
+        )
         ok, msg = rm.can_open_position("BUY", 0.9, symbol="BTC/USDT")
         assert ok is False
         assert "Already have a position" in msg

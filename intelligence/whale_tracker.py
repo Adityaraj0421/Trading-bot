@@ -13,11 +13,13 @@ Signal logic:
   - General high whale activity = slightly bearish (uncertainty)
 """
 
-import time
 import logging
-import requests
+import time
 from collections import deque
 from typing import Any
+
+import requests
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -51,8 +53,8 @@ class WhaleTracker:
     # v7.0: Browser-like headers to avoid bot blocking
     _HEADERS = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/120.0.0.0 Safari/537.36",
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
     }
 
@@ -71,12 +73,14 @@ class WhaleTracker:
             signal, strength = self._analyze(whale_data)
 
             # Track history
-            self._history.append({
-                "ts": time.time(),
-                "whale_count": whale_data["whale_tx_count"],
-                "total_btc": whale_data["total_whale_btc"],
-                "signal": signal,
-            })
+            self._history.append(
+                {
+                    "ts": time.time(),
+                    "whale_count": whale_data["whale_tx_count"],
+                    "total_btc": whale_data["total_whale_btc"],
+                    "signal": signal,
+                }
+            )
 
             return {
                 "source": "whale_tracker",
@@ -156,16 +160,16 @@ class WhaleTracker:
                         if block_resp.ok:
                             block_txs = block_resp.json()
                             for tx in block_txs[:50]:
-                                total_out = sum(
-                                    v.get("value", 0) for v in tx.get("vout", [])
-                                ) / 1e8
+                                total_out = sum(v.get("value", 0) for v in tx.get("vout", [])) / 1e8
                                 if total_out >= self.THRESHOLD_BTC * 5:  # Higher threshold for confirmed
-                                    large_txs.append({
-                                        "hash": tx.get("txid", "")[:16],
-                                        "btc_amount": round(total_out, 2),
-                                        "confirmed": True,
-                                        "block": block.get("height", 0),
-                                    })
+                                    large_txs.append(
+                                        {
+                                            "hash": tx.get("txid", "")[:16],
+                                            "btc_amount": round(total_out, 2),
+                                            "confirmed": True,
+                                            "block": block.get("height", 0),
+                                        }
+                                    )
                                     total_whale_btc += total_out
         except Exception as e:
             _log.debug("Block TX fetch failed: %s", e)
@@ -194,7 +198,6 @@ class WhaleTracker:
         whale_count = data.get("whale_tx_count", 0)
         inflows = data.get("exchange_inflows_btc", 0)
         outflows = data.get("exchange_outflows_btc", 0)
-        total_btc = data.get("total_whale_btc", 0)
 
         score = 0.0
 
@@ -217,7 +220,9 @@ class WhaleTracker:
         # Historical trend (are whales becoming more active?)
         if len(self._history) >= 3:
             recent_avg = sum(h["whale_count"] for h in list(self._history)[-3:]) / 3
-            older_avg = sum(h["whale_count"] for h in list(self._history)[:3]) / 3 if len(self._history) >= 6 else recent_avg
+            older_avg = (
+                sum(h["whale_count"] for h in list(self._history)[:3]) / 3 if len(self._history) >= 6 else recent_avg
+            )
             if older_avg > 0 and recent_avg > older_avg * 1.5:
                 score -= 0.1  # Accelerating whale activity
 

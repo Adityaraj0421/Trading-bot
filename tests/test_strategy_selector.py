@@ -6,8 +6,8 @@ DQN tests only run if PyTorch is installed.
 
 import numpy as np
 import pytest
-from strategy_selector import StrategyMetaSelector, SelectionResult
 
+from strategy_selector import SelectionResult, StrategyMetaSelector
 
 STRATEGIES = ["momentum", "mean_reversion", "breakout"]
 STATE_DIM = 12
@@ -53,28 +53,24 @@ class TestStaticFallback:
 class TestRewardRecording:
     def test_record_reward_stores_pnl(self, selector, random_state):
         selector.select_strategy(random_state)
-        selector.record_reward(reward=0.05, next_state=random_state,
-                               strategy_name="momentum")
+        selector.record_reward(reward=0.05, next_state=random_state, strategy_name="momentum")
         assert len(selector._strategy_pnl["momentum"]) == 1
 
     def test_win_rate_updated(self, selector, random_state):
         selector.select_strategy(random_state)
-        selector.record_reward(reward=0.05, next_state=random_state,
-                               strategy_name="momentum")
+        selector.record_reward(reward=0.05, next_state=random_state, strategy_name="momentum")
         assert selector._strategy_win_rates["momentum"] == 1.0
 
     def test_multiple_rewards_tracked(self, selector, random_state):
         for reward in [0.1, -0.05, 0.03, -0.02]:
             selector.select_strategy(random_state)
-            selector.record_reward(reward=reward, next_state=random_state,
-                                   strategy_name="momentum")
+            selector.record_reward(reward=reward, next_state=random_state, strategy_name="momentum")
         perf = selector.get_strategy_performance()
         assert perf["momentum"]["trades"] == 4
 
     def test_reward_without_prior_select(self, selector, random_state):
         """record_reward before any select should be safe."""
-        selector.record_reward(reward=0.1, next_state=random_state,
-                               strategy_name="momentum")
+        selector.record_reward(reward=0.1, next_state=random_state, strategy_name="momentum")
 
 
 # ── Performance-Based Selection ───────────────────────────────────

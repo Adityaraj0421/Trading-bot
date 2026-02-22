@@ -18,11 +18,11 @@ Falls back to static REGIME_STRATEGY_MAP when not enough experience.
 """
 
 import logging
+from collections import deque
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-from collections import deque
-from dataclasses import dataclass, field
 
 _log = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ try:
     import torch
     import torch.nn as nn
     import torch.optim as optim
+
     _HAS_TORCH = True
 except ImportError:
     pass
@@ -38,12 +39,14 @@ except ImportError:
 
 # ── Data Structures ───────────────────────────────────────────────
 
+
 @dataclass
 class StrategyExperience:
     """A single experience tuple for the DQN replay buffer."""
+
     state: np.ndarray
-    action: int           # Index of selected strategy
-    reward: float         # P&L from that strategy
+    action: int  # Index of selected strategy
+    reward: float  # P&L from that strategy
     next_state: np.ndarray
     done: bool = False
 
@@ -51,24 +54,25 @@ class StrategyExperience:
 @dataclass
 class SelectionResult:
     """Result of strategy meta-selection."""
-    strategy_weights: dict[str, float]    # {strategy_name: weight}
-    primary_strategy: str     # Highest-weighted strategy
-    confidence: float         # How confident the selector is
-    source: str               # "dqn" or "static_fallback"
+
+    strategy_weights: dict[str, float]  # {strategy_name: weight}
+    primary_strategy: str  # Highest-weighted strategy
+    confidence: float  # How confident the selector is
+    source: str  # "dqn" or "static_fallback"
     q_values: dict[str, float] = field(default_factory=dict)
 
 
 # ── DQN Network ───────────────────────────────────────────────────
 
 if _HAS_TORCH:
+
     class StrategyQNetwork(nn.Module):
         """
         Q-network for strategy selection.
         Maps state → Q-value per strategy.
         """
 
-        def __init__(self, state_dim: int, n_strategies: int,
-                     hidden_dim: int = 64):
+        def __init__(self, state_dim: int, n_strategies: int, hidden_dim: int = 64):
             super().__init__()
             self.net = nn.Sequential(
                 nn.Linear(state_dim, hidden_dim),
@@ -85,6 +89,7 @@ if _HAS_TORCH:
 
 # ── Meta-Selector ─────────────────────────────────────────────────
 
+
 class StrategyMetaSelector:
     """
     DQN-based meta-selector that learns which strategy to use
@@ -96,8 +101,8 @@ class StrategyMetaSelector:
     # DQN hyperparameters
     BUFFER_SIZE = 5000
     BATCH_SIZE = 32
-    GAMMA = 0.95         # Discount factor
-    TAU = 0.005          # Target network soft update
+    GAMMA = 0.95  # Discount factor
+    TAU = 0.005  # Target network soft update
     LR = 0.001
     EPSILON_START = 1.0
     EPSILON_END = 0.05
@@ -105,7 +110,7 @@ class StrategyMetaSelector:
     MIN_EXPERIENCES = 100  # Minimum before DQN takes over
 
     # Performance tracking
-    PERF_WINDOW = 50      # Rolling window of strategy performance
+    PERF_WINDOW = 50  # Rolling window of strategy performance
 
     def __init__(self, strategy_names: list[str], state_dim: int = 12) -> None:
         self.strategy_names = strategy_names
@@ -117,8 +122,7 @@ class StrategyMetaSelector:
         self._epsilon = self.EPSILON_START
 
         # Per-strategy performance tracking
-        self._strategy_pnl: dict = {s: deque(maxlen=self.PERF_WINDOW)
-                                     for s in strategy_names}
+        self._strategy_pnl: dict = {s: deque(maxlen=self.PERF_WINDOW) for s in strategy_names}
         self._strategy_win_rates: dict = {s: 0.0 for s in strategy_names}
         self._total_selections: int = 0
 
@@ -185,8 +189,7 @@ class StrategyMetaSelector:
             with torch.no_grad():
                 state_t = torch.FloatTensor(state).unsqueeze(0)
                 qv = self._q_net(state_t).squeeze().numpy()
-            q_dict = {self.strategy_names[i]: round(float(qv[i]), 4)
-                      for i in range(self.n_strategies)}
+            q_dict = {self.strategy_names[i]: round(float(qv[i]), 4) for i in range(self.n_strategies)}
 
         return SelectionResult(
             strategy_weights=weights,
@@ -196,8 +199,7 @@ class StrategyMetaSelector:
             q_values=q_dict,
         )
 
-    def record_reward(self, reward: float, next_state: np.ndarray,
-                      strategy_name: str | None = None) -> None:
+    def record_reward(self, reward: float, next_state: np.ndarray, strategy_name: str | None = None) -> None:
         """
         Record the outcome of the last strategy selection.
 
@@ -225,8 +227,7 @@ class StrategyMetaSelector:
             self._replay_buffer.append(exp)
 
             # Train DQN if enough experiences
-            if (self._has_dqn and
-                    len(self._replay_buffer) >= self.MIN_EXPERIENCES):
+            if self._has_dqn and len(self._replay_buffer) >= self.MIN_EXPERIENCES:
                 self._train_step_dqn()
 
     def get_strategy_performance(self) -> dict[str, Any]:
@@ -246,9 +247,9 @@ class StrategyMetaSelector:
     def get_status(self) -> dict[str, Any]:
         """Dashboard-friendly status."""
         return {
-            "mode": "dqn" if (self._has_dqn and
-                              len(self._replay_buffer) >= self.MIN_EXPERIENCES)
-                    else "static_fallback",
+            "mode": "dqn"
+            if (self._has_dqn and len(self._replay_buffer) >= self.MIN_EXPERIENCES)
+            else "static_fallback",
             "epsilon": round(self._epsilon, 4),
             "buffer_size": len(self._replay_buffer),
             "total_selections": self._total_selections,
@@ -264,8 +265,7 @@ class StrategyMetaSelector:
             return
 
         # Sample mini-batch
-        indices = np.random.choice(len(self._replay_buffer),
-                                    self.BATCH_SIZE, replace=False)
+        indices = np.random.choice(len(self._replay_buffer), self.BATCH_SIZE, replace=False)
         batch = [self._replay_buffer[i] for i in indices]
 
         states = torch.FloatTensor(np.array([e.state for e in batch]))
@@ -297,14 +297,12 @@ class StrategyMetaSelector:
 
     def _soft_update_target(self) -> None:
         """Polyak averaging: target = τ * online + (1-τ) * target."""
-        for tp, op in zip(self._target_net.parameters(),
-                          self._q_net.parameters()):
+        for tp, op in zip(self._target_net.parameters(), self._q_net.parameters()):
             tp.data.copy_(self.TAU * op.data + (1 - self.TAU) * tp.data)
 
     # ── Internal: Action → Weights ────────────────────────────────
 
-    def _action_to_weights(self, action: int,
-                           state: np.ndarray) -> dict[str, float]:
+    def _action_to_weights(self, action: int, state: np.ndarray) -> dict[str, float]:
         """
         Convert a discrete action (strategy index) to a weight dict.
 
@@ -396,9 +394,7 @@ class StrategyMetaSelector:
             "strategy_win_rates": self._strategy_win_rates,
         }
         if self._has_dqn:
-            state["q_net_state"] = {
-                k: v.tolist() for k, v in self._q_net.state_dict().items()
-            }
+            state["q_net_state"] = {k: v.tolist() for k, v in self._q_net.state_dict().items()}
         return state
 
     def load_state(self, state: dict[str, Any]) -> None:
@@ -411,8 +407,7 @@ class StrategyMetaSelector:
             if k in self._strategy_pnl:
                 self._strategy_pnl[k] = deque(v, maxlen=self.PERF_WINDOW)
 
-        self._strategy_win_rates = state.get("strategy_win_rates",
-                                             self._strategy_win_rates)
+        self._strategy_win_rates = state.get("strategy_win_rates", self._strategy_win_rates)
 
         if self._has_dqn and "q_net_state" in state:
             try:

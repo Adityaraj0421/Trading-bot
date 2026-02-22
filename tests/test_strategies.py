@@ -5,26 +5,26 @@ Each test constructs a synthetic DataFrame with the exact indicator columns
 a strategy needs, then verifies the signal, confidence, and strategy_name.
 """
 
-import pytest
-import numpy as np
 import pandas as pd
+import pytest
+
+from regime_detector import MarketRegime
+from sentiment import SentimentLevel, SentimentState
 from strategies import (
-    StrategySignal,
-    MomentumStrategy,
-    MeanReversionStrategy,
     BreakoutStrategy,
     GridStrategy,
+    MeanReversionStrategy,
+    MomentumStrategy,
     ScalpingStrategy,
     SentimentDrivenStrategy,
     StrategyEngine,
+    StrategySignal,
 )
-from regime_detector import MarketRegime
-from sentiment import SentimentState, SentimentLevel
-
 
 # ---------------------------------------------------------------------------
 # DataFrame helpers
 # ---------------------------------------------------------------------------
+
 
 def make_df(rows: int = 25, **overrides) -> pd.DataFrame:
     """
@@ -59,8 +59,7 @@ def make_df(rows: int = 25, **overrides) -> pd.DataFrame:
     return df
 
 
-def make_sentiment(fg: int = 50, composite: float = 0.0,
-                   contrarian: str = "HOLD") -> SentimentState:
+def make_sentiment(fg: int = 50, composite: float = 0.0, contrarian: str = "HOLD") -> SentimentState:
     if fg <= 15:
         label = SentimentLevel.EXTREME_FEAR
     elif fg <= 30:
@@ -87,11 +86,14 @@ def make_sentiment(fg: int = 50, composite: float = 0.0,
 # StrategySignal dataclass
 # ---------------------------------------------------------------------------
 
+
 class TestStrategySignal:
     def test_defaults(self):
         sig = StrategySignal(
-            signal="BUY", confidence=0.7,
-            strategy_name="Test", reason="Test reason",
+            signal="BUY",
+            confidence=0.7,
+            strategy_name="Test",
+            reason="Test reason",
         )
         assert sig.suggested_sl_pct == 0.02
         assert sig.suggested_tp_pct == 0.05
@@ -100,6 +102,7 @@ class TestStrategySignal:
 # ---------------------------------------------------------------------------
 # MomentumStrategy
 # ---------------------------------------------------------------------------
+
 
 class TestMomentumStrategy:
     @pytest.fixture()
@@ -177,6 +180,7 @@ class TestMomentumStrategy:
 # MeanReversionStrategy
 # ---------------------------------------------------------------------------
 
+
 class TestMeanReversionStrategy:
     @pytest.fixture()
     def strat(self):
@@ -189,7 +193,9 @@ class TestMeanReversionStrategy:
     def test_oversold_generates_buy(self, strat):
         """Price at lower BB + low RSI + low stoch → BUY."""
         df = make_df(
-            bb_position=0.05, rsi=25, stoch_k=15,
+            bb_position=0.05,
+            rsi=25,
+            stoch_k=15,
             close_to_sma20=-0.03,
         )
         sig = strat.generate_signal(df)
@@ -199,7 +205,9 @@ class TestMeanReversionStrategy:
     def test_overbought_generates_sell(self, strat):
         """Price at upper BB + high RSI + high stoch → SELL."""
         df = make_df(
-            bb_position=0.95, rsi=75, stoch_k=85,
+            bb_position=0.95,
+            rsi=75,
+            stoch_k=85,
             close_to_sma20=0.03,
         )
         sig = strat.generate_signal(df)
@@ -224,6 +232,7 @@ class TestMeanReversionStrategy:
 # ---------------------------------------------------------------------------
 # BreakoutStrategy
 # ---------------------------------------------------------------------------
+
 
 class TestBreakoutStrategy:
     @pytest.fixture()
@@ -263,6 +272,7 @@ class TestBreakoutStrategy:
 # ---------------------------------------------------------------------------
 # GridStrategy
 # ---------------------------------------------------------------------------
+
 
 class TestGridStrategy:
     @pytest.fixture()
@@ -332,6 +342,7 @@ class TestGridStrategy:
 # ScalpingStrategy
 # ---------------------------------------------------------------------------
 
+
 class TestScalpingStrategy:
     @pytest.fixture()
     def strat(self):
@@ -352,9 +363,9 @@ class TestScalpingStrategy:
         df = make_df(rows=10)
         df.loc[df.index[-1], "open"] = 50000
         df.loc[df.index[-1], "close"] = 50100  # Green candle (body = 100)
-        df.loc[df.index[-1], "high"] = 50120   # Tiny upper wick (20)
-        df.loc[df.index[-1], "low"] = 49700    # Long lower wick (300 > body*2)
-        df.loc[df.index[-1], "rsi"] = 20       # Oversold bounce
+        df.loc[df.index[-1], "high"] = 50120  # Tiny upper wick (20)
+        df.loc[df.index[-1], "low"] = 49700  # Long lower wick (300 > body*2)
+        df.loc[df.index[-1], "rsi"] = 20  # Oversold bounce
         # v9.0: volume_spike uses strict >, so 2.1 > 2.0 threshold
         df.loc[df.index[-1], "volume_ratio"] = 2.1
         sig = strat.generate_signal(df)
@@ -366,9 +377,9 @@ class TestScalpingStrategy:
         df = make_df(rows=10)
         df.loc[df.index[-1], "open"] = 50100
         df.loc[df.index[-1], "close"] = 50000  # Red candle (body = 100)
-        df.loc[df.index[-1], "high"] = 50500   # Long upper wick (400 > body*2)
-        df.loc[df.index[-1], "low"] = 49980    # Tiny lower wick (20)
-        df.loc[df.index[-1], "rsi"] = 80       # Overbought drop
+        df.loc[df.index[-1], "high"] = 50500  # Long upper wick (400 > body*2)
+        df.loc[df.index[-1], "low"] = 49980  # Tiny lower wick (20)
+        df.loc[df.index[-1], "rsi"] = 80  # Overbought drop
         df.loc[df.index[-1], "volume_ratio"] = 2.1
         sig = strat.generate_signal(df)
         assert sig.signal == "SELL"
@@ -408,6 +419,7 @@ class TestScalpingStrategy:
 # ---------------------------------------------------------------------------
 # SentimentDrivenStrategy
 # ---------------------------------------------------------------------------
+
 
 class TestSentimentDrivenStrategy:
     @pytest.fixture()
@@ -489,6 +501,7 @@ class TestSentimentDrivenStrategy:
 # StrategyEngine (ensemble)
 # ---------------------------------------------------------------------------
 
+
 class TestStrategyEngine:
     @pytest.fixture()
     def engine(self):
@@ -497,8 +510,17 @@ class TestStrategyEngine:
     def test_has_all_nine_strategies(self, engine):
         """v9.0: 9 strategies (was 6; added VWAP, OBVDivergence, EMACrossover)."""
         assert len(engine.strategies) == 9
-        expected = {"Momentum", "MeanReversion", "Breakout", "Grid", "Scalping",
-                    "Sentiment", "VWAP", "OBVDivergence", "EMACrossover"}
+        expected = {
+            "Momentum",
+            "MeanReversion",
+            "Breakout",
+            "Grid",
+            "Scalping",
+            "Sentiment",
+            "VWAP",
+            "OBVDivergence",
+            "EMACrossover",
+        }
         assert set(engine.strategies.keys()) == expected
 
     def test_regime_strategy_map_covers_all_regimes(self, engine):
@@ -542,7 +564,7 @@ class TestStrategyEngine:
         df.loc[df.index[-2], "macd"] = 4
         df.loc[df.index[-2], "macd_signal"] = 5
 
-        sig = engine.run(df, MarketRegime.TRENDING_UP)
+        engine.run(df, MarketRegime.TRENDING_UP)
         # With short-circuit, only primary should be in last_signals
         assert "Momentum" in engine.last_signals
         # If confidence was > 0.8, only 1 signal recorded (short-circuited)
@@ -558,11 +580,8 @@ class TestStrategyEngine:
 
     def test_unknown_regime_falls_back_to_ranging(self, engine):
         """If regime isn't in map, defaults to RANGING config."""
-        df = make_df()
         # All regimes are in the map, but verify the .get() fallback path
-        config = engine.REGIME_STRATEGY_MAP.get(
-            "NONEXISTENT", engine.REGIME_STRATEGY_MAP[MarketRegime.RANGING]
-        )
+        config = engine.REGIME_STRATEGY_MAP.get("NONEXISTENT", engine.REGIME_STRATEGY_MAP[MarketRegime.RANGING])
         assert config["primary"] == "MeanReversion"
 
     def test_weights_sum_to_one(self, engine):

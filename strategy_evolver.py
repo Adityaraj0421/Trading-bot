@@ -6,13 +6,14 @@ Tests parameter variations via backtesting and breeds the
 best-performing combinations.
 """
 
+import copy
 import logging
 import random
-import copy
-import numpy as np
-from dataclasses import dataclass, field
-from typing import Any
 from collections import deque
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
 
 _log = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ _log = logging.getLogger(__name__)
 @dataclass
 class Genome:
     """A single set of strategy parameters with fitness tracking."""
+
     strategy_name: str
     parameters: dict[str, Any]
     fitness_score: float = 0.0
@@ -91,31 +93,42 @@ PARAM_BOUNDS = {
 # Default parameters (current v4 values)
 DEFAULT_PARAMS = {
     "Momentum": {
-        "rsi_oversold": 30, "rsi_overbought": 70,
-        "macd_threshold": 0.0, "adx_threshold": 25,
+        "rsi_oversold": 30,
+        "rsi_overbought": 70,
+        "macd_threshold": 0.0,
+        "adx_threshold": 25,
         "confidence_base": 0.6,
     },
     "MeanReversion": {
-        "bb_period": 20, "bb_std": 2.0,
-        "rsi_low": 25, "rsi_high": 75,
+        "bb_period": 20,
+        "bb_std": 2.0,
+        "rsi_low": 25,
+        "rsi_high": 75,
         "confidence_base": 0.6,
     },
     "Breakout": {
-        "lookback": 20, "volume_mult": 1.5,
-        "atr_mult": 2.0, "confidence_base": 0.6,
+        "lookback": 20,
+        "volume_mult": 1.5,
+        "atr_mult": 2.0,
+        "confidence_base": 0.6,
     },
     "Grid": {
-        "grid_size_pct": 1.0, "num_levels": 5,
+        "grid_size_pct": 1.0,
+        "num_levels": 5,
         "confidence_base": 0.5,
     },
     "Scalping": {
-        "spread_threshold": 0.002, "volume_spike": 2.0,
-        "rsi_range_low": 40, "rsi_range_high": 60,
+        "spread_threshold": 0.002,
+        "volume_spike": 2.0,
+        "rsi_range_low": 40,
+        "rsi_range_high": 60,
         "confidence_base": 0.5,
     },
     "Sentiment": {
-        "fear_threshold": 25, "greed_threshold": 75,
-        "composite_threshold": 0.3, "confidence_base": 0.5,
+        "fear_threshold": 25,
+        "greed_threshold": 75,
+        "composite_threshold": 0.3,
+        "confidence_base": 0.5,
     },
 }
 
@@ -126,8 +139,7 @@ class StrategyEvolver:
     Evaluates fitness via backtest metrics and breeds top performers.
     """
 
-    def __init__(self, population_size: int = 20, mutation_rate: float = 0.1,
-                 elite_fraction: float = 0.3) -> None:
+    def __init__(self, population_size: int = 20, mutation_rate: float = 0.1, elite_fraction: float = 0.3) -> None:
         self.population_size = population_size
         self.mutation_rate = mutation_rate
         self.elite_fraction = elite_fraction
@@ -151,11 +163,13 @@ class StrategyEvolver:
             bounds = PARAM_BOUNDS[name]
 
             # First genome: exact defaults
-            pop.append(Genome(
-                strategy_name=name,
-                parameters=copy.deepcopy(defaults),
-                generation=0,
-            ))
+            pop.append(
+                Genome(
+                    strategy_name=name,
+                    parameters=copy.deepcopy(defaults),
+                    generation=0,
+                )
+            )
 
             # Rest: random variations around defaults
             for _ in range(self.population_size - 1):
@@ -166,19 +180,23 @@ class StrategyEvolver:
                     spread = (hi - lo) * 0.3
                     val = default_val + random.gauss(0, spread)
                     val = max(lo, min(hi, val))
-                    params[key] = dtype(val) if dtype == int else round(val, 4)
-                pop.append(Genome(
-                    strategy_name=name,
-                    parameters=params,
-                    generation=0,
-                ))
+                    params[key] = dtype(val) if dtype is int else round(val, 4)
+                pop.append(
+                    Genome(
+                        strategy_name=name,
+                        parameters=params,
+                        generation=0,
+                    )
+                )
 
             self.populations[name] = pop
             self.best_genomes[name] = pop[0]  # Default as initial best
 
         self._initialized = True
-        print(f"  [Evolver] Initialized {len(self.populations)} strategy populations "
-              f"({self.population_size} genomes each)")
+        print(
+            f"  [Evolver] Initialized {len(self.populations)} strategy populations "
+            f"({self.population_size} genomes each)"
+        )
 
     def evaluate_fitness(self, genome: Genome, backtest_metrics: dict[str, Any]) -> None:
         """
@@ -196,7 +214,7 @@ class StrategyEvolver:
 
         # Bonus for win rate above 50%
         if win_rate > 0.5:
-            fitness *= (1 + (win_rate - 0.5))
+            fitness *= 1 + (win_rate - 0.5)
 
         # Penalty for excessive drawdown
         if drawdown > 5:
@@ -253,21 +271,23 @@ class StrategyEvolver:
 
         # Log evolution
         best = elites[0]
-        self.evolution_history.append({
-            "generation": self.generation,
-            "strategy": strategy_name,
-            "best_fitness": best.fitness_score,
-            "best_sharpe": best.sharpe,
-            "avg_fitness": round(np.mean([g.fitness_score for g in elites]), 4),
-        })
+        self.evolution_history.append(
+            {
+                "generation": self.generation,
+                "strategy": strategy_name,
+                "best_fitness": best.fitness_score,
+                "best_sharpe": best.sharpe,
+                "avg_fitness": round(np.mean([g.fitness_score for g in elites]), 4),
+            }
+        )
 
-        print(f"  [Evolver] {strategy_name} gen {self.generation}: "
-              f"best={best.fitness_score:.3f} sharpe={best.sharpe:.3f}")
+        print(
+            f"  [Evolver] {strategy_name} gen {self.generation}: best={best.fitness_score:.3f} sharpe={best.sharpe:.3f}"
+        )
 
         return new_pop
 
-    def _crossover(self, parent_a: Genome, parent_b: Genome,
-                   bounds: dict, strategy_name: str) -> Genome:
+    def _crossover(self, parent_a: Genome, parent_b: Genome, bounds: dict, strategy_name: str) -> Genome:
         """Uniform crossover: randomly pick each param from either parent."""
         child_params = {}
         for key in bounds:
@@ -285,7 +305,7 @@ class StrategyEvolver:
                 spread = (hi - lo) * 0.15  # Small mutation
                 new_val = current + random.gauss(0, spread)
                 new_val = max(lo, min(hi, new_val))
-                genome.parameters[key] = dtype(new_val) if dtype == int else round(new_val, 4)
+                genome.parameters[key] = dtype(new_val) if dtype is int else round(new_val, 4)
         return genome
 
     def get_best_params(self, strategy_name: str) -> dict[str, Any] | None:
@@ -297,11 +317,7 @@ class StrategyEvolver:
 
     def get_all_best(self) -> dict[str, Any]:
         """Get best params for all strategies."""
-        return {
-            name: genome.to_dict()
-            for name, genome in self.best_genomes.items()
-            if genome.fitness_score > 0
-        }
+        return {name: genome.to_dict() for name, genome in self.best_genomes.items() if genome.fitness_score > 0}
 
     def get_status(self) -> dict[str, Any]:
         """Evolution status report."""
@@ -323,9 +339,7 @@ class StrategyEvolver:
         """Serialize for state persistence."""
         return {
             "generation": self.generation,
-            "best_genomes": {
-                name: g.to_dict() for name, g in self.best_genomes.items()
-            },
+            "best_genomes": {name: g.to_dict() for name, g in self.best_genomes.items()},
             "evolution_history": list(self.evolution_history),
         }
 

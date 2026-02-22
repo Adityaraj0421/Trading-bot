@@ -7,11 +7,11 @@ Tracks all signals, trades, regime changes, and model events.
 
 import json
 import logging
-import os
 from collections import deque
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from typing import Any
+
 from config import Config
 
 
@@ -34,9 +34,7 @@ class StructuredLogger:
         self.console.setLevel(getattr(logging, Config.LOG_LEVEL, logging.INFO))
         if not self.console.handlers:
             handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter(
-                "%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"
-            ))
+            handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
             self.console.addHandler(handler)
 
     def _setup_file_logger(self) -> None:
@@ -68,46 +66,90 @@ class StructuredLogger:
 
     def log_cycle_start(self, cycle: int, price: float, pair: str) -> None:
         """Log the start of a new trading cycle."""
-        self._log_event("cycle_start", {
-            "cycle": cycle, "price": price, "pair": pair,
-        })
+        self._log_event(
+            "cycle_start",
+            {
+                "cycle": cycle,
+                "price": price,
+                "pair": pair,
+            },
+        )
         self.console.info(f"Cycle #{cycle} | {pair} = ${price:,.2f}")
 
-    def log_signal(self, signal: str, confidence: float, source: str,
-                   regime: str = "", strategy: str = "") -> None:
+    def log_signal(self, signal: str, confidence: float, source: str, regime: str = "", strategy: str = "") -> None:
         """Log a trading signal with its source and confidence."""
-        self._log_event("signal", {
-            "signal": signal, "confidence": confidence,
-            "source": source, "regime": regime, "strategy": strategy,
-        })
+        self._log_event(
+            "signal",
+            {
+                "signal": signal,
+                "confidence": confidence,
+                "source": source,
+                "regime": regime,
+                "strategy": strategy,
+            },
+        )
 
-    def log_trade_open(self, symbol: str, side: str, price: float,
-                       quantity: float, sl: float, tp: float,
-                       trailing: float, strategy: str = "") -> None:
+    def log_trade_open(
+        self,
+        symbol: str,
+        side: str,
+        price: float,
+        quantity: float,
+        sl: float,
+        tp: float,
+        trailing: float,
+        strategy: str = "",
+    ) -> None:
         """Log a new trade entry with position details and risk levels."""
-        self._log_event("trade_open", {
-            "symbol": symbol, "side": side, "price": price,
-            "quantity": quantity, "stop_loss": sl, "take_profit": tp,
-            "trailing_stop": trailing, "strategy": strategy,
-        })
+        self._log_event(
+            "trade_open",
+            {
+                "symbol": symbol,
+                "side": side,
+                "price": price,
+                "quantity": quantity,
+                "stop_loss": sl,
+                "take_profit": tp,
+                "trailing_stop": trailing,
+                "strategy": strategy,
+            },
+        )
         self.console.info(
             f"OPEN {side.upper()} {symbol} | qty={quantity:.6f} @ ${price:,.2f} | "
             f"SL=${sl:,.2f} TP=${tp:,.2f} Trail=${trailing:,.2f}"
         )
 
-    def log_trade_close(self, symbol: str, side: str, entry: float,
-                        exit_price: float, pnl_net: float, pnl_gross: float,
-                        fees: float, reason: str, hold_bars: int,
-                        strategy: str = "") -> None:
+    def log_trade_close(
+        self,
+        symbol: str,
+        side: str,
+        entry: float,
+        exit_price: float,
+        pnl_net: float,
+        pnl_gross: float,
+        fees: float,
+        reason: str,
+        hold_bars: int,
+        strategy: str = "",
+    ) -> None:
         """Log a trade exit with PnL, fees, and exit reason."""
         level = "INFO" if pnl_net >= 0 else "WARNING"
-        self._log_event("trade_close", {
-            "symbol": symbol, "side": side,
-            "entry_price": entry, "exit_price": exit_price,
-            "pnl_net": round(pnl_net, 4), "pnl_gross": round(pnl_gross, 4),
-            "fees": round(fees, 4), "reason": reason,
-            "hold_bars": hold_bars, "strategy": strategy,
-        }, level=level)
+        self._log_event(
+            "trade_close",
+            {
+                "symbol": symbol,
+                "side": side,
+                "entry_price": entry,
+                "exit_price": exit_price,
+                "pnl_net": round(pnl_net, 4),
+                "pnl_gross": round(pnl_gross, 4),
+                "fees": round(fees, 4),
+                "reason": reason,
+                "hold_bars": hold_bars,
+                "strategy": strategy,
+            },
+            level=level,
+        )
         icon = "+" if pnl_net >= 0 else "-"
         self.console.info(
             f"[{icon}] CLOSE {side.upper()} {symbol} | "
@@ -115,23 +157,30 @@ class StructuredLogger:
             f"{reason} | {hold_bars} bars"
         )
 
-    def log_regime_change(self, old_regime: str, new_regime: str,
-                          confidence: float) -> None:
+    def log_regime_change(self, old_regime: str, new_regime: str, confidence: float) -> None:
         """Log a market regime transition."""
-        self._log_event("regime_change", {
-            "old_regime": old_regime, "new_regime": new_regime,
-            "confidence": confidence,
-        })
+        self._log_event(
+            "regime_change",
+            {
+                "old_regime": old_regime,
+                "new_regime": new_regime,
+                "confidence": confidence,
+            },
+        )
         self.console.info(f"Regime: {old_regime} -> {new_regime} ({confidence:.0%})")
 
-    def log_model_train(self, accuracy: float, samples: int,
-                        drift_detected: bool = False) -> None:
+    def log_model_train(self, accuracy: float, samples: int, drift_detected: bool = False) -> None:
         """Log an ML model training event with accuracy and drift status."""
         level = "WARNING" if drift_detected else "INFO"
-        self._log_event("model_train", {
-            "accuracy": accuracy, "samples": samples,
-            "drift_detected": drift_detected,
-        }, level=level)
+        self._log_event(
+            "model_train",
+            {
+                "accuracy": accuracy,
+                "samples": samples,
+                "drift_detected": drift_detected,
+            },
+            level=level,
+        )
         if drift_detected:
             self.console.warning(f"Model drift detected! Retraining (acc: {accuracy:.2%})")
         else:
@@ -139,21 +188,28 @@ class StructuredLogger:
 
     def log_error(self, component: str, error: str) -> None:
         """Log an error from a named component."""
-        self._log_event("error", {
-            "component": component, "error": error,
-        }, level="ERROR")
+        self._log_event(
+            "error",
+            {
+                "component": component,
+                "error": error,
+            },
+            level="ERROR",
+        )
         self.console.error(f"[{component}] {error}")
 
-    def log_portfolio(self, capital: float, positions: int, total_pnl: float,
-                      fees: float, win_rate: float) -> None:
+    def log_portfolio(self, capital: float, positions: int, total_pnl: float, fees: float, win_rate: float) -> None:
         """Log a portfolio snapshot with capital, positions, and PnL."""
-        self._log_event("portfolio", {
-            "capital": round(capital, 2),
-            "open_positions": positions,
-            "total_pnl": round(total_pnl, 2),
-            "total_fees": round(fees, 2),
-            "win_rate": round(win_rate, 4),
-        })
+        self._log_event(
+            "portfolio",
+            {
+                "capital": round(capital, 2),
+                "open_positions": positions,
+                "total_pnl": round(total_pnl, 2),
+                "total_fees": round(fees, 2),
+                "win_rate": round(win_rate, 4),
+            },
+        )
 
     def get_recent_events(self, event_type: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         """Query recent events, optionally filtered by type."""

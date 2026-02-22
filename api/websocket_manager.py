@@ -42,11 +42,13 @@ class WebSocketManager:
         if not self._connections:
             return
 
-        message = json.dumps({
-            "type": event_type,
-            "data": data,
-            "ts": datetime.now().isoformat(),
-        })
+        message = json.dumps(
+            {
+                "type": event_type,
+                "data": data,
+                "ts": datetime.now().isoformat(),
+            }
+        )
 
         dead = set()
         for ws in self._connections:

@@ -20,55 +20,55 @@ Carried from v5.0/v6.0:
   - State persistence, per-strategy attribution, structured logging
 """
 
-import logging
-import time
+import contextlib
 import json
+import logging
 import sys
+import time
 from datetime import datetime
 from typing import Any
-from config import Config
-from data_fetcher import DataFetcher
-from indicators import Indicators
-from model import TradingModel, Signal
-from risk_manager import RiskManager
-from executor import PaperExecutor, LiveExecutor
-from regime_detector import RegimeDetector, MarketRegime
-from sentiment import SentimentAnalyzer
-from strategies import StrategyEngine, StrategySignal
-from multi_timeframe import MultiTimeframeConfirmer
-from drift_detector import DriftDetector
-from state_manager import StateManager
-from logger import StructuredLogger
-from portfolio import PortfolioManager
+
+from arbitrage.execution_engine import ArbitrageExecutor
 
 # v5.0 Autonomous modules
 from arbitrage.opportunity_detector import ArbitrageDetector
-from arbitrage.execution_engine import ArbitrageExecutor
-from self_healer import SelfHealer, ErrorSeverity
-from strategy_evolver import StrategyEvolver
-from meta_learner import MetaLearner
-from auto_optimizer import AutoOptimizer
-from decision_engine import DecisionEngine, DecisionState
+from config import Config
+from data_fetcher import DataFetcher
+from decision_engine import DecisionEngine
+from drift_detector import DriftDetector
+from executor import LiveExecutor, PaperExecutor
+
+# v7.0: Production modules
+from graceful_shutdown import GracefulShutdown, RateLimiter
+from indicators import Indicators
 from intelligence.aggregator import IntelligenceAggregator
+from logger import StructuredLogger
+from model import TradingModel
+from multi_timeframe import MultiTimeframeConfirmer
+from notifier import Notifier
+from portfolio import PortfolioManager
+from regime_detector import MarketRegime, RegimeDetector
+from risk_manager import RiskManager
 from rl_ensemble import RLEnsemble
+from self_healer import ErrorSeverity
+from sentiment import SentimentAnalyzer
+from state_manager import StateManager
+from strategies import StrategyEngine, StrategySignal
+from trade_db import TradeDB
+from websocket_streamer import WebSocketStreamer
 
 _log = logging.getLogger(__name__)
 
-# v7.0: Production modules
-from websocket_streamer import WebSocketStreamer
-from notifier import Notifier
-from trade_db import TradeDB
-from graceful_shutdown import GracefulShutdown, RateLimiter
-
 # Optional API integration
 _data_store = None
+
 
 def set_data_store(store: Any, agent: Any = None) -> None:
     """Allow the API server to inject a DataStore instance."""
     global _data_store
     _data_store = store
     # Wire DecisionEngine reference for kill switch / alerts
-    if agent is not None and hasattr(agent, 'decision'):
+    if agent is not None and hasattr(agent, "decision"):
         store.set_decision_engine(agent.decision)
 
 
@@ -206,7 +206,8 @@ class TradingAgent:
         self.shutdown_handler.register_callback(
             "notifier",
             lambda: self.notifier.notify_state_change(
-                "normal", "halted",
+                "normal",
+                "halted",
                 f"Agent shutting down gracefully after {self.cycle_count} cycles",
             ),
         )
@@ -219,6 +220,7 @@ class TradingAgent:
         def recover_data():
             self.fetcher.exchange = self.fetcher._init_exchange()
             self.fetcher.using_demo = False
+
         healer.register_recovery_action("data_fetcher", recover_data)
 
         # Model recovery: force retrain
@@ -227,6 +229,7 @@ class TradingAgent:
             if not df.empty:
                 df_ind = Indicators.add_all(df)
                 self.model.train(df=None, df_ind=df_ind)
+
         healer.register_recovery_action("model", recover_model)
 
         # Executor recovery: reinitialize
@@ -235,12 +238,14 @@ class TradingAgent:
                 self.executor = PaperExecutor()
             else:
                 self.executor = LiveExecutor(self.fetcher.exchange)
+
         healer.register_recovery_action("executor", recover_executor)
 
         # Intelligence recovery: reinitialize aggregator
         def recover_intelligence():
             if self.intelligence:
                 self.intelligence = IntelligenceAggregator(exchange=self.fetcher.exchange)
+
         healer.register_recovery_action("intelligence", recover_intelligence)
 
         # Arbitrage recovery: reinitialize detector + executor
@@ -248,6 +253,7 @@ class TradingAgent:
             if self.arb_detector:
                 self.arb_detector = ArbitrageDetector()
                 self.arb_executor = ArbitrageExecutor()
+
         healer.register_recovery_action("arbitrage", recover_arbitrage)
 
     def train_model(self, df_ind: Any = None) -> bool:
@@ -289,9 +295,7 @@ class TradingAgent:
 
         drift_result = self.drift.check_drift()
         if drift_result["drift_detected"]:
-            self.log.log_model_train(
-                drift_result["current_accuracy"], 0, drift_detected=True
-            )
+            self.log.log_model_train(drift_result["current_accuracy"], 0, drift_detected=True)
             self.decision.record_drift_event()
             return True
 
@@ -303,8 +307,10 @@ class TradingAgent:
             return None
 
         now = datetime.now()
-        if (self._last_intelligence_time and
-            (now - self._last_intelligence_time).total_seconds() < Config.INTELLIGENCE_INTERVAL_SECONDS):
+        if (
+            self._last_intelligence_time
+            and (now - self._last_intelligence_time).total_seconds() < Config.INTELLIGENCE_INTERVAL_SECONDS
+        ):
             return self._last_intelligence
 
         try:
@@ -323,8 +329,7 @@ class TradingAgent:
             return None
 
         now = datetime.now()
-        if (self._last_arb_time and
-            (now - self._last_arb_time).total_seconds() < Config.ARBITRAGE_INTERVAL_SECONDS):
+        if self._last_arb_time and (now - self._last_arb_time).total_seconds() < Config.ARBITRAGE_INTERVAL_SECONDS:
             return self._last_arb_scan
 
         try:
@@ -353,16 +358,14 @@ class TradingAgent:
         self.cycle_count += 1
         self.risk.set_bar(self.cycle_count)
         now = datetime.now().strftime("%H:%M:%S")
-        print(f"\n{'_'*60}")
+        print(f"\n{'_' * 60}")
         print(f"  Cycle #{self.cycle_count} @ {now}")
-        print(f"{'_'*60}")
+        print(f"{'_' * 60}")
 
         # v5.0: Orchestrate autonomous systems FIRST
         current_capital = self.risk.capital
         current_pnl = self.risk.total_pnl
-        instructions = self.decision.orchestrate(
-            self.cycle_count, current_capital, current_pnl
-        )
+        instructions = self.decision.orchestrate(self.cycle_count, current_capital, current_pnl)
 
         # v5.0: Apply evolved strategy params if available
         evolved = instructions.get("evolved_params")
@@ -376,8 +379,10 @@ class TradingAgent:
             for key, val in opt_cfg.items():
                 if val is not None and hasattr(Config, key):
                     setattr(Config, key, val)
-            print(f"  [OPTIMIZER] Applied best config: SL={Config.STOP_LOSS_PCT:.2%} "
-                  f"TP={Config.TAKE_PROFIT_PCT:.2%} Conf={Config.MIN_CONFIDENCE:.2f}")
+            print(
+                f"  [OPTIMIZER] Applied best config: SL={Config.STOP_LOSS_PCT:.2%} "
+                f"TP={Config.TAKE_PROFIT_PCT:.2%} Conf={Config.MIN_CONFIDENCE:.2f}"
+            )
 
         # Production safeguard: force close all positions
         if instructions.get("force_close_all"):
@@ -387,7 +392,7 @@ class TradingAgent:
                 for pos in list(self.risk.positions):
                     self.risk.close_position(pos, current, "force_close")
             else:
-                print(f"  [FORCE CLOSE] No positions to close")
+                print("  [FORCE CLOSE] No positions to close")
 
         if not instructions["should_trade"]:
             print(f"  [AUTONOMOUS] Trading suspended: {instructions['skip_reason']}")
@@ -411,7 +416,8 @@ class TradingAgent:
         pairs = Config.TRADING_PAIRS if self.multi_pair else [Config.TRADING_PAIR]
         for pair in pairs:
             self._run_pair_cycle(
-                pair, position_mult,
+                pair,
+                position_mult,
                 intel_result=intel_result,
                 intel_adjustment=intel_adjustment,
                 intel_bias=intel_bias,
@@ -422,15 +428,19 @@ class TradingAgent:
         if self.multi_pair and self.cycle_count % 20 == 0:
             self.portfolio.compute_correlations()
             self.portfolio.rebalance_weights()
-            print(f"  [PORTFOLIO] Rebalanced weights: "
-                  + " | ".join(f"{p}={w:.1%}" for p, w in self.portfolio.weights.items()))
+            print(
+                "  [PORTFOLIO] Rebalanced weights: "
+                + " | ".join(f"{p}={w:.1%}" for p, w in self.portfolio.weights.items())
+            )
 
         # Portfolio-level risk summary
         if self.multi_pair:
             port_risk = self.portfolio.get_portfolio_risk(self.risk.positions)
-            print(f"  [PORTFOLIO] Exposure: ${port_risk['total_exposure']:,.2f} | "
-                  f"Concentration: {port_risk['concentration']:.2f} | "
-                  f"Corr risk: {port_risk['corr_risk']}")
+            print(
+                f"  [PORTFOLIO] Exposure: ${port_risk['total_exposure']:,.2f} | "
+                f"Concentration: {port_risk['concentration']:.2f} | "
+                f"Corr risk: {port_risk['corr_risk']}"
+            )
 
         # Autonomous summary
         self.decision.print_autonomous_summary()
@@ -442,7 +452,8 @@ class TradingAgent:
                 unrealized = sum(p.unrealized_pnl(price) for p in self.risk.positions)
                 equity = self.risk.capital + unrealized
                 self.trade_db.record_equity(
-                    equity=equity, capital=self.risk.capital,
+                    equity=equity,
+                    capital=self.risk.capital,
                     unrealized_pnl=unrealized,
                     open_positions=len(self.risk.positions),
                     cycle=self.cycle_count,
@@ -461,11 +472,15 @@ class TradingAgent:
         if self.shutdown_handler.shutdown_requested:
             raise KeyboardInterrupt("Graceful shutdown requested")
 
-    def _run_pair_cycle(self, pair: str, position_mult: float,
-                        intel_result: dict[str, Any] | None = None,
-                        intel_adjustment: float = 1.0,
-                        intel_bias: str = "neutral",
-                        arb_result: dict[str, Any] | None = None) -> None:
+    def _run_pair_cycle(
+        self,
+        pair: str,
+        position_mult: float,
+        intel_result: dict[str, Any] | None = None,
+        intel_adjustment: float = 1.0,
+        intel_bias: str = "neutral",
+        arb_result: dict[str, Any] | None = None,
+    ) -> None:
         """Run the full analysis + execution pipeline for a single trading pair."""
         if self.multi_pair:
             print(f"\n  --- {pair} ---")
@@ -516,9 +531,16 @@ class TradingAgent:
         pair_closed = [t for t in closed if t.symbol == pair]
         for trade in pair_closed:
             self.log.log_trade_close(
-                trade.symbol, trade.side, trade.entry_price, trade.exit_price,
-                trade.pnl_net, trade.pnl_gross, trade.fees_paid,
-                trade.exit_reason, trade.hold_bars, trade.strategy_name,
+                trade.symbol,
+                trade.side,
+                trade.entry_price,
+                trade.exit_price,
+                trade.pnl_net,
+                trade.pnl_gross,
+                trade.fees_paid,
+                trade.exit_reason,
+                trade.hold_bars,
+                trade.strategy_name,
             )
             ret = (trade.exit_price - trade.entry_price) / trade.entry_price
             if trade.side == "short":
@@ -529,7 +551,8 @@ class TradingAgent:
             try:
                 rl_reward = trade.pnl_net / max(1, Config.INITIAL_CAPITAL * 0.01)
                 self.rl_ensemble.update_reward(
-                    reward=rl_reward, next_df_ind=df_ind,
+                    reward=rl_reward,
+                    next_df_ind=df_ind,
                     regime=self._last_regime.value if self._last_regime else "",
                 )
             except Exception as e:
@@ -550,19 +573,25 @@ class TradingAgent:
             if self.trade_db:
                 try:
                     self.trade_db.record_trade_close(
-                        symbol=trade.symbol, side=trade.side,
+                        symbol=trade.symbol,
+                        side=trade.side,
                         exit_price=trade.exit_price,
                         pnl_gross=trade.pnl_gross,
-                        pnl_net=trade.pnl_net, fees=trade.fees_paid,
-                        reason=trade.exit_reason, hold_bars=trade.hold_bars,
+                        pnl_net=trade.pnl_net,
+                        fees=trade.fees_paid,
+                        reason=trade.exit_reason,
+                        hold_bars=trade.hold_bars,
                     )
                 except Exception as e:
                     _log.warning("Trade DB close record failed: %s", e, exc_info=True)
 
             self.notifier.notify_trade_close(
-                symbol=trade.symbol, side=trade.side,
-                entry=trade.entry_price, exit_price=trade.exit_price,
-                pnl=trade.pnl_net, reason=trade.exit_reason,
+                symbol=trade.symbol,
+                side=trade.side,
+                entry=trade.entry_price,
+                exit_price=trade.exit_price,
+                pnl=trade.pnl_net,
+                reason=trade.exit_reason,
                 strategy=trade.strategy_name or "Unknown",
                 hold_bars=trade.hold_bars,
             )
@@ -571,7 +600,8 @@ class TradingAgent:
             if trade.pnl_net < -(Config.INITIAL_CAPITAL * 0.01):
                 capital_pct = abs(trade.pnl_net) / Config.INITIAL_CAPITAL * 100
                 self.notifier.notify_large_loss(
-                    pnl=trade.pnl_net, capital_pct=capital_pct,
+                    pnl=trade.pnl_net,
+                    capital_pct=capital_pct,
                 )
 
         # 5. Early exit if at max positions
@@ -586,14 +616,16 @@ class TradingAgent:
             regime_state = self.regime_detector.detect(df, df_ind=df_ind)
         except Exception as e:
             self.decision.healer.record_error("regime_detector", e, ErrorSeverity.MEDIUM)
-            regime_state = type('Regime', (), {
-                'regime': MarketRegime.RANGING, 'confidence': 0.5,
-                'volatility': 0.02, 'regime_duration': 0
-            })()
+            regime_state = type(
+                "Regime",
+                (),
+                {"regime": MarketRegime.RANGING, "confidence": 0.5, "volatility": 0.02, "regime_duration": 0},
+            )()
 
         if self._last_regime and self._last_regime != regime_state.regime:
             self.log.log_regime_change(
-                self._last_regime.value, regime_state.regime.value,
+                self._last_regime.value,
+                regime_state.regime.value,
                 regime_state.confidence,
             )
         self._last_regime = regime_state.regime
@@ -609,8 +641,12 @@ class TradingAgent:
         except Exception as e:
             self.decision.healer.record_error("strategy_engine", e, ErrorSeverity.MEDIUM)
             strategy_signal = StrategySignal(
-                signal="HOLD", confidence=0.0, strategy_name="Error",
-                reason="strategy error", suggested_sl_pct=0.02, suggested_tp_pct=0.03,
+                signal="HOLD",
+                confidence=0.0,
+                strategy_name="Error",
+                reason="strategy error",
+                suggested_sl_pct=0.02,
+                suggested_tp_pct=0.03,
             )
 
         try:
@@ -629,16 +665,16 @@ class TradingAgent:
 
         # v8.0: RL ensemble vote
         try:
-            rl_signal, rl_confidence = self.rl_ensemble.predict(
-                df_ind, regime=regime_state.regime.value
-            )
+            rl_signal, rl_confidence = self.rl_ensemble.predict(df_ind, regime=regime_state.regime.value)
         except Exception as e:
             _log.debug("RL ensemble error: %s", e)
             rl_signal, rl_confidence = "HOLD", 0.0
 
         # 7. Combine signals (v5.0: learned weights, v6.0: + intelligence, v8.0: + RL)
         final_signal, final_confidence = self._combine_signals(
-            strategy_signal, ml_signal, ml_confidence,
+            strategy_signal,
+            ml_signal,
+            ml_confidence,
             regime=regime_state.regime.value,
             intel_adjustment=intel_adjustment,
             intel_bias=intel_bias,
@@ -651,23 +687,29 @@ class TradingAgent:
         pre_mtf_signal = final_signal
         pre_mtf_conf = final_confidence
         final_signal, final_confidence = self.mtf.confirm_signal(
-            final_signal, final_confidence, htf_bias,
+            final_signal,
+            final_confidence,
+            htf_bias,
         )
 
         # v5.0: Decision engine override (safety governance)
-        final_signal, final_confidence = self.decision.should_override_signal(
-            final_signal, final_confidence
-        )
+        final_signal, final_confidence = self.decision.should_override_signal(final_signal, final_confidence)
 
-        self.log.log_signal(final_signal, final_confidence, "final",
-                           regime_state.regime.value)
+        self.log.log_signal(final_signal, final_confidence, "final", regime_state.regime.value)
 
         # Print status
         self._print_status(
-            current_price, regime_state, sentiment_state,
-            strategy_signal, ml_signal, ml_confidence,
-            final_signal, final_confidence, htf_bias,
-            pre_mtf_signal, pre_mtf_conf,
+            current_price,
+            regime_state,
+            sentiment_state,
+            strategy_signal,
+            ml_signal,
+            ml_confidence,
+            final_signal,
+            final_confidence,
+            htf_bias,
+            pre_mtf_signal,
+            pre_mtf_conf,
             intel_result=intel_result,
             arb_result=arb_result,
             pair=pair,
@@ -676,8 +718,12 @@ class TradingAgent:
         # 9. Execute if actionable (with portfolio-aware sizing)
         if final_signal in ("BUY", "SELL"):
             self._execute_trade(
-                final_signal, final_confidence, current_price,
-                df_ind, strategy_signal, position_mult=position_mult,
+                final_signal,
+                final_confidence,
+                current_price,
+                df_ind,
+                strategy_signal,
+                position_mult=position_mult,
                 intel_adjustment=intel_adjustment,
                 pair=pair,
             )
@@ -685,10 +731,17 @@ class TradingAgent:
         # 10. Portfolio summary
         self._print_portfolio(self.risk.get_summary(), current_price)
 
-    def _combine_signals(self, strat_sig: Any, ml_signal: str, ml_conf: float,
-                         regime: str | None = None,
-                         intel_adjustment: float = 1.0, intel_bias: str = "neutral",
-                         rl_signal: str = "HOLD", rl_confidence: float = 0.0) -> tuple[str, float]:
+    def _combine_signals(
+        self,
+        strat_sig: Any,
+        ml_signal: str,
+        ml_conf: float,
+        regime: str | None = None,
+        intel_adjustment: float = 1.0,
+        intel_bias: str = "neutral",
+        rl_signal: str = "HOLD",
+        rl_confidence: float = 0.0,
+    ) -> tuple[str, float]:
         """Combine strategy + ML + RL signals using learned weights + intelligence.
 
         v8.0: Added RL ensemble vote with 15% weight allocation.
@@ -723,8 +776,8 @@ class TradingAgent:
 
         # v6.0: Apply intelligence adjustment
         if intel_bias != "neutral" and base_signal != "HOLD":
-            signal_is_bullish = (base_signal == "BUY")
-            intel_is_bullish = (intel_bias == "bullish")
+            signal_is_bullish = base_signal == "BUY"
+            intel_is_bullish = intel_bias == "bullish"
 
             if signal_is_bullish == intel_is_bullish:
                 # Intelligence confirms signal direction — boost confidence
@@ -748,10 +801,17 @@ class TradingAgent:
 
         return base_signal, base_conf
 
-    def _execute_trade(self, signal: str, confidence: float, price: float,
-                       df_ind: Any, strat_sig: Any,
-                       position_mult: float = 1.0, intel_adjustment: float = 1.0,
-                       pair: str | None = None) -> None:
+    def _execute_trade(
+        self,
+        signal: str,
+        confidence: float,
+        price: float,
+        df_ind: Any,
+        strat_sig: Any,
+        position_mult: float = 1.0,
+        intel_adjustment: float = 1.0,
+        pair: str | None = None,
+    ) -> None:
         """Size, confirm, and place a trade for the given signal."""
         pair = pair or Config.TRADING_PAIR
         allowed, reason = self.risk.can_open_position(signal, confidence, symbol=pair)
@@ -764,8 +824,10 @@ class TradingAgent:
             existing_pairs = [p.symbol for p in self.risk.positions]
             allocation = self.portfolio.get_allocation(pair, existing_pairs)
             if not allocation.is_tradeable:
-                print(f"  [!] Portfolio blocked: too correlated with open positions "
-                      f"(penalty: {allocation.correlation_penalty:.2f})")
+                print(
+                    f"  [!] Portfolio blocked: too correlated with open positions "
+                    f"(penalty: {allocation.correlation_penalty:.2f})"
+                )
                 return
             portfolio_mult = allocation.weight / (1.0 / len(Config.TRADING_PAIRS))
         else:
@@ -774,7 +836,8 @@ class TradingAgent:
         side = "long" if signal == "BUY" else "short"
         # v8.0: Kelly-based dynamic position sizing
         quantity = self.risk.calculate_position_size(
-            price, confidence=confidence,
+            price,
+            confidence=confidence,
             strategy_name=strat_sig.strategy_name,
             regime=self._last_regime.value if self._last_regime else "",
         )
@@ -798,21 +861,27 @@ class TradingAgent:
         atr_val = float(df_ind["atr"].iloc[-1]) if "atr" in df_ind.columns else None
 
         stop_loss, take_profit = self.risk.calculate_stop_take(
-            price, side,
-            sl_pct=sl_pct, tp_pct=tp_pct,
-            atr=atr_val, regime=regime_val,
+            price,
+            side,
+            sl_pct=sl_pct,
+            tp_pct=tp_pct,
+            atr=atr_val,
+            regime=regime_val,
         )
 
         # v7.0: Rate limit check before placing order
         self.rate_limiter.wait_if_needed(is_order=True)
 
         # v7.1: Telegram trade confirmation (blocks until user approves/rejects/timeout)
-        if (self.telegram_bot and Config.TELEGRAM_TRADE_CONFIRMATION
-                and self.telegram_bot.enabled):
+        if self.telegram_bot and Config.TELEGRAM_TRADE_CONFIRMATION and self.telegram_bot.enabled:
             conf = self.telegram_bot.request_confirmation(
-                signal=signal, pair=pair, side=side,
-                price=price, quantity=quantity,
-                strategy=strat_sig.strategy_name, confidence=confidence,
+                signal=signal,
+                pair=pair,
+                side=side,
+                price=price,
+                quantity=quantity,
+                strategy=strat_sig.strategy_name,
+                confidence=confidence,
             )
             timeout = Config.TELEGRAM_CONFIRMATION_TIMEOUT
             conf.event.wait(timeout=timeout)
@@ -821,20 +890,30 @@ class TradingAgent:
                 conf.decision = Config.TELEGRAM_CONFIRMATION_DEFAULT
                 print(f"  [TG] Confirmation timeout -> {conf.decision}")
             if conf.decision == "rejected":
-                print(f"  [TG] Trade REJECTED by user")
+                print("  [TG] Trade REJECTED by user")
                 return
-            print(f"  [TG] Trade APPROVED")
+            print("  [TG] Trade APPROVED")
 
         order = self.executor.place_order(pair, side, quantity, price)
         if "error" not in order:
             self.rate_limiter.record_order()
             pos = self.risk.open_position(
-                pair, side, price, quantity, stop_loss, take_profit,
+                pair,
+                side,
+                price,
+                quantity,
+                stop_loss,
+                take_profit,
                 strategy_name=strat_sig.strategy_name,
             )
             self.log.log_trade_open(
-                pair, side, price, quantity,
-                stop_loss, take_profit, pos.trailing_stop,
+                pair,
+                side,
+                price,
+                quantity,
+                stop_loss,
+                take_profit,
+                pos.trailing_stop,
                 strat_sig.strategy_name,
             )
             self.portfolio.active_pairs.add(pair)
@@ -843,38 +922,62 @@ class TradingAgent:
             if self.trade_db:
                 try:
                     self.trade_db.record_trade_open(
-                        symbol=pair, side=side, entry_price=price,
-                        quantity=quantity, strategy=strat_sig.strategy_name,
+                        symbol=pair,
+                        side=side,
+                        entry_price=price,
+                        quantity=quantity,
+                        strategy=strat_sig.strategy_name,
                         regime=self._last_regime.value if self._last_regime else "unknown",
-                        confidence=confidence, sl=stop_loss,
-                        tp=take_profit, trailing=pos.trailing_stop,
+                        confidence=confidence,
+                        sl=stop_loss,
+                        tp=take_profit,
+                        trailing=pos.trailing_stop,
                     )
                 except Exception as e:
                     _log.warning("Trade DB open record failed: %s", e, exc_info=True)
 
             self.notifier.notify_trade_open(
-                symbol=pair, side=side, price=price,
-                quantity=quantity, strategy=strat_sig.strategy_name,
+                symbol=pair,
+                side=side,
+                price=price,
+                quantity=quantity,
+                strategy=strat_sig.strategy_name,
             )
 
-    def _print_status(self, price: float, regime_state: Any, sentiment_state: Any,
-                      strat_sig: Any, ml_signal: str, ml_conf: float,
-                      final_signal: str, final_conf: float,
-                      htf_bias: Any, pre_mtf_signal: str, pre_mtf_conf: float,
-                      intel_result: dict[str, Any] | None = None,
-                      arb_result: dict[str, Any] | None = None,
-                      pair: str | None = None) -> None:
+    def _print_status(
+        self,
+        price: float,
+        regime_state: Any,
+        sentiment_state: Any,
+        strat_sig: Any,
+        ml_signal: str,
+        ml_conf: float,
+        final_signal: str,
+        final_conf: float,
+        htf_bias: Any,
+        pre_mtf_signal: str,
+        pre_mtf_conf: float,
+        intel_result: dict[str, Any] | None = None,
+        arb_result: dict[str, Any] | None = None,
+        pair: str | None = None,
+    ) -> None:
         r = regime_state
         s = sentiment_state
         regime_icons = {
-            MarketRegime.TRENDING_UP: "[UP]", MarketRegime.TRENDING_DOWN: "[DN]",
-            MarketRegime.RANGING: "[==]", MarketRegime.HIGH_VOLATILITY: "[!!]",
+            MarketRegime.TRENDING_UP: "[UP]",
+            MarketRegime.TRENDING_DOWN: "[DN]",
+            MarketRegime.RANGING: "[==]",
+            MarketRegime.HIGH_VOLATILITY: "[!!]",
         }
         pair_label = pair or Config.TRADING_PAIR
         print(f"\n  {pair_label} = ${price:,.2f}")
-        print(f"  {regime_icons.get(r.regime, '?')} Regime: {r.regime.value} (conf:{r.confidence:.0%} vol:{r.volatility:.2%} dur:{r.regime_duration})")
+        print(
+            f"  {regime_icons.get(r.regime, '?')} Regime: {r.regime.value} (conf:{r.confidence:.0%} vol:{r.volatility:.2%} dur:{r.regime_duration})"
+        )
         print(f"  Sentiment: F&G={s.fear_greed_index} ({s.fear_greed_label.value}) composite={s.composite_score:+.2f}")
-        print(f"  Strategy: {strat_sig.strategy_name} -> {strat_sig.signal} ({strat_sig.confidence:.0%}) | {strat_sig.reason}")
+        print(
+            f"  Strategy: {strat_sig.strategy_name} -> {strat_sig.signal} ({strat_sig.confidence:.0%}) | {strat_sig.reason}"
+        )
         print(f"  ML Model: {ml_signal} ({ml_conf:.0%})")
 
         # v5.0: Show learned weights
@@ -885,10 +988,12 @@ class TradingAgent:
         if intel_result:
             bias_icon = {"bullish": "[+]", "bearish": "[-]", "neutral": "[=]"}.get(intel_result["bias"], "?")
             enabled_count = sum(1 for s in intel_result["signals"] if s["strength"] > 0)
-            print(f"  Intelligence: {bias_icon} {intel_result['bias']} "
-                  f"(adj:{intel_result['adjustment_factor']:.3f} "
-                  f"net:{intel_result['net_score']:+.3f} "
-                  f"sources:{enabled_count}/5)")
+            print(
+                f"  Intelligence: {bias_icon} {intel_result['bias']} "
+                f"(adj:{intel_result['adjustment_factor']:.3f} "
+                f"net:{intel_result['net_score']:+.3f} "
+                f"sources:{enabled_count}/5)"
+            )
 
         if arb_result:
             n_opps = arb_result.get("active_opportunities", 0)
@@ -897,7 +1002,7 @@ class TradingAgent:
             print(f"  Arbitrage: {n_opps} opportunities | PnL: ${pnl:.4f}")
 
         # v8.0: RL ensemble vote
-        if hasattr(self, 'rl_ensemble'):
+        if hasattr(self, "rl_ensemble"):
             rl_stats = self.rl_ensemble.get_stats()
             # Filter out non-dict entries (e.g. "engine": "deep_rl")
             agent_stats = [s for s in rl_stats.values() if isinstance(s, dict)]
@@ -919,7 +1024,7 @@ class TradingAgent:
             print(f"  [!] DRIFT: {drift['reason']}")
 
     def _print_portfolio(self, summary: dict[str, Any], current_price: float) -> None:
-        fees_str = f" | Fees: ${summary.get('total_fees', 0):,.2f}" if summary.get('total_fees', 0) > 0 else ""
+        fees_str = f" | Fees: ${summary.get('total_fees', 0):,.2f}" if summary.get("total_fees", 0) > 0 else ""
         print(
             f"\n  Capital: ${summary['capital']:,.2f} | "
             f"Open: {summary['open_positions']} | "
@@ -937,54 +1042,58 @@ class TradingAgent:
             price = self._last_price or 0.0
             regime = self._last_regime.value if self._last_regime else "unknown"
 
-            _data_store.update_snapshot({
-                "cycle": self.cycle_count,
-                "price": price,
-                "pair": Config.EXCHANGE_ID,
-                "trading_pair": Config.TRADING_PAIR,
-                "trading_pairs": Config.TRADING_PAIRS,
-                "multi_pair": self.multi_pair,
-                "capital": summary["capital"],
-                "total_pnl": summary["total_pnl"],
-                "daily_pnl": summary["daily_pnl"],
-                "total_fees": summary["total_fees"],
-                "win_rate": summary["win_rate"],
-                "total_trades": summary["total_trades"],
-                "open_positions": summary["open_positions"],
-                "regime": regime,
-                "portfolio": self.portfolio.get_portfolio_risk(self.risk.positions) if self.multi_pair else None,
-                "portfolio_weights": self.portfolio.weights if self.multi_pair else None,
-                "positions": [
-                    {
-                        "symbol": p.symbol,
-                        "side": p.side,
-                        "entry_price": p.entry_price,
-                        "quantity": p.quantity,
-                        "unrealized_pnl": p.unrealized_pnl(price),
-                        "stop_loss": p.stop_loss,
-                        "take_profit": p.take_profit,
-                        "trailing_stop": p.trailing_stop,
-                        "strategy": p.strategy_name,
+            _data_store.update_snapshot(
+                {
+                    "cycle": self.cycle_count,
+                    "price": price,
+                    "pair": Config.EXCHANGE_ID,
+                    "trading_pair": Config.TRADING_PAIR,
+                    "trading_pairs": Config.TRADING_PAIRS,
+                    "multi_pair": self.multi_pair,
+                    "capital": summary["capital"],
+                    "total_pnl": summary["total_pnl"],
+                    "daily_pnl": summary["daily_pnl"],
+                    "total_fees": summary["total_fees"],
+                    "win_rate": summary["win_rate"],
+                    "total_trades": summary["total_trades"],
+                    "open_positions": summary["open_positions"],
+                    "regime": regime,
+                    "portfolio": self.portfolio.get_portfolio_risk(self.risk.positions) if self.multi_pair else None,
+                    "portfolio_weights": self.portfolio.weights if self.multi_pair else None,
+                    "positions": [
+                        {
+                            "symbol": p.symbol,
+                            "side": p.side,
+                            "entry_price": p.entry_price,
+                            "quantity": p.quantity,
+                            "unrealized_pnl": p.unrealized_pnl(price),
+                            "stop_loss": p.stop_loss,
+                            "take_profit": p.take_profit,
+                            "trailing_stop": p.trailing_stop,
+                            "strategy": p.strategy_name,
+                        }
+                        for p in self.risk.positions
+                    ],
+                    "autonomous": self.decision.get_autonomous_status(),
+                    "intelligence": {
+                        "bias": self._last_intelligence["bias"],
+                        "adjustment_factor": self._last_intelligence["adjustment_factor"],
+                        "net_score": self._last_intelligence["net_score"],
                     }
-                    for p in self.risk.positions
-                ],
-                "autonomous": self.decision.get_autonomous_status(),
-                "intelligence": {
-                    "bias": self._last_intelligence["bias"],
-                    "adjustment_factor": self._last_intelligence["adjustment_factor"],
-                    "net_score": self._last_intelligence["net_score"],
-                } if self._last_intelligence else None,
-                "arbitrage": {
-                    "active_opportunities": self._last_arb_scan.get("active_opportunities", 0),
-                    "scan_count": self._last_arb_scan.get("scan_count", 0),
-                    "execution": self._last_arb_scan.get("execution", {}),
-                } if self._last_arb_scan else None,
-            })
+                    if self._last_intelligence
+                    else None,
+                    "arbitrage": {
+                        "active_opportunities": self._last_arb_scan.get("active_opportunities", 0),
+                        "scan_count": self._last_arb_scan.get("scan_count", 0),
+                        "execution": self._last_arb_scan.get("execution", {}),
+                    }
+                    if self._last_arb_scan
+                    else None,
+                }
+            )
 
             # Equity point
-            equity_value = summary["capital"] + sum(
-                p.unrealized_pnl(price) for p in self.risk.positions
-            )
+            equity_value = summary["capital"] + sum(p.unrealized_pnl(price) for p in self.risk.positions)
             _data_store.append_equity(
                 round(equity_value, 2),
                 datetime.now().isoformat(),
@@ -995,21 +1104,23 @@ class TradingAgent:
             existing_count = len(_data_store.get_trade_log())
             if trade_count > existing_count:
                 for t in self.risk.trade_history[existing_count:]:
-                    _data_store.append_trade({
-                        "symbol": t.symbol,
-                        "side": t.side,
-                        "entry_price": t.entry_price,
-                        "exit_price": t.exit_price,
-                        "quantity": t.quantity,
-                        "pnl_gross": round(t.pnl_gross, 4),
-                        "pnl_net": round(t.pnl_net, 4),
-                        "fees_paid": round(t.fees_paid, 4),
-                        "entry_time": t.entry_time.isoformat(),
-                        "exit_time": t.exit_time.isoformat(),
-                        "exit_reason": t.exit_reason,
-                        "strategy": t.strategy_name,
-                        "hold_bars": t.hold_bars,
-                    })
+                    _data_store.append_trade(
+                        {
+                            "symbol": t.symbol,
+                            "side": t.side,
+                            "entry_price": t.entry_price,
+                            "exit_price": t.exit_price,
+                            "quantity": t.quantity,
+                            "pnl_gross": round(t.pnl_gross, 4),
+                            "pnl_net": round(t.pnl_net, 4),
+                            "fees_paid": round(t.fees_paid, 4),
+                            "entry_time": t.entry_time.isoformat(),
+                            "exit_time": t.exit_time.isoformat(),
+                            "exit_reason": t.exit_reason,
+                            "strategy": t.strategy_name,
+                            "hold_bars": t.hold_bars,
+                        }
+                    )
 
             # Push recent autonomous events
             for event in list(self.decision.event_log)[-5:]:
@@ -1059,7 +1170,9 @@ class TradingAgent:
 
         # Notification check
         if Config.any_notifications_enabled():
-            print(f"  [OK] Notifications  = {', '.join(c for c in ['Telegram', 'Discord', 'Email'] if getattr(Config, {'Telegram': 'TELEGRAM_BOT_TOKEN', 'Discord': 'DISCORD_WEBHOOK_URL', 'Email': 'EMAIL_ALERTS_ENABLED'}.get(c, ''), ''))}")
+            print(
+                f"  [OK] Notifications  = {', '.join(c for c in ['Telegram', 'Discord', 'Email'] if getattr(Config, {'Telegram': 'TELEGRAM_BOT_TOKEN', 'Discord': 'DISCORD_WEBHOOK_URL', 'Email': 'EMAIL_ALERTS_ENABLED'}.get(c, ''), ''))}"
+            )
 
         print("=" * 50)
         if all_ok:
@@ -1099,7 +1212,8 @@ class TradingAgent:
         mode = "paper" if Config.is_paper_mode() else "live"
         pairs = Config.TRADING_PAIRS if self.multi_pair else [Config.TRADING_PAIR]
         self.notifier.notify_state_change(
-            "offline", "normal",
+            "offline",
+            "normal",
             f"Agent started in {mode} mode with {', '.join(pairs)}",
         )
 
@@ -1112,11 +1226,9 @@ class TradingAgent:
                     raise
                 except Exception as e:
                     # v5.0: Self-healing catches ALL cycle errors
-                    self.decision.healer.record_error(
-                        "agent", e, ErrorSeverity.HIGH
-                    )
+                    self.decision.healer.record_error("agent", e, ErrorSeverity.HIGH)
                     print(f"\n  [SelfHealer] Cycle error caught: {type(e).__name__}: {e}")
-                    print(f"  [SelfHealer] Continuing to next cycle...")
+                    print("  [SelfHealer] Continuing to next cycle...")
                     self.notifier.notify_error(
                         component="agent",
                         error=f"Cycle {self.cycle_count}: {str(e)[:150]}",
@@ -1180,7 +1292,7 @@ class TradingAgent:
         print(f"  Total PnL:   ${summary['total_pnl']:,.2f}")
         print(f"  Total Fees:  ${summary.get('total_fees', 0):,.2f}")
         print(f"  Capital:     ${summary['capital']:,.2f}")
-        ret = (summary['total_pnl'] / Config.INITIAL_CAPITAL) * 100
+        ret = (summary["total_pnl"] / Config.INITIAL_CAPITAL) * 100
         print(f"  Return:      {ret:+.2f}%")
 
         drift = self.drift.check_drift()
@@ -1188,11 +1300,9 @@ class TradingAgent:
 
         # v6.0: Multi-pair portfolio report
         if self.multi_pair:
-            print(f"\n  --- MULTI-PAIR PORTFOLIO ---")
+            print("\n  --- MULTI-PAIR PORTFOLIO ---")
             print(f"  Pairs: {', '.join(Config.TRADING_PAIRS)}")
-            print(f"  Weights: " + " | ".join(
-                f"{p}={w:.1%}" for p, w in self.portfolio.weights.items()
-            ))
+            print("  Weights: " + " | ".join(f"{p}={w:.1%}" for p, w in self.portfolio.weights.items()))
             port_risk = self.portfolio.get_portfolio_risk(self.risk.positions)
             print(f"  Correlation risk: {port_risk['corr_risk']}")
             if port_risk.get("pair_exposure"):
@@ -1200,7 +1310,7 @@ class TradingAgent:
                     print(f"    {p}: ${exp:,.2f}")
 
         # v5.0: Autonomous system report
-        print(f"\n  --- AUTONOMOUS SYSTEM ---")
+        print("\n  --- AUTONOMOUS SYSTEM ---")
         print(f"  Decision state: {self.decision.state.value}")
         print(f"  Total autonomous decisions: {self.decision._total_autonomous_decisions}")
 
@@ -1224,34 +1334,34 @@ class TradingAgent:
         # v6.0: Intelligence summary
         if self._last_intelligence:
             intel = self._last_intelligence
-            print(f"\n  --- INTELLIGENCE ---")
+            print("\n  --- INTELLIGENCE ---")
             print(f"  Last bias: {intel['bias']} (adjustment: {intel['adjustment_factor']:.3f})")
             for sig in intel["signals"]:
-                status = f"{sig['signal']} ({sig['strength']:.2f})" if sig['strength'] > 0 else "disabled"
+                status = f"{sig['signal']} ({sig['strength']:.2f})" if sig["strength"] > 0 else "disabled"
                 print(f"    {sig['source']:20s} {status}")
 
         if self._last_arb_scan:
             exec_summary = self._last_arb_scan.get("execution", {})
-            print(f"\n  --- ARBITRAGE ---")
+            print("\n  --- ARBITRAGE ---")
             print(f"  Scans: {self._last_arb_scan.get('scan_count', 0)}")
-            print(f"  Trades: {exec_summary.get('total_trades', 0)} "
-                  f"(win: {exec_summary.get('win_rate', 0):.0%})")
+            print(f"  Trades: {exec_summary.get('total_trades', 0)} (win: {exec_summary.get('win_rate', 0):.0%})")
             print(f"  PnL: ${exec_summary.get('total_pnl', 0):.4f}")
 
         # v7.0: Production modules status
-        print(f"\n  --- PRODUCTION MODULES (v7.0) ---")
+        print("\n  --- PRODUCTION MODULES (v7.0) ---")
         print(f"  WebSocket: {'Active' if self.ws_streamer else 'Disabled'}")
         print(f"  Notifications: {self.notifier.has_channels()}")
         print(f"  Trade DB: {'Active' if self.trade_db else 'Disabled'}")
         rl_status = self.rate_limiter.get_status()
-        print(f"  Rate limiter: {rl_status['requests_per_minute']}/{rl_status['max_requests_per_minute']} req/min | "
-              f"{rl_status['orders_per_minute']}/{rl_status['max_orders_per_minute']} ord/min")
+        print(
+            f"  Rate limiter: {rl_status['requests_per_minute']}/{rl_status['max_requests_per_minute']} req/min | "
+            f"{rl_status['orders_per_minute']}/{rl_status['max_orders_per_minute']} ord/min"
+        )
 
         if self.trade_db:
             try:
                 db_stats = self.trade_db.get_total_stats()
-                print(f"  DB trades: {db_stats.get('total_trades', 0)} | "
-                      f"DB PnL: ${db_stats.get('total_pnl', 0):,.2f}")
+                print(f"  DB trades: {db_stats.get('total_trades', 0)} | DB PnL: ${db_stats.get('total_pnl', 0):,.2f}")
             except Exception as e:
                 _log.debug("Trade DB stats retrieval failed: %s", e)
 
@@ -1263,20 +1373,22 @@ class TradingAgent:
                 print(f"    [{e.event_type}] {e.description}")
 
         if self.regime_detector.regime_history:
-            print(f"\n  Regime history:")
+            print("\n  Regime history:")
             from collections import Counter
+
             regimes = Counter(r.regime.value for r in self.regime_detector.regime_history)
             for regime, cnt in regimes.most_common():
                 print(f"    {regime:20s} {cnt} cycles")
 
         if self.model.is_trained:
-            print(f"\n  Top ML features:")
+            print("\n  Top ML features:")
             for feat, imp in list(self.model.get_feature_importance().items())[:5]:
                 bar = "|" * int(imp * 50)
                 print(f"    {feat:20s} {imp:.3f} {bar}")
 
         if self.risk.trade_history:
-            from collections import defaultdict, Counter
+            from collections import Counter, defaultdict
+
             strat_pnl = defaultdict(lambda: {"trades": 0, "pnl": 0.0, "wins": 0})
             for t in self.risk.trade_history:
                 s = t.strategy_name or "Unknown"
@@ -1285,33 +1397,37 @@ class TradingAgent:
                 if t.pnl_net > 0:
                     strat_pnl[s]["wins"] += 1
 
-            print(f"\n  Strategy Attribution:")
+            print("\n  Strategy Attribution:")
             for name, data in sorted(strat_pnl.items(), key=lambda x: -x[1]["pnl"]):
                 wr = data["wins"] / data["trades"] * 100 if data["trades"] > 0 else 0
-                print(f"    {name:25s} {data['trades']:>3d} trades | "
-                      f"WR: {wr:>5.1f}% | PnL: ${data['pnl']:>8,.2f}")
+                print(f"    {name:25s} {data['trades']:>3d} trades | WR: {wr:>5.1f}% | PnL: ${data['pnl']:>8,.2f}")
 
             reasons = Counter(t.exit_reason for t in self.risk.trade_history)
-            print(f"\n  Exit reasons:")
+            print("\n  Exit reasons:")
             for reason, cnt in reasons.most_common():
                 print(f"    {reason:20s} {cnt}")
 
         print("=" * 60)
 
         if self.risk.trade_history:
-            log = [{
-                "symbol": t.symbol, "side": t.side,
-                "entry": t.entry_price, "exit": t.exit_price,
-                "qty": t.quantity,
-                "pnl_gross": round(t.pnl_gross, 4),
-                "pnl_net": round(t.pnl_net, 4),
-                "fees": round(t.fees_paid, 4),
-                "reason": t.exit_reason,
-                "strategy": t.strategy_name,
-                "hold_bars": t.hold_bars,
-                "entry_time": t.entry_time.isoformat(),
-                "exit_time": t.exit_time.isoformat(),
-            } for t in self.risk.trade_history]
+            log = [
+                {
+                    "symbol": t.symbol,
+                    "side": t.side,
+                    "entry": t.entry_price,
+                    "exit": t.exit_price,
+                    "qty": t.quantity,
+                    "pnl_gross": round(t.pnl_gross, 4),
+                    "pnl_net": round(t.pnl_net, 4),
+                    "fees": round(t.fees_paid, 4),
+                    "reason": t.exit_reason,
+                    "strategy": t.strategy_name,
+                    "hold_bars": t.hold_bars,
+                    "entry_time": t.entry_time.isoformat(),
+                    "exit_time": t.exit_time.isoformat(),
+                }
+                for t in self.risk.trade_history
+            ]
             with open("trade_log.json", "w") as f:
                 json.dump(log, f, indent=2)
             print(f"  Trade log: trade_log.json | State: {Config.STATE_FILE}")
@@ -1322,10 +1438,8 @@ def main() -> None:
     agent = TradingAgent()
     cycles = None
     if len(sys.argv) > 1:
-        try:
+        with contextlib.suppress(ValueError):
             cycles = int(sys.argv[1])
-        except ValueError:
-            pass
     agent.run(cycles=cycles)
 
 

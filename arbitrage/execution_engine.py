@@ -4,6 +4,7 @@ Paper mode simulates capital allocation, slippage, and PnL tracking.
 """
 
 from datetime import datetime
+
 from arbitrage.fee_calculator import FeeCalculator
 from arbitrage.latency_tracker import LatencyTracker
 from config import Config
@@ -41,7 +42,6 @@ class ArbitrageExecutor:
         sell_exchange = opportunity.get("sell_exchange", "")
         buy_price = opportunity.get("buy_price", 0)
         sell_price = opportunity.get("sell_price", 0)
-        net_profit_pct = opportunity.get("net_profit_pct", 0)
 
         if buy_price <= 0 or sell_price <= 0:
             return {"status": "failed", "reason": "invalid prices"}

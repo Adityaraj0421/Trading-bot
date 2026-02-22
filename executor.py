@@ -4,12 +4,12 @@ Handles paper trading simulation and live order placement via CCXT.
 """
 
 import logging
+from datetime import datetime
 from typing import Any
 
 import ccxt
-from datetime import datetime
+
 from config import Config
-from risk_manager import RiskManager, Position
 
 _log = logging.getLogger(__name__)
 
@@ -20,12 +20,10 @@ class PaperExecutor:
     def __init__(self) -> None:
         self.orders: list[dict[str, Any]] = []
 
-    def place_order(
-        self, symbol: str, side: str, quantity: float, price: float
-    ) -> dict[str, Any]:
+    def place_order(self, symbol: str, side: str, quantity: float, price: float) -> dict[str, Any]:
         """Simulate placing an order. Fills instantly at current price."""
         order = {
-            "id": f"paper_{len(self.orders)+1}",
+            "id": f"paper_{len(self.orders) + 1}",
             "symbol": symbol,
             "side": side,
             "quantity": quantity,
@@ -49,9 +47,7 @@ class LiveExecutor:
     def __init__(self, exchange: ccxt.Exchange) -> None:
         self.exchange = exchange
 
-    def place_order(
-        self, symbol: str, side: str, quantity: float, price: float
-    ) -> dict[str, Any]:
+    def place_order(self, symbol: str, side: str, quantity: float, price: float) -> dict[str, Any]:
         """Place a limit order on the exchange."""
         try:
             if side == "long":
@@ -61,7 +57,11 @@ class LiveExecutor:
 
             _log.info(
                 "[Live] %s %.6f %s @ $%,.2f (order: %s)",
-                side.upper(), quantity, symbol, price, order['id'],
+                side.upper(),
+                quantity,
+                symbol,
+                price,
+                order["id"],
             )
             return order
         except ccxt.InsufficientFunds as e:

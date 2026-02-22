@@ -8,8 +8,9 @@ slope (0-25), feature distribution shift (0-30), regime mismatch (0-20).
 Without feature training data, only accuracy + confidence are active.
 """
 
-import pytest
 import numpy as np
+import pytest
+
 from drift_detector import DriftDetector
 
 
@@ -34,6 +35,7 @@ def detector_with_features():
 # record_prediction
 # ---------------------------------------------------------------------------
 
+
 class TestRecordPrediction:
     def test_stores_prediction(self, detector):
         detector.record_prediction("BUY", 0.8)
@@ -49,7 +51,7 @@ class TestRecordPrediction:
         assert detector.actuals[0] is None
 
     def test_window_bounded(self, detector):
-        for i in range(25):
+        for _ in range(25):
             detector.record_prediction("BUY", 0.7)
         assert len(detector.predictions) == 20  # window_size
 
@@ -57,6 +59,7 @@ class TestRecordPrediction:
 # ---------------------------------------------------------------------------
 # record_outcome
 # ---------------------------------------------------------------------------
+
 
 class TestRecordOutcome:
     def test_positive_return_becomes_buy(self, detector):
@@ -85,7 +88,7 @@ class TestRecordOutcome:
         detector.record_prediction("BUY", 0.8)
         detector.record_prediction("SELL", 0.7)
         detector.record_outcome(-0.05)  # Fills index 1
-        detector.record_outcome(0.05)   # Fills index 0
+        detector.record_outcome(0.05)  # Fills index 0
         assert detector.actuals[0] == "BUY"
         assert detector.actuals[1] == "SELL"
 
@@ -93,6 +96,7 @@ class TestRecordOutcome:
 # ---------------------------------------------------------------------------
 # set_baseline
 # ---------------------------------------------------------------------------
+
 
 class TestSetBaseline:
     def test_sets_accuracy(self, detector):
@@ -107,6 +111,7 @@ class TestSetBaseline:
 # ---------------------------------------------------------------------------
 # check_drift
 # ---------------------------------------------------------------------------
+
 
 class TestCheckDrift:
     def _fill_predictions(self, detector, n, predicted, actual_return, confidence=0.8):
@@ -202,11 +207,23 @@ class TestCheckDrift:
         self._fill_predictions(detector, 15, "BUY", 0.05)
         result = detector.check_drift()
         # v2.0: check_drift() returns original keys + new predictive fields
-        original_keys = {"drift_detected", "current_accuracy", "accuracy_drop",
-                         "confidence_decay", "reason", "resolved_samples", "drift_count"}
-        new_v2_keys = {"predictive_drift_score", "confidence_slope",
-                       "feature_drift_pct", "regime_mismatch", "blend_weight",
-                       "feature_alerts"}
+        original_keys = {
+            "drift_detected",
+            "current_accuracy",
+            "accuracy_drop",
+            "confidence_decay",
+            "reason",
+            "resolved_samples",
+            "drift_count",
+        }
+        new_v2_keys = {
+            "predictive_drift_score",
+            "confidence_slope",
+            "feature_drift_pct",
+            "regime_mismatch",
+            "blend_weight",
+            "feature_alerts",
+        }
         expected_keys = original_keys | new_v2_keys
         assert expected_keys == set(result.keys())
 
@@ -214,6 +231,7 @@ class TestCheckDrift:
 # ---------------------------------------------------------------------------
 # reset
 # ---------------------------------------------------------------------------
+
 
 class TestReset:
     def test_clears_all_deques(self, detector):

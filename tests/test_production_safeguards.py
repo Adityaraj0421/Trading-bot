@@ -2,7 +2,6 @@
 Tests for production safeguards: kill switch, alerts, manual override.
 """
 
-import pytest
 from decision_engine import DecisionEngine, DecisionState
 
 
@@ -36,11 +35,13 @@ class TestAlertSystem:
         engine = DecisionEngine(initial_capital=10000)
         # Simulate a big loss
         engine.record_trade_result(
-            pnl=-300, strategy_signal="BUY", ml_signal="BUY",
-            final_signal="BUY", strategy_confidence=0.8,
-            ml_confidence=0.7, regime="TRENDING_DOWN",
+            pnl=-300,
+            strategy_signal="BUY",
+            ml_signal="BUY",
+            final_signal="BUY",
+            strategy_confidence=0.8,
+            ml_confidence=0.7,
+            regime="TRENDING_DOWN",
         )
-        # Check that alert was generated
-        events = [e.event_type for e in engine.event_log]
         # After large loss, consecutive_losses should increase
         assert engine._consecutive_losses == 1

@@ -5,12 +5,17 @@ Tests genome serialization, population initialization, fitness evaluation,
 evolution cycle, crossover/mutation bounds, and state persistence.
 """
 
-import random
 import copy
-import pytest
+import random
+
 import numpy as np
+import pytest
+
 from strategy_evolver import (
-    Genome, StrategyEvolver, PARAM_BOUNDS, DEFAULT_PARAMS,
+    DEFAULT_PARAMS,
+    PARAM_BOUNDS,
+    Genome,
+    StrategyEvolver,
 )
 
 
@@ -32,6 +37,7 @@ def make_metrics(sharpe=1.0, trades=10, drawdown=3.0, win_rate=0.55):
 # Genome dataclass
 # ---------------------------------------------------------------------------
 
+
 class TestGenome:
     def test_defaults(self):
         g = Genome(strategy_name="Momentum", parameters={"a": 1})
@@ -45,8 +51,13 @@ class TestGenome:
         g = Genome(strategy_name="Momentum", parameters={"a": 1})
         d = g.to_dict()
         assert set(d.keys()) == {
-            "strategy_name", "parameters", "fitness_score",
-            "generation", "trade_count", "sharpe", "max_drawdown",
+            "strategy_name",
+            "parameters",
+            "fitness_score",
+            "generation",
+            "trade_count",
+            "sharpe",
+            "max_drawdown",
         }
 
     def test_from_dict_round_trip(self):
@@ -80,6 +91,7 @@ class TestGenome:
 # PARAM_BOUNDS / DEFAULT_PARAMS
 # ---------------------------------------------------------------------------
 
+
 class TestParamBounds:
     def test_all_strategies_have_bounds(self):
         assert len(PARAM_BOUNDS) == 6
@@ -89,7 +101,7 @@ class TestParamBounds:
     def test_defaults_within_bounds(self):
         for name, bounds in PARAM_BOUNDS.items():
             defaults = DEFAULT_PARAMS[name]
-            for key, (lo, hi, dtype) in bounds.items():
+            for key, (lo, hi, _dtype) in bounds.items():
                 val = defaults[key]
                 assert lo <= val <= hi, f"{name}.{key}: {val} not in [{lo}, {hi}]"
 
@@ -97,6 +109,7 @@ class TestParamBounds:
 # ---------------------------------------------------------------------------
 # initialize_population
 # ---------------------------------------------------------------------------
+
 
 class TestInitializePopulation:
     def test_correct_population_size(self, evolver):
@@ -114,9 +127,7 @@ class TestInitializePopulation:
         pop = evolver.populations["Momentum"]
         defaults = DEFAULT_PARAMS["Momentum"]
         # At least one non-default genome should differ
-        any_different = any(
-            g.parameters != defaults for g in pop[1:]
-        )
+        any_different = any(g.parameters != defaults for g in pop[1:])
         assert any_different
 
     def test_unknown_strategy_skipped(self, evolver):
@@ -133,6 +144,7 @@ class TestInitializePopulation:
 # ---------------------------------------------------------------------------
 # evaluate_fitness
 # ---------------------------------------------------------------------------
+
 
 class TestEvaluateFitness:
     def test_basic_fitness(self, evolver):
@@ -184,15 +196,22 @@ class TestEvaluateFitness:
 # evolve
 # ---------------------------------------------------------------------------
 
+
 class TestEvolve:
     def _setup_pop(self, evolver, strategy="Momentum"):
         random.seed(42)
         evolver.initialize_population([strategy])
         # Give each genome some fitness
         for i, g in enumerate(evolver.populations[strategy]):
-            evolver.evaluate_fitness(g, make_metrics(
-                sharpe=float(i), trades=10 + i, drawdown=2.0, win_rate=0.55,
-            ))
+            evolver.evaluate_fitness(
+                g,
+                make_metrics(
+                    sharpe=float(i),
+                    trades=10 + i,
+                    drawdown=2.0,
+                    win_rate=0.55,
+                ),
+            )
         return strategy
 
     def test_preserves_population_size(self, evolver):
@@ -233,6 +252,7 @@ class TestEvolve:
 # _crossover / _mutate
 # ---------------------------------------------------------------------------
 
+
 class TestCrossoverMutation:
     def test_crossover_valid_params(self, evolver):
         random.seed(42)
@@ -249,7 +269,7 @@ class TestCrossoverMutation:
         # Force high mutation rate to trigger changes
         evolver.mutation_rate = 1.0
         mutated = evolver._mutate(g, bounds)
-        for key, (lo, hi, dtype) in bounds.items():
+        for key, (lo, hi, _dtype) in bounds.items():
             assert lo <= mutated.parameters[key] <= hi, f"{key} out of bounds"
 
     def test_mutation_respects_dtype(self, evolver):
@@ -258,14 +278,15 @@ class TestCrossoverMutation:
         g = Genome(strategy_name="Momentum", parameters=copy.deepcopy(DEFAULT_PARAMS["Momentum"]))
         evolver.mutation_rate = 1.0
         mutated = evolver._mutate(g, bounds)
-        for key, (lo, hi, dtype) in bounds.items():
-            if dtype == int:
+        for key, (_lo, _hi, dtype) in bounds.items():
+            if dtype is int:
                 assert isinstance(mutated.parameters[key], int), f"{key} should be int"
 
 
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
+
 
 class TestSerialization:
     def test_to_dict_structure(self, evolver):

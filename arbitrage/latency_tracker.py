@@ -2,7 +2,6 @@
 Latency Tracker — monitors API response times per exchange.
 """
 
-import time
 from collections import defaultdict, deque
 
 

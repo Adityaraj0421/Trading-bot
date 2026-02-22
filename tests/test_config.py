@@ -6,13 +6,15 @@ at import time.
 """
 
 import logging
-import pytest
-from config import Config
 
+import pytest
+
+from config import Config
 
 # ---------------------------------------------------------------------------
 # Shared fixture — sets all validated fields to safe defaults
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def valid_config(monkeypatch):
@@ -39,6 +41,7 @@ def valid_config(monkeypatch):
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
+
 
 class TestConfigDefaults:
     def test_default_exchange_id(self):
@@ -77,6 +80,7 @@ class TestConfigDefaults:
 # is_paper_mode
 # ---------------------------------------------------------------------------
 
+
 class TestIsPaperMode:
     def test_paper_mode_true(self, monkeypatch):
         monkeypatch.setattr(Config, "TRADING_MODE", "paper")
@@ -95,13 +99,18 @@ class TestIsPaperMode:
 # any_intelligence_enabled
 # ---------------------------------------------------------------------------
 
+
 class TestAnyIntelligenceEnabled:
     # v9.0: any_intelligence_enabled() now checks 7 flags
     # (added ENABLE_FUNDING_OI and ENABLE_LIQUIDATION)
     INTEL_FLAGS = [
-        "ENABLE_ONCHAIN", "ENABLE_WHALE_TRACKING", "ENABLE_NEWS_NLP",
-        "ENABLE_CORRELATION", "ENABLE_ORDERBOOK",
-        "ENABLE_FUNDING_OI", "ENABLE_LIQUIDATION",
+        "ENABLE_ONCHAIN",
+        "ENABLE_WHALE_TRACKING",
+        "ENABLE_NEWS_NLP",
+        "ENABLE_CORRELATION",
+        "ENABLE_ORDERBOOK",
+        "ENABLE_FUNDING_OI",
+        "ENABLE_LIQUIDATION",
     ]
 
     def test_all_disabled(self, monkeypatch):
@@ -124,6 +133,7 @@ class TestAnyIntelligenceEnabled:
 # ---------------------------------------------------------------------------
 # validate — existing tests (now using valid_config fixture)
 # ---------------------------------------------------------------------------
+
 
 class TestValidate:
     def test_paper_mode_no_keys_ok(self, valid_config):
@@ -155,6 +165,7 @@ class TestValidate:
 # ---------------------------------------------------------------------------
 # validate — hard failure tests
 # ---------------------------------------------------------------------------
+
 
 class TestValidateHardChecks:
     def test_zero_initial_capital_raises(self, valid_config, monkeypatch):
@@ -235,6 +246,7 @@ class TestValidateHardChecks:
 # validate — soft warning tests
 # ---------------------------------------------------------------------------
 
+
 class TestValidateSoftWarnings:
     def test_telegram_token_without_chat_id_warns(self, valid_config, monkeypatch, caplog):
         monkeypatch.setattr(Config, "TELEGRAM_BOT_TOKEN", "some-token")
@@ -267,6 +279,7 @@ class TestValidateSoftWarnings:
 # ---------------------------------------------------------------------------
 # _resolve_paths
 # ---------------------------------------------------------------------------
+
 
 class TestResolvePaths:
     def test_resolve_uses_data_dir(self, monkeypatch):

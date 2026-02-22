@@ -6,8 +6,14 @@ Works with both PyTorch (DQN+PPO) and tabular Q-learning fallback.
 import numpy as np
 import pandas as pd
 import pytest
+
 from rl_ensemble import (
-    RLEnsemble, QLearnerAgent, ReplayBuffer, ACTIONS, FEATURE_NAMES, STATE_DIM,
+    ACTIONS,
+    FEATURE_NAMES,
+    STATE_DIM,
+    QLearnerAgent,
+    ReplayBuffer,
+    RLEnsemble,
 )
 
 
@@ -87,8 +93,7 @@ class TestUpdateReward:
 
     def test_update_with_prior_predict(self, ensemble, sample_df_ind):
         ensemble.predict(sample_df_ind, "ranging")
-        ensemble.update_reward(reward=0.05, next_df_ind=sample_df_ind,
-                               regime="ranging")
+        ensemble.update_reward(reward=0.05, next_df_ind=sample_df_ind, regime="ranging")
         # Agents should have recorded the trade
         for agent in ensemble.agents:
             assert agent.total_trades >= 1
@@ -96,9 +101,7 @@ class TestUpdateReward:
     def test_multiple_predict_update_cycles(self, ensemble, sample_df_ind):
         for _ in range(5):
             ensemble.predict(sample_df_ind, "trending_up")
-            ensemble.update_reward(reward=np.random.randn() * 0.05,
-                                   next_df_ind=sample_df_ind,
-                                   regime="trending_up")
+            ensemble.update_reward(reward=np.random.randn() * 0.05, next_df_ind=sample_df_ind, regime="trending_up")
         for agent in ensemble.agents:
             assert agent.total_trades == 5
 
@@ -185,8 +188,7 @@ class TestQLearnerAgent:
     def test_sharpe_with_data(self):
         agent = QLearnerAgent(agent_id=99, state_bins={"rsi": [30, 50, 70]})
         features = {"rsi": 45.0}
-        for reward in [0.01, 0.02, -0.01, 0.03, 0.01,
-                       0.02, -0.005, 0.015, 0.01, 0.005]:
+        for reward in [0.01, 0.02, -0.01, 0.03, 0.01, 0.02, -0.005, 0.015, 0.01, 0.005]:
             agent.update(features, "BUY", reward)
         sharpe = agent.get_sharpe()
         assert isinstance(sharpe, float)

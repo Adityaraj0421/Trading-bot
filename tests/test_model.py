@@ -4,14 +4,13 @@ Unit tests for model.py — Signal enum, TradingModel train/predict/cache.
 Uses demo_data + Indicators for real training data; tests pure methods directly.
 """
 
-import numpy as np
 import pandas as pd
 import pytest
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 
 from demo_data import generate_ohlcv
-from indicators import Indicators, FEATURE_COLUMNS
+from indicators import FEATURE_COLUMNS, Indicators
 from model import Signal, TradingModel
 
 
@@ -44,6 +43,7 @@ def trained_model(sample_df, sample_indicators):
 # Signal enum
 # ---------------------------------------------------------------------------
 
+
 class TestSignalEnum:
     def test_buy_value(self):
         assert Signal.BUY == "BUY"
@@ -58,6 +58,7 @@ class TestSignalEnum:
 # ---------------------------------------------------------------------------
 # Init
 # ---------------------------------------------------------------------------
+
 
 class TestTradingModelInit:
     def test_tier_is_set(self):
@@ -104,6 +105,7 @@ class TestTradingModelInit:
 # _create_labels
 # ---------------------------------------------------------------------------
 
+
 class TestCreateLabels:
     def test_positive_return_buy(self):
         model = TradingModel()
@@ -132,6 +134,7 @@ class TestCreateLabels:
     def test_boundary_exactly_at_threshold_is_hold(self):
         """Exactly ±threshold should be HOLD (strict > and < operators)."""
         from config import Config
+
         threshold = Config.ML_LABEL_THRESHOLD
         model = TradingModel()
         s = pd.Series([threshold, -threshold])
@@ -143,6 +146,7 @@ class TestCreateLabels:
 # ---------------------------------------------------------------------------
 # train
 # ---------------------------------------------------------------------------
+
 
 class TestTrain:
     def test_successful_training_returns_keys(self, sample_df, sample_indicators):
@@ -186,6 +190,7 @@ class TestTrain:
 # predict
 # ---------------------------------------------------------------------------
 
+
 class TestPredict:
     def test_untrained_returns_hold(self):
         model = TradingModel()
@@ -218,6 +223,7 @@ class TestPredict:
 # ---------------------------------------------------------------------------
 # get_feature_importance
 # ---------------------------------------------------------------------------
+
 
 class TestGetFeatureImportance:
     def test_untrained_empty(self):

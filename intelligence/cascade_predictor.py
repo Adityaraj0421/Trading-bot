@@ -20,19 +20,20 @@ Uses Binance public API (no auth required):
   - Taker buy/sell volume
 """
 
-import time
 import logging
-import requests
-import numpy as np
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
+
+import numpy as np
+import requests
 
 _log = logging.getLogger(__name__)
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json",
 }
 
@@ -42,27 +43,29 @@ BINANCE_FUTURES = "https://fapi.binance.com"
 @dataclass
 class LiquidationLevel:
     """Estimated liquidation cluster at a price level."""
+
     price: float
-    side: str           # "long" or "short"
+    side: str  # "long" or "short"
     estimated_value: float  # USD value of liquidations
-    leverage: float     # Average leverage at this level
-    distance_pct: float # Distance from current price
+    leverage: float  # Average leverage at this level
+    distance_pct: float  # Distance from current price
 
 
 @dataclass
 class CascadeRisk:
     """Cascade risk assessment for a symbol."""
+
     symbol: str
-    risk_score: float         # 0-100
-    direction: str            # "down" (long cascade) or "up" (short squeeze)
+    risk_score: float  # 0-100
+    direction: str  # "down" (long cascade) or "up" (short squeeze)
     nearest_cluster_pct: float  # Distance to nearest liquidation cluster
-    oi_concentration: float    # How concentrated OI is (higher = riskier)
-    funding_pressure: float    # Funding rate pressure
-    ls_imbalance: float        # Long/short ratio imbalance
-    taker_aggression: float    # Net taker buy-sell ratio
+    oi_concentration: float  # How concentrated OI is (higher = riskier)
+    funding_pressure: float  # Funding rate pressure
+    ls_imbalance: float  # Long/short ratio imbalance
+    taker_aggression: float  # Net taker buy-sell ratio
     long_levels: list = field(default_factory=list)
     short_levels: list = field(default_factory=list)
-    signal: str = "neutral"    # "pre_cascade_short", "post_cascade_long", etc.
+    signal: str = "neutral"  # "pre_cascade_short", "post_cascade_long", etc.
     signal_confidence: float = 0.0
     timestamp: float = 0.0
 
@@ -92,8 +95,8 @@ class CascadePredictor:
     """
 
     CACHE_TTL = 120  # 2 min cache
-    CASCADE_HIGH_RISK = 80   # Score threshold for pre-cascade signals
-    CASCADE_EXTREME = 90     # Score threshold for emergency exit
+    CASCADE_HIGH_RISK = 80  # Score threshold for pre-cascade signals
+    CASCADE_EXTREME = 90  # Score threshold for emergency exit
 
     # Leverage distribution assumptions (based on research)
     LEVERAGE_DIST = [2, 3, 5, 10, 20, 25, 50, 75, 100, 125]
@@ -102,12 +105,8 @@ class CascadePredictor:
         self.symbols = symbols or ["BTCUSDT", "ETHUSDT"]
         self._cache: dict[str, CascadeRisk] = {}
         self._cache_ts: float = 0
-        self._oi_history: dict[str, deque] = {
-            s: deque(maxlen=50) for s in self.symbols
-        }
-        self._price_history: dict[str, deque] = {
-            s: deque(maxlen=50) for s in self.symbols
-        }
+        self._oi_history: dict[str, deque] = {s: deque(maxlen=50) for s in self.symbols}
+        self._price_history: dict[str, deque] = {s: deque(maxlen=50) for s in self.symbols}
 
     def get_signal(self) -> dict[str, Any]:
         """Standard intelligence provider interface."""
@@ -137,42 +136,40 @@ class CascadePredictor:
         price = self._fetch_current_price(symbol)
 
         if not price:
-            return CascadeRisk(symbol=symbol, risk_score=0, direction="neutral",
-                               nearest_cluster_pct=100, oi_concentration=0,
-                               funding_pressure=0, ls_imbalance=0,
-                               taker_aggression=0)
+            return CascadeRisk(
+                symbol=symbol,
+                risk_score=0,
+                direction="neutral",
+                nearest_cluster_pct=100,
+                oi_concentration=0,
+                funding_pressure=0,
+                ls_imbalance=0,
+                taker_aggression=0,
+            )
 
         # Build liquidation heatmap
-        long_levels, short_levels = self._estimate_liquidation_levels(
-            price, oi_data, ls_data
-        )
+        long_levels, short_levels = self._estimate_liquidation_levels(price, oi_data, ls_data)
 
         # Compute risk components
         oi_concentration = self._compute_oi_concentration(oi_data, symbol)
         funding_pressure = self._compute_funding_pressure(funding)
         ls_imbalance = self._compute_ls_imbalance(ls_data)
         taker_aggression = self._compute_taker_aggression(taker)
-        nearest_pct = self._nearest_cluster_distance(
-            price, long_levels, short_levels
-        )
+        nearest_pct = self._nearest_cluster_distance(price, long_levels, short_levels)
 
         # Cascade direction: which side has more to liquidate near current price?
-        long_risk = sum(l.estimated_value for l in long_levels
-                        if l.distance_pct < 5)
-        short_risk = sum(l.estimated_value for l in short_levels
-                         if l.distance_pct < 5)
+        long_risk = sum(lvl.estimated_value for lvl in long_levels if lvl.distance_pct < 5)
+        short_risk = sum(lvl.estimated_value for lvl in short_levels if lvl.distance_pct < 5)
         direction = "down" if long_risk > short_risk else "up"
 
         # Composite risk score (0-100)
         risk_score = self._compute_risk_score(
-            oi_concentration, funding_pressure, ls_imbalance,
-            taker_aggression, nearest_pct
+            oi_concentration, funding_pressure, ls_imbalance, taker_aggression, nearest_pct
         )
 
         # Generate trading signal
         signal, confidence = self._generate_signal(
-            risk_score, direction, oi_concentration,
-            funding_pressure, nearest_pct
+            risk_score, direction, oi_concentration, funding_pressure, nearest_pct
         )
 
         return CascadeRisk(
@@ -197,7 +194,8 @@ class CascadePredictor:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/futures/data/openInterestHist",
                 params={"symbol": symbol, "period": "1h", "limit": 24},
-                headers=_HEADERS, timeout=5,
+                headers=_HEADERS,
+                timeout=5,
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -214,7 +212,8 @@ class CascadePredictor:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/futures/data/globalLongShortAccountRatio",
                 params={"symbol": symbol, "period": "1h", "limit": 12},
-                headers=_HEADERS, timeout=5,
+                headers=_HEADERS,
+                timeout=5,
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -231,7 +230,8 @@ class CascadePredictor:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/fapi/v1/premiumIndex",
                 params={"symbol": symbol},
-                headers=_HEADERS, timeout=5,
+                headers=_HEADERS,
+                timeout=5,
             )
             if resp.status_code == 200:
                 return float(resp.json().get("lastFundingRate", 0))
@@ -248,7 +248,8 @@ class CascadePredictor:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/futures/data/takerlongshortRatio",
                 params={"symbol": symbol, "period": "1h", "limit": 6},
-                headers=_HEADERS, timeout=5,
+                headers=_HEADERS,
+                timeout=5,
             )
             if resp.status_code == 200:
                 return resp.json()
@@ -265,7 +266,8 @@ class CascadePredictor:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/fapi/v1/ticker/price",
                 params={"symbol": symbol},
-                headers=_HEADERS, timeout=5,
+                headers=_HEADERS,
+                timeout=5,
             )
             if resp.status_code == 200:
                 price = float(resp.json().get("price", 0))
@@ -280,8 +282,7 @@ class CascadePredictor:
             _log.error("Price parse error for %s: %s", symbol, e)
         return 0.0
 
-    def _estimate_liquidation_levels(self, price: float, oi_data: list,
-                                     ls_data: list) -> tuple[list, list]:
+    def _estimate_liquidation_levels(self, price: float, oi_data: list, ls_data: list) -> tuple[list, list]:
         """
         Estimate liquidation price levels based on OI and leverage.
         Long liquidations occur at: entry_price * (1 - 1/leverage)
@@ -316,13 +317,15 @@ class CascadePredictor:
             estimated_value_long = long_oi * weight * 0.2  # Rough distribution
 
             if distance_long > 0 and distance_long < 50:
-                long_levels.append(LiquidationLevel(
-                    price=round(liq_price_long, 2),
-                    side="long",
-                    estimated_value=estimated_value_long,
-                    leverage=leverage,
-                    distance_pct=round(distance_long, 2),
-                ))
+                long_levels.append(
+                    LiquidationLevel(
+                        price=round(liq_price_long, 2),
+                        side="long",
+                        estimated_value=estimated_value_long,
+                        leverage=leverage,
+                        distance_pct=round(distance_long, 2),
+                    )
+                )
 
             # Short liquidation price (price rises trigger these)
             liq_price_short = price * (1 + 1.0 / leverage)
@@ -330,18 +333,19 @@ class CascadePredictor:
             estimated_value_short = short_oi * weight * 0.2
 
             if distance_short > 0 and distance_short < 50:
-                short_levels.append(LiquidationLevel(
-                    price=round(liq_price_short, 2),
-                    side="short",
-                    estimated_value=estimated_value_short,
-                    leverage=leverage,
-                    distance_pct=round(distance_short, 2),
-                ))
+                short_levels.append(
+                    LiquidationLevel(
+                        price=round(liq_price_short, 2),
+                        side="short",
+                        estimated_value=estimated_value_short,
+                        leverage=leverage,
+                        distance_pct=round(distance_short, 2),
+                    )
+                )
 
         return long_levels, short_levels
 
-    def _compute_oi_concentration(self, oi_data: list,
-                                  symbol: str) -> float:
+    def _compute_oi_concentration(self, oi_data: list, symbol: str) -> float:
         """
         How concentrated is OI? High OI + recent increase = risky.
         Returns 0-1 where 1 = maximum concentration risk.
@@ -394,19 +398,14 @@ class CascadePredictor:
         avg_ratio = np.mean(ratios)
         return max(-1.0, min(1.0, avg_ratio - 1.0))
 
-    def _nearest_cluster_distance(self, price: float,
-                                  long_levels: list,
-                                  short_levels: list) -> float:
+    def _nearest_cluster_distance(self, price: float, long_levels: list, short_levels: list) -> float:
         """Distance to nearest liquidation cluster (%)."""
-        distances = (
-            [l.distance_pct for l in long_levels] +
-            [l.distance_pct for l in short_levels]
-        )
+        distances = [lvl.distance_pct for lvl in long_levels] + [lvl.distance_pct for lvl in short_levels]
         return min(distances) if distances else 100.0
 
-    def _compute_risk_score(self, oi_conc: float, funding: float,
-                            ls_imb: float, taker: float,
-                            nearest_pct: float) -> float:
+    def _compute_risk_score(
+        self, oi_conc: float, funding: float, ls_imb: float, taker: float, nearest_pct: float
+    ) -> float:
         """
         Composite cascade risk score (0-100).
         High score = cascade is imminent.
@@ -428,18 +427,18 @@ class CascadePredictor:
 
         # Weighted composite
         score = (
-            proximity_risk * 0.30 +
-            oi_risk * 0.25 +
-            funding_risk * 0.20 +
-            imbalance_risk * 0.15 +
-            aggression_risk * 0.10
+            proximity_risk * 0.30
+            + oi_risk * 0.25
+            + funding_risk * 0.20
+            + imbalance_risk * 0.15
+            + aggression_risk * 0.10
         )
 
         return min(100, max(0, score))
 
-    def _generate_signal(self, risk_score: float, direction: str,
-                         oi_conc: float, funding: float,
-                         nearest_pct: float) -> tuple[str, float]:
+    def _generate_signal(
+        self, risk_score: float, direction: str, oi_conc: float, funding: float, nearest_pct: float
+    ) -> tuple[str, float]:
         """Generate trading signal from cascade analysis."""
         if risk_score >= self.CASCADE_EXTREME:
             # Emergency: very high cascade risk
@@ -471,8 +470,7 @@ class CascadePredictor:
                 "data": {},
             }
 
-        max_risk = max(self._cache.values(),
-                       key=lambda r: r.risk_score)
+        max_risk = max(self._cache.values(), key=lambda r: r.risk_score)
 
         if max_risk.risk_score >= self.CASCADE_HIGH_RISK:
             if max_risk.direction == "down":
@@ -502,10 +500,7 @@ class CascadePredictor:
 
     def get_emergency_exit_symbols(self) -> list[str]:
         """Return list of symbols where cascade risk is extreme."""
-        return [
-            symbol for symbol, risk in self._cache.items()
-            if risk.risk_score >= self.CASCADE_EXTREME
-        ]
+        return [symbol for symbol, risk in self._cache.items() if risk.risk_score >= self.CASCADE_EXTREME]
 
     def get_status(self) -> dict[str, Any]:
         """Return cascade predictor status for dashboard display."""

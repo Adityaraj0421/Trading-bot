@@ -16,27 +16,26 @@ Key concepts:
 """
 
 import logging
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any
-from collections import defaultdict
 
-_log = logging.getLogger(__name__)
-
+from config import Config
 from indicators import Indicators
 from model import TradingModel
 from regime_detector import RegimeDetector
 from sentiment import SentimentAnalyzer
 from strategies import StrategyEngine
-from config import Config
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
 class WFOWindow:
     """Represents one train/test window in the walk-forward sequence."""
+
     fold_id: int
     train_start: int
     train_end: int
@@ -56,6 +55,7 @@ class WFOWindow:
 @dataclass
 class WFOResult:
     """Aggregated walk-forward validation result."""
+
     n_folds: int = 0
     total_oos_bars: int = 0  # Total out-of-sample bars tested
     oos_total_return_pct: float = 0.0
@@ -108,13 +108,13 @@ class WalkForwardValidator:
 
     def __init__(
         self,
-        train_bars: int = 400,      # ~17 days at 1h
-        test_bars: int = 100,        # ~4 days at 1h
-        step_bars: int = 50,         # ~2 days at 1h
+        train_bars: int = 400,  # ~17 days at 1h
+        test_bars: int = 100,  # ~4 days at 1h
+        step_bars: int = 50,  # ~2 days at 1h
         min_trades_per_fold: int = 3,
-        mc_simulations: int = 500,   # Monte Carlo shuffles
-        mc_confidence: float = 0.95, # Confidence level for MC test
-        min_oos_sharpe: float = 0.3, # Minimum OOS Sharpe to pass
+        mc_simulations: int = 500,  # Monte Carlo shuffles
+        mc_confidence: float = 0.95,  # Confidence level for MC test
+        min_oos_sharpe: float = 0.3,  # Minimum OOS Sharpe to pass
         max_oos_drawdown: float = -20.0,  # Max drawdown % to pass
         fee_pct: float | None = None,
         slippage_pct: float | None = None,
@@ -146,13 +146,15 @@ class WalkForwardValidator:
             test_start = train_end
             test_end = min(test_start + self.test_bars, n_bars)
 
-            windows.append(WFOWindow(
-                fold_id=fold_id,
-                train_start=train_start,
-                train_end=train_end,
-                test_start=test_start,
-                test_end=test_end,
-            ))
+            windows.append(
+                WFOWindow(
+                    fold_id=fold_id,
+                    train_start=train_start,
+                    train_end=train_end,
+                    test_start=test_start,
+                    test_end=test_end,
+                )
+            )
             fold_id += 1
             start += self.step_bars
 
@@ -170,7 +172,7 @@ class WalkForwardValidator:
         strategy_engine = StrategyEngine()
 
         # Train on training window
-        train_data = df_ind.iloc[window.train_start:window.train_end]
+        train_data = df_ind.iloc[window.train_start : window.train_end]
         model.train(df=None, df_ind=train_data)
 
         # Walk through test window
@@ -186,13 +188,10 @@ class WalkForwardValidator:
 
             # Mark-to-market
             unrealized = sum(
-                (price - p["entry"]) * p["qty"] if p["side"] == "long"
-                else (p["entry"] - price) * p["qty"]
+                (price - p["entry"]) * p["qty"] if p["side"] == "long" else (p["entry"] - price) * p["qty"]
                 for p in positions
             )
-            equity_curve.append(capital + unrealized + sum(
-                p["entry"] * p["qty"] for p in positions
-            ))
+            equity_curve.append(capital + unrealized + sum(p["entry"] * p["qty"] for p in positions))
 
             # Check existing positions for exits
             for pos in list(positions):
@@ -202,8 +201,7 @@ class WalkForwardValidator:
                 if pos["side"] == "long":
                     if row["high"] > pos["highest"]:
                         pos["highest"] = row["high"]
-                        pos["trail"] = max(pos["trail"],
-                                           row["high"] * (1 - Config.TRAILING_STOP_PCT))
+                        pos["trail"] = max(pos["trail"], row["high"] * (1 - Config.TRAILING_STOP_PCT))
                     if row["low"] <= pos["sl"]:
                         exit_reason = "stop_loss"
                         exit_price = pos["sl"]
@@ -219,8 +217,7 @@ class WalkForwardValidator:
                 else:  # short
                     if row["low"] < pos["lowest"]:
                         pos["lowest"] = row["low"]
-                        pos["trail"] = min(pos["trail"],
-                                           row["low"] * (1 + Config.TRAILING_STOP_PCT))
+                        pos["trail"] = min(pos["trail"], row["low"] * (1 + Config.TRAILING_STOP_PCT))
                     if row["high"] >= pos["sl"]:
                         exit_reason = "stop_loss"
                         exit_price = pos["sl"]
@@ -245,12 +242,14 @@ class WalkForwardValidator:
                     fee = actual_exit * pos["qty"] * self.fee_pct
                     pnl_net = pnl - fee
 
-                    trades.append({
-                        "pnl_net": pnl_net,
-                        "side": pos["side"],
-                        "hold_bars": bars_held,
-                        "exit_reason": exit_reason,
-                    })
+                    trades.append(
+                        {
+                            "pnl_net": pnl_net,
+                            "side": pos["side"],
+                            "hold_bars": bars_held,
+                            "exit_reason": exit_reason,
+                        }
+                    )
                     capital += actual_exit * pos["qty"] - fee
                     positions.remove(pos)
 
@@ -260,25 +259,17 @@ class WalkForwardValidator:
 
             # Get signals from strategy pipeline
             lookback = max(0, i - 200)
-            analysis_window = df_ind.iloc[lookback:i + 1]
+            analysis_window = df_ind.iloc[lookback : i + 1]
             if len(analysis_window) < 50:
                 continue
 
-            regime_state = regime_detector.detect(
-                analysis_window, df_ind=analysis_window
-            )
-            sentiment_state = sentiment.analyze(
-                analysis_window, df_ind=analysis_window
-            )
-            strat_signal = strategy_engine.run(
-                analysis_window, regime_state.regime, sentiment_state
-            )
+            regime_state = regime_detector.detect(analysis_window, df_ind=analysis_window)
+            sentiment_state = sentiment.analyze(analysis_window, df_ind=analysis_window)
+            strat_signal = strategy_engine.run(analysis_window, regime_state.regime, sentiment_state)
             ml_signal, ml_conf = model.predict(df_ind=analysis_window)
 
             # Combine signals (same logic as backtester)
-            final_signal, final_conf = self._combine(
-                strat_signal, ml_signal, ml_conf
-            )
+            final_signal, final_conf = self._combine(strat_signal, ml_signal, ml_conf)
 
             # Execute
             if final_signal in ("BUY", "SELL") and final_conf >= Config.MIN_CONFIDENCE:
@@ -294,7 +285,7 @@ class WalkForwardValidator:
                     entry_fee = actual_entry * qty * self.fee_pct
 
                     if actual_entry * qty + entry_fee <= capital:
-                        capital -= (actual_entry * qty + entry_fee)
+                        capital -= actual_entry * qty + entry_fee
 
                         sl_pct = strat_signal.suggested_sl_pct
                         tp_pct = strat_signal.suggested_tp_pct
@@ -307,17 +298,20 @@ class WalkForwardValidator:
                             tp = actual_entry * (1 - tp_pct)
                             trail = actual_entry * (1 + Config.TRAILING_STOP_PCT)
 
-                        positions.append({
-                            "side": target_side,
-                            "entry": price,
-                            "actual_entry": actual_entry,
-                            "qty": qty,
-                            "entry_bar": i,
-                            "sl": sl, "tp": tp,
-                            "trail": trail,
-                            "highest": price,
-                            "lowest": price,
-                        })
+                        positions.append(
+                            {
+                                "side": target_side,
+                                "entry": price,
+                                "actual_entry": actual_entry,
+                                "qty": qty,
+                                "entry_bar": i,
+                                "sl": sl,
+                                "tp": tp,
+                                "trail": trail,
+                                "highest": price,
+                                "lowest": price,
+                            }
+                        )
 
         # Close remaining positions at last price
         if positions:
@@ -330,20 +324,20 @@ class WalkForwardValidator:
                     actual_exit = last_price * (1 + self.slippage_pct)
                     pnl = (pos["actual_entry"] - actual_exit) * pos["qty"]
                 fee = actual_exit * pos["qty"] * self.fee_pct
-                trades.append({
-                    "pnl_net": pnl - fee,
-                    "side": pos["side"],
-                    "hold_bars": window.test_end - 1 - pos["entry_bar"],
-                    "exit_reason": "fold_end",
-                })
+                trades.append(
+                    {
+                        "pnl_net": pnl - fee,
+                        "side": pos["side"],
+                        "hold_bars": window.test_end - 1 - pos["entry_bar"],
+                        "exit_reason": "fold_end",
+                    }
+                )
                 capital += actual_exit * pos["qty"] - fee
 
         equity_curve.append(capital)
 
         # Compute fold metrics
-        metrics = self._compute_fold_metrics(
-            equity_curve, trades, initial_capital
-        )
+        metrics = self._compute_fold_metrics(equity_curve, trades, initial_capital)
         return {"metrics": metrics, "trades": trades}
 
     def _combine(self, strat_sig: Any, ml_signal: str, ml_conf: float) -> tuple[str, float]:
@@ -359,14 +353,20 @@ class WalkForwardValidator:
         else:
             return s, sc * 0.4
 
-    def _compute_fold_metrics(self, equity_curve: list[float], trades: list[dict[str, Any]],
-                              initial_capital: float) -> dict[str, Any]:
+    def _compute_fold_metrics(
+        self, equity_curve: list[float], trades: list[dict[str, Any]], initial_capital: float
+    ) -> dict[str, Any]:
         """Compute performance metrics for a single fold."""
         equity = np.array(equity_curve)
         if len(equity) < 2:
-            return {"total_return_pct": 0, "sharpe_ratio": 0,
-                    "max_drawdown_pct": 0, "total_trades": 0,
-                    "win_rate": 0, "profit_factor": 0}
+            return {
+                "total_return_pct": 0,
+                "sharpe_ratio": 0,
+                "max_drawdown_pct": 0,
+                "total_trades": 0,
+                "win_rate": 0,
+                "profit_factor": 0,
+            }
 
         total_return = (equity[-1] / equity[0]) - 1
         returns = np.diff(equity) / equity[:-1]
@@ -390,7 +390,8 @@ class WalkForwardValidator:
                 "sharpe_ratio": round(sharpe, 3),
                 "max_drawdown_pct": round(max_dd, 2),
                 "total_trades": 0,
-                "win_rate": 0, "profit_factor": 0,
+                "win_rate": 0,
+                "profit_factor": 0,
             }
 
         wins = [t for t in trades if t["pnl_net"] > 0]
@@ -419,8 +420,10 @@ class WalkForwardValidator:
         n_sims = n_simulations or self.mc_simulations
         if len(trades) < 5:
             return {
-                "mean_sharpe": 0, "std_sharpe": 0,
-                "p95_sharpe": 0, "p_value": 1.0,
+                "mean_sharpe": 0,
+                "std_sharpe": 0,
+                "p95_sharpe": 0,
+                "p_value": 1.0,
             }
 
         pnls = [t["pnl_net"] for t in trades]
@@ -470,9 +473,7 @@ class WalkForwardValidator:
         if self.verbose:
             print("=" * 60)
             print("  WALK-FORWARD VALIDATION ENGINE v1.0")
-            print(f"  Train: {self.train_bars} bars | "
-                  f"Test: {self.test_bars} bars | "
-                  f"Step: {self.step_bars} bars")
+            print(f"  Train: {self.train_bars} bars | Test: {self.test_bars} bars | Step: {self.step_bars} bars")
             print(f"  Data: {len(df)} bars | Symbol: {self.symbol}")
             print("=" * 60)
 
@@ -481,9 +482,7 @@ class WalkForwardValidator:
         df_ind = Indicators.add_all(df)
 
         if len(df_ind) < self.train_bars + self.test_bars + 50:
-            return WFOResult(
-                rejection_reasons=["insufficient_data"]
-            )
+            return WFOResult(rejection_reasons=["insufficient_data"])
 
         # Generate rolling windows
         windows = self._generate_windows(len(df_ind))
@@ -501,26 +500,31 @@ class WalkForwardValidator:
 
         for window in windows:
             if self.verbose:
-                print(f"  Fold {window.fold_id + 1}/{len(windows)}: "
-                      f"Train [{window.train_start}:{window.train_end}] "
-                      f"Test [{window.test_start}:{window.test_end}]", end="")
+                print(
+                    f"  Fold {window.fold_id + 1}/{len(windows)}: "
+                    f"Train [{window.train_start}:{window.train_end}] "
+                    f"Test [{window.test_start}:{window.test_end}]",
+                    end="",
+                )
 
             fold_output = self._backtest_fold(df_ind, window)
             fold_metrics = fold_output["metrics"]
             fold_trades = fold_output["trades"]
 
-            fold_results.append({
-                "fold_id": window.fold_id,
-                "train_bars": window.train_bars,
-                "test_bars": window.test_bars,
-                **fold_metrics,
-            })
+            fold_results.append(
+                {
+                    "fold_id": window.fold_id,
+                    "train_bars": window.train_bars,
+                    "test_bars": window.test_bars,
+                    **fold_metrics,
+                }
+            )
 
             all_oos_trades.extend(fold_trades)
 
             # Track running equity from fold returns
             fold_return = fold_metrics.get("total_return_pct", 0) / 100
-            running_capital *= (1 + fold_return)
+            running_capital *= 1 + fold_return
             all_oos_equity.append(running_capital)
 
             if self.verbose:
@@ -538,9 +542,7 @@ class WalkForwardValidator:
 
         # Compute aggregate OOS metrics from all trades
         if all_oos_trades:
-            agg = self._compute_aggregate_metrics(
-                all_oos_equity, all_oos_trades
-            )
+            agg = self._compute_aggregate_metrics(all_oos_equity, all_oos_trades)
             result.oos_total_return_pct = agg["total_return_pct"]
             result.oos_sharpe = agg["sharpe_ratio"]
             result.oos_max_drawdown_pct = agg["max_drawdown_pct"]
@@ -559,17 +561,14 @@ class WalkForwardValidator:
         result.mc_p_value = mc_results["p_value"]
 
         # Robustness assessment
-        result.is_robust, result.rejection_reasons = self._assess_robustness(
-            result
-        )
+        result.is_robust, result.rejection_reasons = self._assess_robustness(result)
 
         if self.verbose:
             self._print_report(result, mc_results)
 
         return result
 
-    def _compute_aggregate_metrics(self, equity_curve: list[float],
-                                   trades: list[dict[str, Any]]) -> dict[str, Any]:
+    def _compute_aggregate_metrics(self, equity_curve: list[float], trades: list[dict[str, Any]]) -> dict[str, Any]:
         """Compute aggregate metrics from all OOS folds."""
         equity = np.array(equity_curve)
         total_return = (equity[-1] / equity[0]) - 1
@@ -580,8 +579,7 @@ class WalkForwardValidator:
 
         if len(fold_returns) > 1 and np.std(fold_returns) > 0:
             # Annualize based on ~52 folds/year (weekly steps)
-            sharpe = (np.mean(fold_returns) / np.std(fold_returns)
-                      * np.sqrt(52))
+            sharpe = np.mean(fold_returns) / np.std(fold_returns) * np.sqrt(52)
         else:
             sharpe = 0.0
 
@@ -616,23 +614,16 @@ class WalkForwardValidator:
 
         # Check 1: Minimum OOS Sharpe
         if result.oos_sharpe < self.min_oos_sharpe:
-            reasons.append(
-                f"OOS Sharpe {result.oos_sharpe:.3f} < "
-                f"min {self.min_oos_sharpe}"
-            )
+            reasons.append(f"OOS Sharpe {result.oos_sharpe:.3f} < min {self.min_oos_sharpe}")
 
         # Check 2: Maximum drawdown
         if result.oos_max_drawdown_pct < self.max_oos_drawdown:
-            reasons.append(
-                f"OOS drawdown {result.oos_max_drawdown_pct:.1f}% < "
-                f"limit {self.max_oos_drawdown}%"
-            )
+            reasons.append(f"OOS drawdown {result.oos_max_drawdown_pct:.1f}% < limit {self.max_oos_drawdown}%")
 
         # Check 3: Minimum trades
         if result.oos_total_trades < self.min_trades_per_fold * result.n_folds:
             reasons.append(
-                f"Too few OOS trades: {result.oos_total_trades} < "
-                f"{self.min_trades_per_fold * result.n_folds}"
+                f"Too few OOS trades: {result.oos_total_trades} < {self.min_trades_per_fold * result.n_folds}"
             )
 
         # Check 4: Monte Carlo significance
@@ -644,16 +635,12 @@ class WalkForwardValidator:
             )
 
         # Check 5: Consistency across folds
-        fold_returns = [f.get("total_return_pct", 0)
-                        for f in result.fold_results]
+        fold_returns = [f.get("total_return_pct", 0) for f in result.fold_results]
         if fold_returns:
             n_positive = sum(1 for r in fold_returns if r > 0)
             positive_pct = n_positive / len(fold_returns) * 100
             if positive_pct < 40:
-                reasons.append(
-                    f"Only {positive_pct:.0f}% of folds profitable "
-                    f"(need >40%)"
-                )
+                reasons.append(f"Only {positive_pct:.0f}% of folds profitable (need >40%)")
 
         return len(reasons) == 0, reasons
 
@@ -674,8 +661,7 @@ class WalkForwardValidator:
         print()
         print(f"  Monte Carlo Test ({self.mc_simulations} sims):")
         print(f"    Real Sharpe:    {mc_results.get('real_sharpe', 0):.3f}")
-        print(f"    Shuffled Mean:  {result.mc_sharpe_mean:.3f} "
-              f"+/- {result.mc_sharpe_std:.3f}")
+        print(f"    Shuffled Mean:  {result.mc_sharpe_mean:.3f} +/- {result.mc_sharpe_std:.3f}")
         print(f"    95th Pctile:    {result.mc_sharpe_p95:.3f}")
         print(f"    p-value:        {result.mc_p_value:.4f}")
         print()
@@ -688,17 +674,18 @@ class WalkForwardValidator:
                 print(f"    - {reason}")
 
         # Per-fold summary
-        print(f"\n  Per-Fold Performance:")
-        print(f"  {'Fold':>4s} {'Trades':>6s} {'Return':>8s} "
-              f"{'Sharpe':>7s} {'MaxDD':>7s} {'WinR':>5s}")
+        print("\n  Per-Fold Performance:")
+        print(f"  {'Fold':>4s} {'Trades':>6s} {'Return':>8s} {'Sharpe':>7s} {'MaxDD':>7s} {'WinR':>5s}")
         print(f"  {'-' * 40}")
         for f in result.fold_results:
-            print(f"  {f['fold_id']+1:>4d} "
-                  f"{f.get('total_trades', 0):>6d} "
-                  f"{f.get('total_return_pct', 0):>+7.2f}% "
-                  f"{f.get('sharpe_ratio', 0):>7.3f} "
-                  f"{f.get('max_drawdown_pct', 0):>6.2f}% "
-                  f"{f.get('win_rate', 0):>4.0f}%")
+            print(
+                f"  {f['fold_id'] + 1:>4d} "
+                f"{f.get('total_trades', 0):>6d} "
+                f"{f.get('total_return_pct', 0):>+7.2f}% "
+                f"{f.get('sharpe_ratio', 0):>7.3f} "
+                f"{f.get('max_drawdown_pct', 0):>6.2f}% "
+                f"{f.get('win_rate', 0):>4.0f}%"
+            )
 
         print("=" * 60)
 
@@ -731,18 +718,19 @@ class PurgedKFoldCV:
             purge_end = min(n_samples, test_end + self.purge_window)
 
             test_idx = np.arange(test_start, test_end)
-            train_idx = np.concatenate([
-                np.arange(0, purge_start),
-                np.arange(purge_end, n_samples),
-            ])
+            train_idx = np.concatenate(
+                [
+                    np.arange(0, purge_start),
+                    np.arange(purge_end, n_samples),
+                ]
+            )
 
             if len(train_idx) > 0 and len(test_idx) > 0:
                 splits.append((train_idx, test_idx))
 
         return splits
 
-    def evaluate_model(self, model: TradingModel,
-                       df_ind: pd.DataFrame) -> dict[str, Any]:
+    def evaluate_model(self, model: TradingModel, df_ind: pd.DataFrame) -> dict[str, Any]:
         """
         Evaluate ML model using purged k-fold CV.
         Returns average metrics across all folds.
@@ -778,7 +766,7 @@ class PurgedKFoldCV:
             for idx in test_idx:
                 if idx < 50:
                     continue
-                window = df_ind.iloc[max(0, idx - 50):idx + 1]
+                window = df_ind.iloc[max(0, idx - 50) : idx + 1]
                 pred_signal, pred_conf = fold_model.predict(df_ind=window)
 
                 actual = y[idx]

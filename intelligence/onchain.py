@@ -17,13 +17,15 @@ v2.0 enhancements:
 Produces bullish/bearish/neutral signal with strength 0.0 - 0.5.
 """
 
-import time
 import logging
+import time
+from collections import deque
+from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import requests
-from collections import deque
-from dataclasses import dataclass, field
-from typing import Any
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -31,30 +33,35 @@ _log = logging.getLogger(__name__)
 
 # ── Data Classes ──────────────────────────────────────────────────
 
+
 @dataclass
 class OnChainFeatures:
     """ML-compatible on-chain feature vector."""
-    hash_rate_trend: float = 0.0       # -1 to +1, momentum of mining power
-    mempool_pressure: float = 0.5      # 0 = empty, 1 = congested
-    fee_pressure: float = 0.5          # 0 = low fees, 1 = extreme fees
-    tx_volume_momentum: float = 0.0    # -1 to +1, tx count trend
-    network_activity: float = 0.5      # 0 = quiet, 1 = very active
-    miner_revenue_trend: float = 0.0   # Proxy for miner selling pressure
-    fee_volatility: float = 0.0        # Rapid fee changes = incoming vol
-    mempool_clearing_rate: float = 0.5 # How fast mempool clears
+
+    hash_rate_trend: float = 0.0  # -1 to +1, momentum of mining power
+    mempool_pressure: float = 0.5  # 0 = empty, 1 = congested
+    fee_pressure: float = 0.5  # 0 = low fees, 1 = extreme fees
+    tx_volume_momentum: float = 0.0  # -1 to +1, tx count trend
+    network_activity: float = 0.5  # 0 = quiet, 1 = very active
+    miner_revenue_trend: float = 0.0  # Proxy for miner selling pressure
+    fee_volatility: float = 0.0  # Rapid fee changes = incoming vol
+    mempool_clearing_rate: float = 0.5  # How fast mempool clears
 
     def to_array(self) -> np.ndarray:
         """Convert to numpy array for ML model input."""
-        return np.array([
-            self.hash_rate_trend,
-            self.mempool_pressure,
-            self.fee_pressure,
-            self.tx_volume_momentum,
-            self.network_activity,
-            self.miner_revenue_trend,
-            self.fee_volatility,
-            self.mempool_clearing_rate,
-        ], dtype=np.float64)
+        return np.array(
+            [
+                self.hash_rate_trend,
+                self.mempool_pressure,
+                self.fee_pressure,
+                self.tx_volume_momentum,
+                self.network_activity,
+                self.miner_revenue_trend,
+                self.fee_volatility,
+                self.mempool_clearing_rate,
+            ],
+            dtype=np.float64,
+        )
 
     @staticmethod
     def feature_names() -> list[str]:
@@ -72,6 +79,7 @@ class OnChainFeatures:
 
 
 # ── On-Chain Analyzer ─────────────────────────────────────────────
+
 
 class OnChainAnalyzer:
     """
@@ -103,8 +111,7 @@ class OnChainAnalyzer:
     def get_signal(self) -> dict[str, Any]:
         """Original signal generation interface."""
         if not Config.ENABLE_ONCHAIN:
-            return {"source": "onchain", "signal": "neutral",
-                    "strength": 0.0, "data": {}}
+            return {"source": "onchain", "signal": "neutral", "strength": 0.0, "data": {}}
 
         try:
             metrics = self._fetch_all_metrics()
@@ -122,8 +129,7 @@ class OnChainAnalyzer:
             }
         except Exception as e:
             _log.warning("OnChain analysis failed: %s", e)
-            return {"source": "onchain", "signal": "neutral",
-                    "strength": 0.0, "data": {"error": str(e)}}
+            return {"source": "onchain", "signal": "neutral", "strength": 0.0, "data": {"error": str(e)}}
 
     def get_ml_features(self) -> OnChainFeatures:
         """
@@ -221,8 +227,7 @@ class OnChainAnalyzer:
             mempool_clearing_rate=round(clearing_rate, 4),
         )
 
-    def _compute_momentum(self, history: deque, short: int = 5,
-                          long: int = 20) -> float:
+    def _compute_momentum(self, history: deque, short: int = 5, long: int = 20) -> float:
         """
         Compute momentum as (short MA - long MA) / long MA.
         Returns value in [-1, 1].
@@ -231,8 +236,8 @@ class OnChainAnalyzer:
         if len(data) < 3:
             return 0.0
 
-        short_data = data[-min(short, len(data)):]
-        long_data = data[-min(long, len(data)):]
+        short_data = data[-min(short, len(data)) :]
+        long_data = data[-min(long, len(data)) :]
 
         short_avg = sum(short_data) / len(short_data)
         long_avg = sum(long_data) / len(long_data)
@@ -258,7 +263,7 @@ class OnChainAnalyzer:
             return 0.0
 
         variance = sum((x - mean) ** 2 for x in recent) / len(recent)
-        cv = (variance ** 0.5) / mean  # Coefficient of variation
+        cv = (variance**0.5) / mean  # Coefficient of variation
         return min(cv, 1.0)
 
     # ── Original Analysis (preserved) ─────────────────────────────
@@ -271,30 +276,24 @@ class OnChainAnalyzer:
 
         metrics = {}
 
-        metrics["hash_rate"] = self._fetch_json(
-            f"{self.BLOCKCHAIN_API}/q/hashrate", parse_text=True)
-        metrics["difficulty"] = self._fetch_json(
-            f"{self.BLOCKCHAIN_API}/q/getdifficulty", parse_text=True)
-        metrics["tx_count_24h"] = self._fetch_json(
-            f"{self.BLOCKCHAIN_API}/q/24hrtransactioncount", parse_text=True)
-        metrics["unconfirmed_count"] = self._fetch_json(
-            f"{self.BLOCKCHAIN_API}/q/unconfirmedcount", parse_text=True)
+        metrics["hash_rate"] = self._fetch_json(f"{self.BLOCKCHAIN_API}/q/hashrate", parse_text=True)
+        metrics["difficulty"] = self._fetch_json(f"{self.BLOCKCHAIN_API}/q/getdifficulty", parse_text=True)
+        metrics["tx_count_24h"] = self._fetch_json(f"{self.BLOCKCHAIN_API}/q/24hrtransactioncount", parse_text=True)
+        metrics["unconfirmed_count"] = self._fetch_json(f"{self.BLOCKCHAIN_API}/q/unconfirmedcount", parse_text=True)
 
         mempool_stats = self._fetch_json(f"{self.MEMPOOL_API}/mempool")
         if isinstance(mempool_stats, dict):
             metrics["mempool_size_bytes"] = mempool_stats.get("vsize", 0)
             metrics["mempool_tx_count"] = mempool_stats.get("count", 0)
 
-        fee_estimates = self._fetch_json(
-            f"{self.MEMPOOL_API}/v1/fees/recommended")
+        fee_estimates = self._fetch_json(f"{self.MEMPOOL_API}/v1/fees/recommended")
         if isinstance(fee_estimates, dict):
             metrics["fee_fastest"] = fee_estimates.get("fastestFee", 0)
             metrics["fee_half_hour"] = fee_estimates.get("halfHourFee", 0)
             metrics["fee_hour"] = fee_estimates.get("hourFee", 0)
             metrics["fee_economy"] = fee_estimates.get("economyFee", 0)
 
-        block_height = self._fetch_json(
-            f"{self.BLOCKCHAIN_API}/q/getblockcount", parse_text=True)
+        block_height = self._fetch_json(f"{self.BLOCKCHAIN_API}/q/getblockcount", parse_text=True)
         metrics["block_height"] = block_height
 
         self._cache = metrics
@@ -397,8 +396,8 @@ class OnChainAnalyzer:
 
     _HEADERS = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/120.0.0.0 Safari/537.36",
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
     }
 

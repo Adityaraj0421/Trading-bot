@@ -31,13 +31,10 @@ def create_router(ws_manager: WebSocketManager) -> APIRouter:
                 try:
                     raw = await asyncio.wait_for(ws.receive_text(), timeout=5.0)
                     msg = json.loads(raw)
-                    if (
-                        msg.get("type") != "auth"
-                        or msg.get("api_key") != Config.API_AUTH_KEY
-                    ):
+                    if msg.get("type") != "auth" or msg.get("api_key") != Config.API_AUTH_KEY:
                         await ws.close(code=4001, reason="Invalid API key")
                         return
-                except (asyncio.TimeoutError, json.JSONDecodeError, KeyError):
+                except (TimeoutError, json.JSONDecodeError, KeyError):
                     await ws.close(code=4001, reason="Auth timeout or invalid format")
                     return
 

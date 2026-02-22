@@ -11,12 +11,12 @@ v2.0 enhancements:
   - All original features preserved (multi-level imbalance, walls, VWMP)
 """
 
-import time
-import math
 import logging
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -24,9 +24,11 @@ _log = logging.getLogger(__name__)
 
 # ── Data Classes ──────────────────────────────────────────────────
 
+
 @dataclass
 class VolumeBar:
     """A single volume-synchronized bar for VPIN calculation."""
+
     buy_volume: float = 0.0
     sell_volume: float = 0.0
     total_volume: float = 0.0
@@ -38,6 +40,7 @@ class VolumeBar:
 @dataclass
 class WallSnapshot:
     """Snapshot of a detected wall for persistence tracking."""
+
     price: float
     volume: float
     side: str  # "bid" or "ask"
@@ -57,6 +60,7 @@ class WallSnapshot:
 
 # ── Main Analyzer ─────────────────────────────────────────────────
 
+
 class OrderBookAnalyzer:
     """
     Advanced order flow intelligence with VPIN, CVD, spoofing detection,
@@ -66,21 +70,21 @@ class OrderBookAnalyzer:
     CACHE_TTL = 30  # 30s cache
 
     # VPIN parameters
-    VPIN_BUCKET_SIZE = 50         # Volume bars per bucket (units of base asset)
-    VPIN_N_BUCKETS = 50           # Rolling window of buckets for VPIN
-    VPIN_TOXIC_THRESHOLD = 0.7    # VPIN > this = toxic flow
+    VPIN_BUCKET_SIZE = 50  # Volume bars per bucket (units of base asset)
+    VPIN_N_BUCKETS = 50  # Rolling window of buckets for VPIN
+    VPIN_TOXIC_THRESHOLD = 0.7  # VPIN > this = toxic flow
 
     # CVD parameters
-    CVD_LOOKBACK = 200            # Bars of CVD history
-    CVD_DIVERGENCE_BARS = 20      # Bars to check for divergence
+    CVD_LOOKBACK = 200  # Bars of CVD history
+    CVD_DIVERGENCE_BARS = 20  # Bars to check for divergence
 
     # Spoofing detection
-    WALL_TRACK_WINDOW = 300       # 5 min of wall tracking
-    SPOOF_THRESHOLD = 3           # Must see wall >= N times then vanish
-    PRICE_PROXIMITY_PCT = 0.3     # Wall vanishes when price within 0.3%
+    WALL_TRACK_WINDOW = 300  # 5 min of wall tracking
+    SPOOF_THRESHOLD = 3  # Must see wall >= N times then vanish
+    PRICE_PROXIMITY_PCT = 0.3  # Wall vanishes when price within 0.3%
 
     # Absorption detection
-    ABSORPTION_VOL_MULT = 3.0     # Volume at level >= 3x average
+    ABSORPTION_VOL_MULT = 3.0  # Volume at level >= 3x average
     ABSORPTION_PRICE_MOVE = 0.05  # Price moves < 0.05% despite absorption
 
     def __init__(self, exchange: Any = None) -> None:
@@ -111,8 +115,7 @@ class OrderBookAnalyzer:
     def get_signal(self) -> dict[str, Any]:
         """Analyze order book with advanced flow intelligence."""
         if not Config.ENABLE_ORDERBOOK or self.exchange is None:
-            return {"source": "orderbook", "signal": "neutral",
-                    "strength": 0.0, "data": {}}
+            return {"source": "orderbook", "signal": "neutral", "strength": 0.0, "data": {}}
 
         try:
             analysis = self._analyze_book()
@@ -124,8 +127,7 @@ class OrderBookAnalyzer:
             }
         except Exception as e:
             _log.warning("Order book analysis failed: %s", e)
-            return {"source": "orderbook", "signal": "neutral",
-                    "strength": 0.0, "data": {"error": str(e)}}
+            return {"source": "orderbook", "signal": "neutral", "strength": 0.0, "data": {"error": str(e)}}
 
     def get_vpin(self) -> float:
         """Return current VPIN value (0.0 to 1.0)."""
@@ -240,8 +242,7 @@ class OrderBookAnalyzer:
 
         # Spread quality adjustment
         if len(self._spread_history) >= 5:
-            recent_spreads = [h["spread_pct"]
-                              for h in list(self._spread_history)[-5:]]
+            recent_spreads = [h["spread_pct"] for h in list(self._spread_history)[-5:]]
             avg_spread = sum(recent_spreads) / len(recent_spreads)
             if spread_pct > avg_spread * 1.5:
                 score *= 0.7
@@ -301,8 +302,7 @@ class OrderBookAnalyzer:
 
     # ── VWMP ──────────────────────────────────────────────────────
 
-    def _compute_vwmp(self, bids: list, asks: list,
-                      mid_price: float) -> tuple[float, float]:
+    def _compute_vwmp(self, bids: list, asks: list, mid_price: float) -> tuple[float, float]:
         """Compute volume-weighted mid price and its skew."""
         bid_vw = sum(b[0] * b[1] for b in bids[:20])
         bid_vol = sum(b[1] for b in bids[:20])
@@ -316,9 +316,9 @@ class OrderBookAnalyzer:
 
     # ── Wall Detection ────────────────────────────────────────────
 
-    def _detect_walls(self, orders: list, mid_price: float, side: str,
-                      threshold_mult: float = 5.0,
-                      price_range_pct: float = 2.0) -> list[dict]:
+    def _detect_walls(
+        self, orders: list, mid_price: float, side: str, threshold_mult: float = 5.0, price_range_pct: float = 2.0
+    ) -> list[dict]:
         """Detect large order walls near mid price."""
         if len(orders) < 10:
             return []
@@ -336,13 +336,15 @@ class OrderBookAnalyzer:
         for price, volume in nearby:
             if volume >= threshold:
                 dist_pct = abs(price - mid_price) / mid_price * 100
-                walls.append({
-                    "price": round(price, 2),
-                    "volume": round(volume, 4),
-                    "distance_pct": round(dist_pct, 3),
-                    "multiple_of_avg": round(volume / avg_vol, 1),
-                    "side": side,
-                })
+                walls.append(
+                    {
+                        "price": round(price, 2),
+                        "volume": round(volume, 4),
+                        "distance_pct": round(dist_pct, 3),
+                        "multiple_of_avg": round(volume / avg_vol, 1),
+                        "side": side,
+                    }
+                )
 
         walls.sort(key=lambda w: w["volume"], reverse=True)
         return walls[:5]
@@ -366,8 +368,7 @@ class OrderBookAnalyzer:
     # NEW v2.0: VPIN (Volume-Synchronized Probability of Informed Trading)
     # ══════════════════════════════════════════════════════════════
 
-    def _update_volume_bars(self, bids: list, asks: list,
-                            mid_price: float, now: float) -> None:
+    def _update_volume_bars(self, bids: list, asks: list, mid_price: float, now: float) -> None:
         """
         Update VPIN volume bars from order book snapshot.
 
@@ -422,7 +423,6 @@ class OrderBookAnalyzer:
         if len(bars) < 5:
             return 0.0
 
-        n = len(bars)
         total_imbalance = 0.0
         total_volume = 0.0
 
@@ -441,8 +441,7 @@ class OrderBookAnalyzer:
     # NEW v2.0: Cumulative Volume Delta (CVD)
     # ══════════════════════════════════════════════════════════════
 
-    def _update_cvd(self, bids: list, asks: list,
-                    mid_price: float, now: float) -> None:
+    def _update_cvd(self, bids: list, asks: list, mid_price: float, now: float) -> None:
         """
         Update cumulative volume delta.
 
@@ -456,10 +455,10 @@ class OrderBookAnalyzer:
         # Estimate aggressive buy vs sell from top-of-book
         # Aggressive buys hit the ask, aggressive sells hit the bid
         # Proxy: compare volume clustering on each side
-        bid_tight = sum(b[1] for b in bids[:3])   # Tight bid volume
-        ask_tight = sum(a[1] for a in asks[:3])    # Tight ask volume
-        bid_deep = sum(b[1] for b in bids[3:15])   # Deep bid volume
-        ask_deep = sum(a[1] for a in asks[3:15])    # Deep ask volume
+        bid_tight = sum(b[1] for b in bids[:3])  # Tight bid volume
+        ask_tight = sum(a[1] for a in asks[:3])  # Tight ask volume
+        bid_deep = sum(b[1] for b in bids[3:15])  # Deep bid volume
+        ask_deep = sum(a[1] for a in asks[3:15])  # Deep ask volume
 
         # Ratio of tight to deep gives aggression estimate
         # Heavy tight-ask vs deep-ask means aggressive selling (hitting bids)
@@ -483,8 +482,8 @@ class OrderBookAnalyzer:
         if len(self._cvd_history) < self.CVD_DIVERGENCE_BARS:
             return "none"
 
-        recent_cvd = list(self._cvd_history)[-self.CVD_DIVERGENCE_BARS:]
-        recent_price = list(self._price_history)[-self.CVD_DIVERGENCE_BARS:]
+        recent_cvd = list(self._cvd_history)[-self.CVD_DIVERGENCE_BARS :]
+        recent_price = list(self._price_history)[-self.CVD_DIVERGENCE_BARS :]
 
         if len(recent_cvd) < 2 or len(recent_price) < 2:
             return "none"
@@ -515,8 +514,7 @@ class OrderBookAnalyzer:
     # NEW v2.0: Spoofing / Fake Wall Detection
     # ══════════════════════════════════════════════════════════════
 
-    def _update_wall_tracking(self, bid_walls: list, ask_walls: list,
-                              mid_price: float, now: float) -> None:
+    def _update_wall_tracking(self, bid_walls: list, ask_walls: list, mid_price: float, now: float) -> None:
         """
         Track wall persistence across snapshots.
 
@@ -528,8 +526,7 @@ class OrderBookAnalyzer:
         """
         # Cleanup old tracked walls
         if now - self._last_wall_cleanup > 60:
-            stale = [k for k, v in self._tracked_walls.items()
-                     if now - v.last_seen > self.WALL_TRACK_WINDOW]
+            stale = [k for k, v in self._tracked_walls.items() if now - v.last_seen > self.WALL_TRACK_WINDOW]
             for k in stale:
                 del self._tracked_walls[k]
             self._last_wall_cleanup = now
@@ -587,15 +584,17 @@ class OrderBookAnalyzer:
                 current_price = self._price_history[-1]
                 dist_pct = abs(wall.price - current_price) / current_price * 100
                 if dist_pct < self.PRICE_PROXIMITY_PCT * 3:
-                    alerts.append({
-                        "type": "spoof_detected",
-                        "side": wall.side,
-                        "price": round(wall.price, 2),
-                        "peak_volume": round(max(wall.volume_history), 4),
-                        "times_seen": wall.times_seen,
-                        "age_seconds": round(wall.age_seconds, 0),
-                        "vanished_seconds_ago": round(age, 0),
-                    })
+                    alerts.append(
+                        {
+                            "type": "spoof_detected",
+                            "side": wall.side,
+                            "price": round(wall.price, 2),
+                            "peak_volume": round(max(wall.volume_history), 4),
+                            "times_seen": wall.times_seen,
+                            "age_seconds": round(wall.age_seconds, 0),
+                            "vanished_seconds_ago": round(age, 0),
+                        }
+                    )
                     # Remove after alerting
                     del self._tracked_walls[key]
 
@@ -605,8 +604,7 @@ class OrderBookAnalyzer:
     # NEW v2.0: Absorption Detection
     # ══════════════════════════════════════════════════════════════
 
-    def _detect_absorption(self, bids: list, asks: list,
-                           mid_price: float, now: float) -> list[dict]:
+    def _detect_absorption(self, bids: list, asks: list, mid_price: float, now: float) -> list[dict]:
         """
         Detect absorption events.
 

@@ -4,10 +4,10 @@ Generates realistic-looking OHLCV data when exchange APIs are unreachable.
 """
 
 import logging
-
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
 
 _log = logging.getLogger(__name__)
 
@@ -50,10 +50,7 @@ def generate_ohlcv(
 
     # Timestamps
     end = datetime.now().replace(minute=0, second=0, microsecond=0)
-    timestamps = [
-        end - timedelta(minutes=timeframe_minutes * (periods - i - 1))
-        for i in range(periods)
-    ]
+    timestamps = [end - timedelta(minutes=timeframe_minutes * (periods - i - 1)) for i in range(periods)]
 
     df = pd.DataFrame(
         {

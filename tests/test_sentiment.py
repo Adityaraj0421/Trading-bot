@@ -4,12 +4,12 @@ Unit tests for sentiment.py — SentimentLevel, SentimentAnalyzer.
 Tests pure analysis methods directly; mocks requests.get for API tests.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-import numpy as np
-import pandas as pd
-from unittest.mock import patch, MagicMock
+
 from demo_data import generate_ohlcv
-from sentiment import SentimentLevel, SentimentState, SentimentAnalyzer
+from sentiment import SentimentAnalyzer, SentimentLevel, SentimentState
 
 
 @pytest.fixture()
@@ -26,6 +26,7 @@ def sample_df():
 # SentimentLevel enum
 # ---------------------------------------------------------------------------
 
+
 class TestSentimentLevel:
     def test_all_levels_exist(self):
         assert len(SentimentLevel) == 5
@@ -37,22 +38,26 @@ class TestSentimentLevel:
 # _classify_fg — boundary tests
 # ---------------------------------------------------------------------------
 
+
 class TestClassifyFG:
-    @pytest.mark.parametrize("value,expected", [
-        (10, SentimentLevel.EXTREME_FEAR),
-        (25, SentimentLevel.EXTREME_FEAR),   # <=25
-        (26, SentimentLevel.FEAR),
-        (30, SentimentLevel.FEAR),
-        (45, SentimentLevel.FEAR),           # <=45
-        (46, SentimentLevel.NEUTRAL),
-        (50, SentimentLevel.NEUTRAL),
-        (55, SentimentLevel.NEUTRAL),        # <=55
-        (56, SentimentLevel.GREED),
-        (70, SentimentLevel.GREED),
-        (75, SentimentLevel.GREED),          # <=75
-        (76, SentimentLevel.EXTREME_GREED),
-        (90, SentimentLevel.EXTREME_GREED),
-    ])
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            (10, SentimentLevel.EXTREME_FEAR),
+            (25, SentimentLevel.EXTREME_FEAR),  # <=25
+            (26, SentimentLevel.FEAR),
+            (30, SentimentLevel.FEAR),
+            (45, SentimentLevel.FEAR),  # <=45
+            (46, SentimentLevel.NEUTRAL),
+            (50, SentimentLevel.NEUTRAL),
+            (55, SentimentLevel.NEUTRAL),  # <=55
+            (56, SentimentLevel.GREED),
+            (70, SentimentLevel.GREED),
+            (75, SentimentLevel.GREED),  # <=75
+            (76, SentimentLevel.EXTREME_GREED),
+            (90, SentimentLevel.EXTREME_GREED),
+        ],
+    )
     def test_classification(self, analyzer, value, expected):
         assert analyzer._classify_fg(value) == expected
 
@@ -60,6 +65,7 @@ class TestClassifyFG:
 # ---------------------------------------------------------------------------
 # _volume_sentiment
 # ---------------------------------------------------------------------------
+
 
 class TestVolumeSentiment:
     def test_returns_float(self, analyzer, sample_df):
@@ -83,6 +89,7 @@ class TestVolumeSentiment:
 # ---------------------------------------------------------------------------
 # _price_momentum
 # ---------------------------------------------------------------------------
+
 
 class TestPriceMomentum:
     def test_returns_float(self, analyzer, sample_df):
@@ -109,6 +116,7 @@ class TestPriceMomentum:
 # _contrarian_signal
 # ---------------------------------------------------------------------------
 
+
 class TestContrarianSignal:
     def test_extreme_fear_negative_composite_buy(self, analyzer):
         assert analyzer._contrarian_signal(15, -0.5) == "BUY"
@@ -129,6 +137,7 @@ class TestContrarianSignal:
 # ---------------------------------------------------------------------------
 # analyze — mocked API
 # ---------------------------------------------------------------------------
+
 
 class TestAnalyze:
     def _mock_api_response(self, value=50):
@@ -157,6 +166,7 @@ class TestAnalyze:
     @patch("sentiment.requests.get")
     def test_api_failure_uses_fallback(self, mock_get, analyzer, sample_df):
         import requests as _requests
+
         mock_get.side_effect = _requests.RequestException("network error")
         result = analyzer.analyze(sample_df)
         assert result.source == "fallback"
@@ -166,6 +176,7 @@ class TestAnalyze:
 # ---------------------------------------------------------------------------
 # _fetch_fear_greed cache
 # ---------------------------------------------------------------------------
+
 
 class TestFetchCache:
     @patch("sentiment.requests.get")

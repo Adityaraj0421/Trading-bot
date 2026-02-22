@@ -12,14 +12,14 @@ Features:
   - Heartbeat monitoring
 """
 
-import json
-import time
-import logging
 import asyncio
+import json
+import logging
 import threading
+import time
 from collections import deque
-from typing import Any, Callable
-from datetime import datetime
+from collections.abc import Callable
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -188,9 +188,14 @@ class WebSocketStreamer:
             except Exception as e:
                 self._connected = False
                 self._reconnect_count += 1
-                backoff = min(2 ** self._reconnect_count, 60)
-                _log.warning("WebSocket disconnected (%s), reconnecting in %ds... (%d/%d)",
-                             e, backoff, self._reconnect_count, self._max_reconnects)
+                backoff = min(2**self._reconnect_count, 60)
+                _log.warning(
+                    "WebSocket disconnected (%s), reconnecting in %ds... (%d/%d)",
+                    e,
+                    backoff,
+                    self._reconnect_count,
+                    self._max_reconnects,
+                )
                 await asyncio.sleep(backoff)
 
         if self._reconnect_count >= self._max_reconnects:
@@ -238,42 +243,62 @@ class WebSocketStreamer:
         if self.exchange_id == "kraken":
             pair = _normalize_pair_kraken(self.trading_pair)
             # Subscribe to ticker
-            await ws.send(json.dumps({
-                "event": "subscribe",
-                "pair": [pair],
-                "subscription": {"name": "ticker"},
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "event": "subscribe",
+                        "pair": [pair],
+                        "subscription": {"name": "ticker"},
+                    }
+                )
+            )
             # Subscribe to trades
-            await ws.send(json.dumps({
-                "event": "subscribe",
-                "pair": [pair],
-                "subscription": {"name": "trade"},
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "event": "subscribe",
+                        "pair": [pair],
+                        "subscription": {"name": "trade"},
+                    }
+                )
+            )
             # Subscribe to book
-            await ws.send(json.dumps({
-                "event": "subscribe",
-                "pair": [pair],
-                "subscription": {"name": "book", "depth": 25},
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "event": "subscribe",
+                        "pair": [pair],
+                        "subscription": {"name": "book", "depth": 25},
+                    }
+                )
+            )
 
         elif self.exchange_id == "coinbase":
             product_id = self.trading_pair.replace("/", "-")
-            await ws.send(json.dumps({
-                "type": "subscribe",
-                "product_ids": [product_id],
-                "channels": ["ticker", "level2_batch", "matches"],
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "subscribe",
+                        "product_ids": [product_id],
+                        "channels": ["ticker", "level2_batch", "matches"],
+                    }
+                )
+            )
 
         elif self.exchange_id == "bybit":
             pair_symbol = self.trading_pair.replace("/", "")
-            await ws.send(json.dumps({
-                "op": "subscribe",
-                "args": [
-                    f"tickers.{pair_symbol}",
-                    f"publicTrade.{pair_symbol}",
-                    f"orderbook.25.{pair_symbol}",
-                ],
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "op": "subscribe",
+                        "args": [
+                            f"tickers.{pair_symbol}",
+                            f"publicTrade.{pair_symbol}",
+                            f"orderbook.25.{pair_symbol}",
+                        ],
+                    }
+                )
+            )
 
         # Binance: streams are in URL, no subscription needed
 
@@ -370,18 +395,17 @@ class WebSocketStreamer:
                     if self._on_ticker:
                         self._on_ticker(ticker)
 
-            elif "trade" in channel:
-                if isinstance(payload, list):
-                    for t in payload:
-                        trade = {
-                            "price": float(t[0]),
-                            "quantity": float(t[1]),
-                            "side": "buy" if t[3] == "b" else "sell",
-                            "ts": float(t[2]),
-                        }
-                        self.latest_trades.append(trade)
-                        if self._on_trade:
-                            self._on_trade(trade)
+            elif "trade" in channel and isinstance(payload, list):
+                for t in payload:
+                    trade = {
+                        "price": float(t[0]),
+                        "quantity": float(t[1]),
+                        "side": "buy" if t[3] == "b" else "sell",
+                        "ts": float(t[2]),
+                    }
+                    self.latest_trades.append(trade)
+                    if self._on_trade:
+                        self._on_trade(trade)
 
     def _process_coinbase(self, data: dict) -> None:
         """Process Coinbase messages."""

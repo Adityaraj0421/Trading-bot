@@ -32,7 +32,7 @@ class RiskVisualizer:
                 "range_start": round(float(edges[i]) * 100, 2),
                 "range_end": round(float(edges[i + 1]) * 100, 2),
                 "count": int(counts[i]),
-                "label": f"{edges[i]*100:.1f}%-{edges[i+1]*100:.1f}%",
+                "label": f"{edges[i] * 100:.1f}%-{edges[i + 1] * 100:.1f}%",
             }
             for i in range(len(counts))
         ]

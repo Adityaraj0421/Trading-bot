@@ -4,13 +4,14 @@ Bounded history, reuses pre-computed indicators, cached API results.
 """
 
 import logging
+import time
+from collections import deque
+from dataclasses import dataclass
+from enum import Enum
+
 import numpy as np
 import pandas as pd
 import requests
-from dataclasses import dataclass
-from enum import Enum
-from collections import deque
-import time
 
 _log = logging.getLogger(__name__)
 
@@ -99,10 +100,14 @@ class SentimentAnalyzer:
 
     def _classify_fg(self, value: int) -> SentimentLevel:
         """Map a Fear & Greed index value to a SentimentLevel bucket."""
-        if value <= 25: return SentimentLevel.EXTREME_FEAR
-        if value <= 45: return SentimentLevel.FEAR
-        if value <= 55: return SentimentLevel.NEUTRAL
-        if value <= 75: return SentimentLevel.GREED
+        if value <= 25:
+            return SentimentLevel.EXTREME_FEAR
+        if value <= 45:
+            return SentimentLevel.FEAR
+        if value <= 55:
+            return SentimentLevel.NEUTRAL
+        if value <= 75:
+            return SentimentLevel.GREED
         return SentimentLevel.EXTREME_GREED
 
     def _volume_sentiment(self, df: pd.DataFrame) -> float:
@@ -152,6 +157,8 @@ class SentimentAnalyzer:
 
     def _contrarian_signal(self, fg_index: int, composite: float) -> str:
         """Return a contrarian BUY/SELL/NEUTRAL signal at sentiment extremes."""
-        if fg_index <= 20 and composite < -0.3: return "BUY"
-        if fg_index >= 80 and composite > 0.3: return "SELL"
+        if fg_index <= 20 and composite < -0.3:
+            return "BUY"
+        if fg_index >= 80 and composite > 0.3:
+            return "SELL"
         return "NEUTRAL"

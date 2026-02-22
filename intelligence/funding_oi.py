@@ -15,17 +15,18 @@ Signal logic:
   - Positive funding + falling OI = distribution → bearish
 """
 
-import time
 import logging
-import requests
+import time
 from collections import deque
 from typing import Any
+
+import requests
 
 _log = logging.getLogger(__name__)
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json",
 }
 
@@ -44,12 +45,8 @@ class FundingOIAnalyzer:
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._cache_ttl: int = 300  # 5 min cache (funding updates every 8h)
-        self._funding_history: dict[str, deque] = {
-            s: deque(maxlen=24) for s in self.symbols
-        }
-        self._oi_history: dict[str, deque] = {
-            s: deque(maxlen=24) for s in self.symbols
-        }
+        self._funding_history: dict[str, deque] = {s: deque(maxlen=24) for s in self.symbols}
+        self._oi_history: dict[str, deque] = {s: deque(maxlen=24) for s in self.symbols}
 
     @staticmethod
     def _pair_to_binance(pair: str) -> str:

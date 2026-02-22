@@ -7,14 +7,17 @@ Uses small datasets to keep tests fast. Does NOT run full backtests
 import numpy as np
 import pandas as pd
 import pytest
-from walk_forward import WalkForwardValidator, WFOWindow, WFOResult
+
+from walk_forward import WalkForwardValidator, WFOResult, WFOWindow
 
 
 @pytest.fixture()
 def validator():
     """Validator with small windows for fast testing."""
     return WalkForwardValidator(
-        train_bars=50, test_bars=20, step_bars=10,
+        train_bars=50,
+        test_bars=20,
+        step_bars=10,
         mc_simulations=10,  # Small for speed
         verbose=False,
     )
@@ -26,13 +29,16 @@ def small_ohlcv():
     np.random.seed(42)
     n = 200
     close = 50000 + np.cumsum(np.random.randn(n) * 100)
-    return pd.DataFrame({
-        "open": close + np.random.randn(n) * 30,
-        "high": close + np.abs(np.random.randn(n) * 50),
-        "low": close - np.abs(np.random.randn(n) * 50),
-        "close": close,
-        "volume": np.abs(np.random.randn(n) * 1000 + 5000),
-    }, index=pd.date_range("2025-01-01", periods=n, freq="h"))
+    return pd.DataFrame(
+        {
+            "open": close + np.random.randn(n) * 30,
+            "high": close + np.abs(np.random.randn(n) * 50),
+            "low": close - np.abs(np.random.randn(n) * 50),
+            "close": close,
+            "volume": np.abs(np.random.randn(n) * 1000 + 5000),
+        },
+        index=pd.date_range("2025-01-01", periods=n, freq="h"),
+    )
 
 
 # ── Window Generation ─────────────────────────────────────────────
@@ -79,14 +85,12 @@ class TestWindowGeneration:
 
 class TestWFOWindow:
     def test_post_init_computes_bars(self):
-        w = WFOWindow(fold_id=0, train_start=0, train_end=100,
-                      test_start=100, test_end=150)
+        w = WFOWindow(fold_id=0, train_start=0, train_end=100, test_start=100, test_end=150)
         assert w.train_bars == 100
         assert w.test_bars == 50
 
     def test_defaults(self):
-        w = WFOWindow(fold_id=0, train_start=0, train_end=50,
-                      test_start=50, test_end=70)
+        w = WFOWindow(fold_id=0, train_start=0, train_end=50, test_start=50, test_end=70)
         assert w.metrics == {}
         assert w.trades == []
 
@@ -122,9 +126,13 @@ class TestWFOResult:
 class TestValidatorConfig:
     def test_custom_params(self):
         v = WalkForwardValidator(
-            train_bars=200, test_bars=50, step_bars=25,
-            mc_simulations=100, mc_confidence=0.99,
-            min_oos_sharpe=0.5, max_oos_drawdown=-10.0,
+            train_bars=200,
+            test_bars=50,
+            step_bars=25,
+            mc_simulations=100,
+            mc_confidence=0.99,
+            min_oos_sharpe=0.5,
+            max_oos_drawdown=-10.0,
         )
         assert v.train_bars == 200
         assert v.test_bars == 50

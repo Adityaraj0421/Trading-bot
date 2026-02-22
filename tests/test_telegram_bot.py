@@ -3,11 +3,13 @@ Tests for TelegramBot — command dispatch, confirmations, auth.
 All Telegram API calls mocked via requests.post.
 """
 
+import contextlib
 import threading
-import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from telegram_bot import TelegramBot, PendingConfirmation
+
+from telegram_bot import PendingConfirmation, TelegramBot
 
 
 @pytest.fixture()
@@ -57,9 +59,14 @@ class TestBotProperties:
 class TestPendingConfirmation:
     def test_creates_with_defaults(self):
         pc = PendingConfirmation(
-            trade_id="test-123", signal="BUY", pair="BTC/USDT",
-            price=50000, quantity=0.1, side="long",
-            strategy="momentum", confidence=0.85,
+            trade_id="test-123",
+            signal="BUY",
+            pair="BTC/USDT",
+            price=50000,
+            quantity=0.1,
+            side="long",
+            strategy="momentum",
+            confidence=0.85,
         )
         assert pc.decision is None
         assert pc.message_id is None
@@ -68,9 +75,14 @@ class TestPendingConfirmation:
 
     def test_event_can_be_set(self):
         pc = PendingConfirmation(
-            trade_id="test-456", signal="SELL", pair="ETH/USDT",
-            price=3000, quantity=1.0, side="short",
-            strategy="reversion", confidence=0.7,
+            trade_id="test-456",
+            signal="SELL",
+            pair="ETH/USDT",
+            price=3000,
+            quantity=1.0,
+            side="short",
+            strategy="reversion",
+            confidence=0.7,
         )
         pc.decision = "approved"
         pc.event.set()
@@ -100,11 +112,8 @@ class TestCommandHandling:
     def test_status_command_without_store(self, mock_post, bot):
         mock_post.return_value = MagicMock(ok=True)
         # _cmd_status should handle missing data_store gracefully
-        try:
+        with contextlib.suppress(Exception):
             bot._cmd_status(chat_id="999")
-        except Exception:
-            # Acceptable if no data store wired
-            pass
 
 
 # ── Auth / Chat ID ────────────────────────────────────────────────
@@ -127,9 +136,14 @@ class TestPendingTrades:
 
     def test_add_and_remove_pending(self, bot):
         pc = PendingConfirmation(
-            trade_id="t1", signal="BUY", pair="BTC/USDT",
-            price=50000, quantity=0.1, side="long",
-            strategy="momentum", confidence=0.8,
+            trade_id="t1",
+            signal="BUY",
+            pair="BTC/USDT",
+            price=50000,
+            quantity=0.1,
+            side="long",
+            strategy="momentum",
+            confidence=0.8,
         )
         with bot._pending_lock:
             bot._pending["t1"] = pc

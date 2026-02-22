@@ -3,15 +3,14 @@ Shared test fixtures for the crypto trading agent.
 Auto-discovered by pytest — no imports needed in test files.
 """
 
-import os
-import pytest
 import numpy as np
 import pandas as pd
-
+import pytest
 
 # ---------------------------------------------------------------------------
 # Config isolation: ensure tests never hit real APIs
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _safe_config(monkeypatch):
@@ -32,6 +31,7 @@ def _safe_config(monkeypatch):
 # Reusable data generators
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def sample_ohlcv():
     """Generate a realistic 200-bar OHLCV DataFrame for testing."""
@@ -43,10 +43,16 @@ def sample_ohlcv():
     opn = close + np.random.randn(n) * 30
     volume = np.abs(np.random.randn(n) * 1000 + 5000)
 
-    df = pd.DataFrame({
-        "open": opn, "high": high, "low": low,
-        "close": close, "volume": volume,
-    }, index=pd.date_range("2025-01-01", periods=n, freq="h"))
+    df = pd.DataFrame(
+        {
+            "open": opn,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        },
+        index=pd.date_range("2025-01-01", periods=n, freq="h"),
+    )
     return df
 
 
@@ -54,4 +60,5 @@ def sample_ohlcv():
 def sample_indicators(sample_ohlcv):
     """OHLCV with indicator columns appended (sma, rsi, atr, etc.)."""
     from indicators import Indicators
+
     return Indicators.add_all(sample_ohlcv)

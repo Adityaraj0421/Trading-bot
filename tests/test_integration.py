@@ -10,14 +10,14 @@ demo data (seed=42) when the exchange is unreachable.
 import pytest
 from fastapi.testclient import TestClient
 
-from api.server import create_app, data_store
 from agent import TradingAgent, set_data_store
+from api.server import create_app, data_store
 from config import Config
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _reset_data_store():
@@ -50,6 +50,7 @@ def client():
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestAgentToDataStore:
     """Verify agent.run_cycle() pushes data into DataStore."""

@@ -5,9 +5,10 @@ Tests correlation computation, capital allocation with volatility/correlation
 adjustments, portfolio risk metrics (Herfindahl, corr risk), and rebalancing.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
+
 from portfolio import PairAllocation, PortfolioManager
 
 
@@ -28,6 +29,7 @@ def _make_price_series(n=50, start=100, seed=42):
 # Init
 # ---------------------------------------------------------------------------
 
+
 class TestPortfolioInit:
     def test_custom_pairs(self):
         pm = PortfolioManager(pairs=["BTC/USDT", "ETH/USDT"])
@@ -44,6 +46,7 @@ class TestPortfolioInit:
 # ---------------------------------------------------------------------------
 # update_prices
 # ---------------------------------------------------------------------------
+
 
 class TestUpdatePrices:
     def test_stores_returns(self, portfolio):
@@ -66,6 +69,7 @@ class TestUpdatePrices:
 # ---------------------------------------------------------------------------
 # compute_correlations
 # ---------------------------------------------------------------------------
+
 
 class TestComputeCorrelations:
     def test_single_pair_returns_empty(self, portfolio):
@@ -103,6 +107,7 @@ class TestComputeCorrelations:
 # ---------------------------------------------------------------------------
 # get_allocation
 # ---------------------------------------------------------------------------
+
 
 class TestGetAllocation:
     def test_returns_pair_allocation(self, portfolio):
@@ -146,6 +151,7 @@ class TestGetAllocation:
 # get_portfolio_risk
 # ---------------------------------------------------------------------------
 
+
 class TestGetPortfolioRisk:
     def test_empty_positions(self, portfolio):
         result = portfolio.get_portfolio_risk([])
@@ -153,11 +159,11 @@ class TestGetPortfolioRisk:
         assert result["concentration"] == 0
 
     def test_single_position_concentration(self, portfolio):
-        pos = {"symbol": "BTC/USDT", "notional_value": 100}
         # Make mock-like with attribute access
         class MockPos:
             symbol = "BTC/USDT"
             notional_value = 100
+
         result = portfolio.get_portfolio_risk([MockPos()])
         assert result["concentration"] == pytest.approx(1.0)
 
@@ -166,6 +172,7 @@ class TestGetPortfolioRisk:
             def __init__(self, sym, val):
                 self.symbol = sym
                 self.notional_value = val
+
         positions = [MockPos("BTC/USDT", 100), MockPos("ETH/USDT", 100)]
         result = portfolio.get_portfolio_risk(positions)
         assert result["concentration"] == pytest.approx(0.5)
@@ -174,6 +181,7 @@ class TestGetPortfolioRisk:
         class MockPos:
             symbol = "BTC/USDT"
             notional_value = 100
+
         result = portfolio.get_portfolio_risk([MockPos()])
         assert result["corr_risk"] == "low"
 
@@ -188,6 +196,7 @@ class TestGetPortfolioRisk:
             def __init__(self, sym, val):
                 self.symbol = sym
                 self.notional_value = val
+
         positions = [MockPos("BTC/USDT", 100), MockPos("ETH/USDT", 100)]
         result = portfolio.get_portfolio_risk(positions)
         assert result["corr_risk"] == "high"
@@ -197,6 +206,7 @@ class TestGetPortfolioRisk:
             def __init__(self, sym, val):
                 self.symbol = sym
                 self.notional_value = val
+
         positions = [MockPos("BTC/USDT", 100), MockPos("ETH/USDT", 200)]
         result = portfolio.get_portfolio_risk(positions)
         assert result["pair_exposure"]["BTC/USDT"] == 100
@@ -207,6 +217,7 @@ class TestGetPortfolioRisk:
 # rebalance_weights
 # ---------------------------------------------------------------------------
 
+
 class TestRebalanceWeights:
     def test_no_volatility_data_noop(self, portfolio):
         original = portfolio.weights.copy()
@@ -215,9 +226,9 @@ class TestRebalanceWeights:
 
     def test_inverse_vol_weighting(self, portfolio):
         portfolio.pair_volatility = {
-            "BTC/USDT": 0.01,   # Low vol → high weight
-            "ETH/USDT": 0.03,   # Med vol
-            "SOL/USDT": 0.06,   # High vol → low weight
+            "BTC/USDT": 0.01,  # Low vol → high weight
+            "ETH/USDT": 0.03,  # Med vol
+            "SOL/USDT": 0.06,  # High vol → low weight
         }
         portfolio.rebalance_weights()
         assert portfolio.weights["BTC/USDT"] > portfolio.weights["ETH/USDT"]
@@ -235,7 +246,7 @@ class TestRebalanceWeights:
 
     def test_zero_vol_handled(self, portfolio):
         portfolio.pair_volatility = {
-            "BTC/USDT": 0.0,    # Zero vol → gets capped inverse
+            "BTC/USDT": 0.0,  # Zero vol → gets capped inverse
             "ETH/USDT": 0.02,
             "SOL/USDT": 0.04,
         }

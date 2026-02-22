@@ -4,7 +4,6 @@ Historical Black Swan Event Replayer
 Applies real historical crash patterns to the current portfolio.
 """
 
-import numpy as np
 from dataclasses import dataclass
 
 
@@ -37,8 +36,7 @@ HISTORICAL_SCENARIOS = [
     StressScenario(
         name="China Mining Ban (May 2021)",
         description="BTC dropped ~55% over 2 weeks after China banned crypto mining",
-        daily_returns=[-0.05, -0.08, -0.03, -0.10, 0.02, -0.06, -0.04,
-                       -0.07, 0.03, -0.05, -0.03, -0.02, 0.01, -0.04],
+        daily_returns=[-0.05, -0.08, -0.03, -0.10, 0.02, -0.06, -0.04, -0.07, 0.03, -0.05, -0.03, -0.02, 0.01, -0.04],
         duration_days=14,
         total_drawdown=-0.55,
     ),
@@ -52,8 +50,7 @@ HISTORICAL_SCENARIOS = [
     StressScenario(
         name="Terra/Luna Crash (May 2022)",
         description="Market-wide contagion as UST/LUNA collapsed",
-        daily_returns=[-0.03, -0.05, -0.10, -0.15, -0.08, 0.05, -0.03,
-                       -0.02, 0.01, -0.04],
+        daily_returns=[-0.03, -0.05, -0.10, -0.15, -0.08, 0.05, -0.03, -0.02, 0.01, -0.04],
         duration_days=10,
         total_drawdown=-0.40,
     ),
@@ -63,8 +60,7 @@ HISTORICAL_SCENARIOS = [
 class StressTestRunner:
     """Applies historical crash patterns to a portfolio."""
 
-    def run_stress_test(self, initial_equity: float,
-                        scenarios: list[StressScenario] = None) -> list[dict]:
+    def run_stress_test(self, initial_equity: float, scenarios: list[StressScenario] = None) -> list[dict]:
         """
         Run all stress test scenarios against the current portfolio.
         Returns projected losses for each scenario.
@@ -77,22 +73,24 @@ class StressTestRunner:
             equity_path = [equity]
 
             for daily_return in scenario.daily_returns:
-                equity *= (1 + daily_return)
+                equity *= 1 + daily_return
                 equity_path.append(round(equity, 2))
 
             final_equity = equity_path[-1]
             loss = initial_equity - final_equity
             loss_pct = loss / initial_equity
 
-            results.append({
-                **scenario.to_dict(),
-                "initial_equity": round(initial_equity, 2),
-                "final_equity": round(final_equity, 2),
-                "projected_loss": round(loss, 2),
-                "projected_loss_pct": round(loss_pct * 100, 2),
-                "equity_path": equity_path,
-                "survived": final_equity > 0,
-            })
+            results.append(
+                {
+                    **scenario.to_dict(),
+                    "initial_equity": round(initial_equity, 2),
+                    "final_equity": round(final_equity, 2),
+                    "projected_loss": round(loss, 2),
+                    "projected_loss_pct": round(loss_pct * 100, 2),
+                    "equity_path": equity_path,
+                    "survived": final_equity > 0,
+                }
+            )
 
         return results
 

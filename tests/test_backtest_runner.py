@@ -4,11 +4,13 @@ Unit tests for backtest_runner.py — BacktestRunner orchestrating scenario/pair
 Mocks DataFetcher and Backtester in the backtest_runner module namespace.
 """
 
-import pytest
+from unittest.mock import MagicMock
+
 import pandas as pd
-from unittest.mock import MagicMock, patch
-from demo_data import generate_ohlcv
+import pytest
+
 from backtest_runner import BacktestRunner
+from demo_data import generate_ohlcv
 
 
 def _mock_metrics():
@@ -49,6 +51,7 @@ def runner(monkeypatch, mock_fetcher):
 # ---------------------------------------------------------------------------
 # run_scenario
 # ---------------------------------------------------------------------------
+
 
 class TestRunScenario:
     def test_returns_result_dict(self, runner, monkeypatch):
@@ -91,6 +94,7 @@ class TestRunScenario:
 # run_multi_pair
 # ---------------------------------------------------------------------------
 
+
 class TestRunMultiPair:
     def test_returns_results_per_pair(self, runner):
         results = runner.run_multi_pair(pairs=["BTC/USDT", "ETH/USDT", "SOL/USDT"])
@@ -122,6 +126,7 @@ class TestRunMultiPair:
 # run_all_scenarios
 # ---------------------------------------------------------------------------
 
+
 class TestRunAllScenarios:
     def test_runs_all_scenarios(self, runner, monkeypatch):
         mock_bt = MagicMock()
@@ -150,6 +155,7 @@ class TestRunAllScenarios:
 # run_multi_timeframe
 # ---------------------------------------------------------------------------
 
+
 class TestRunMultiTimeframe:
     def test_returns_per_timeframe(self, runner):
         results = runner.run_multi_timeframe(timeframes=["15m", "1h", "4h"])
@@ -171,6 +177,7 @@ class TestRunMultiTimeframe:
 # ---------------------------------------------------------------------------
 # get_all_results
 # ---------------------------------------------------------------------------
+
 
 class TestGetAllResults:
     def test_empty_initially(self, runner):

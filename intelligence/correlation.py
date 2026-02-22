@@ -7,11 +7,13 @@ Sources:
 v7.0: Added CCXT fallback so correlation works even when yfinance proxy is blocked.
 """
 
-import time
 import logging
+import time
+from typing import Any
+
 import numpy as np
 import requests
-from typing import Any
+
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -19,8 +21,8 @@ _log = logging.getLogger(__name__)
 # Browser-like headers for Yahoo Finance CSV endpoint
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
-                   "Chrome/120.0.0.0 Safari/537.36",
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36",
     "Accept": "text/csv,application/json,*/*",
 }
 
@@ -48,8 +50,12 @@ class CorrelationAnalyzer:
         if result is None:
             result = self._try_yahoo_csv_fallback()
         if result is None:
-            result = {"source": "correlation", "signal": "neutral", "strength": 0.0,
-                      "data": {"error": "all_sources_failed"}}
+            result = {
+                "source": "correlation",
+                "signal": "neutral",
+                "strength": 0.0,
+                "data": {"error": "all_sources_failed"},
+            }
 
         self._cache = result
         self._cache_ts = now
@@ -162,8 +168,9 @@ class CorrelationAnalyzer:
             _log.debug("Yahoo CSV fetch failed for %s: %s", ticker, e)
             return None
 
-    def _compute_signal(self, btc_returns: np.ndarray, spy_returns: np.ndarray,
-                        window: int, source_method: str) -> dict[str, Any]:
+    def _compute_signal(
+        self, btc_returns: np.ndarray, spy_returns: np.ndarray, window: int, source_method: str
+    ) -> dict[str, Any]:
         """Common correlation computation."""
         corr = np.corrcoef(btc_returns, spy_returns)[0, 1]
         spy_trend = "up" if spy_returns.mean() > 0 else "down"

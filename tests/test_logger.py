@@ -4,7 +4,9 @@ Tests for StructuredLogger — event logging, JSON output, event queries.
 
 import json
 import uuid
+
 import pytest
+
 from logger import StructuredLogger
 
 
@@ -38,25 +40,30 @@ class TestEventLogging:
         assert events[0]["cycle"] == 1
 
     def test_log_signal(self, logger):
-        logger.log_signal("BUY", 0.85, "strategy", regime="trending_up",
-                          strategy="momentum")
+        logger.log_signal("BUY", 0.85, "strategy", regime="trending_up", strategy="momentum")
         events = logger.get_recent_events(event_type="signal")
         assert len(events) == 1
         assert events[0]["signal"] == "BUY"
 
     def test_log_trade_open(self, logger):
-        logger.log_trade_open("BTC/USDT", "long", 50000, 0.1,
-                              sl=49000, tp=52000, trailing=500,
-                              strategy="momentum")
+        logger.log_trade_open("BTC/USDT", "long", 50000, 0.1, sl=49000, tp=52000, trailing=500, strategy="momentum")
         events = logger.get_recent_events(event_type="trade_open")
         assert len(events) == 1
         assert events[0]["symbol"] == "BTC/USDT"
 
     def test_log_trade_close(self, logger):
-        logger.log_trade_close("BTC/USDT", "long", 50000, 51000,
-                               pnl_net=90, pnl_gross=100, fees=10,
-                               reason="take_profit", hold_bars=5,
-                               strategy="momentum")
+        logger.log_trade_close(
+            "BTC/USDT",
+            "long",
+            50000,
+            51000,
+            pnl_net=90,
+            pnl_gross=100,
+            fees=10,
+            reason="take_profit",
+            hold_bars=5,
+            strategy="momentum",
+        )
         events = logger.get_recent_events(event_type="trade_close")
         assert len(events) == 1
         assert events[0]["pnl_net"] == 90
@@ -79,8 +86,7 @@ class TestEventLogging:
         assert events[0]["level"] == "ERROR"
 
     def test_log_portfolio(self, logger):
-        logger.log_portfolio(capital=10000, positions=2, total_pnl=500,
-                             fees=50, win_rate=0.65)
+        logger.log_portfolio(capital=10000, positions=2, total_pnl=500, fees=50, win_rate=0.65)
         events = logger.get_recent_events(event_type="portfolio")
         assert len(events) == 1
 
@@ -118,11 +124,9 @@ class TestFileOutput:
         # mismatch when Python's logging singleton caches old handlers.
         for handler in logger.file_logger.handlers:
             handler.flush()
-        file_handler = next(
-            h for h in logger.file_logger.handlers
-            if hasattr(h, "baseFilename")
-        )
-        content = open(file_handler.baseFilename).read()
+        file_handler = next(h for h in logger.file_logger.handlers if hasattr(h, "baseFilename"))
+        with open(file_handler.baseFilename) as f:
+            content = f.read()
         assert content.strip()
         # Should be valid JSON
         data = json.loads(content.strip())

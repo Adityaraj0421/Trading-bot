@@ -5,15 +5,15 @@ Produces an adjustment_factor (0.5 to 1.5) and bias (bullish/bearish/neutral).
 
 from typing import Any
 
-from intelligence.onchain import OnChainAnalyzer
-from intelligence.orderbook import OrderBookAnalyzer
+from intelligence.cascade_predictor import CascadePredictor
 from intelligence.correlation import CorrelationAnalyzer
-from intelligence.whale_tracker import WhaleTracker
-from intelligence.news_sentiment import NewsSentimentAnalyzer
-from intelligence.llm_sentiment import LLMSentimentProvider
 from intelligence.funding_oi import FundingOIAnalyzer
 from intelligence.liquidation import LiquidationAnalyzer
-from intelligence.cascade_predictor import CascadePredictor
+from intelligence.llm_sentiment import LLMSentimentProvider
+from intelligence.news_sentiment import NewsSentimentAnalyzer
+from intelligence.onchain import OnChainAnalyzer
+from intelligence.orderbook import OrderBookAnalyzer
+from intelligence.whale_tracker import WhaleTracker
 
 
 class IntelligenceAggregator:
@@ -21,6 +21,7 @@ class IntelligenceAggregator:
 
     def __init__(self, exchange: Any = None) -> None:
         from config import Config
+
         # Convert trading pairs to Binance format for derivatives providers
         binance_symbols = [p.replace("/", "") for p in Config.TRADING_PAIRS]
 
@@ -45,12 +46,14 @@ class IntelligenceAggregator:
                 sig = provider.get_signal()
                 signals.append(sig)
             except Exception as e:
-                signals.append({
-                    "source": provider.__class__.__name__,
-                    "signal": "neutral",
-                    "strength": 0.0,
-                    "data": {"error": str(e)},
-                })
+                signals.append(
+                    {
+                        "source": provider.__class__.__name__,
+                        "signal": "neutral",
+                        "strength": 0.0,
+                        "data": {"error": str(e)},
+                    }
+                )
 
         self._last_signals = signals
 

@@ -5,9 +5,9 @@ Tests resample aggregation, HTF bias computation, cache behaviour,
 and the pure confirm_signal adjustment logic.
 """
 
-import pytest
 import pandas as pd
-import numpy as np
+import pytest
+
 from demo_data import generate_ohlcv
 from indicators import Indicators
 from multi_timeframe import MultiTimeframeConfirmer
@@ -34,6 +34,7 @@ def _clear_indicator_cache():
 # resample_to_higher_tf
 # ---------------------------------------------------------------------------
 
+
 class TestResampleToHigherTf:
     def test_reduces_row_count(self, confirmer, hourly_df):
         htf = confirmer.resample_to_higher_tf(hourly_df, target_tf="4h")
@@ -43,65 +44,80 @@ class TestResampleToHigherTf:
 
     def test_open_uses_first(self, confirmer):
         idx = pd.date_range("2024-01-01", periods=8, freq="1h")
-        df = pd.DataFrame({
-            "open": [10, 20, 30, 40, 50, 60, 70, 80],
-            "high": [15, 25, 35, 45, 55, 65, 75, 85],
-            "low": [5, 15, 25, 35, 45, 55, 65, 75],
-            "close": [12, 22, 32, 42, 52, 62, 72, 82],
-            "volume": [100] * 8,
-        }, index=idx)
+        df = pd.DataFrame(
+            {
+                "open": [10, 20, 30, 40, 50, 60, 70, 80],
+                "high": [15, 25, 35, 45, 55, 65, 75, 85],
+                "low": [5, 15, 25, 35, 45, 55, 65, 75],
+                "close": [12, 22, 32, 42, 52, 62, 72, 82],
+                "volume": [100] * 8,
+            },
+            index=idx,
+        )
         df.index.name = "timestamp"
         htf = confirmer.resample_to_higher_tf(df, target_tf="4h")
         assert htf["open"].iloc[0] == 10
 
     def test_high_uses_max(self, confirmer):
         idx = pd.date_range("2024-01-01", periods=8, freq="1h")
-        df = pd.DataFrame({
-            "open": [10] * 8,
-            "high": [15, 25, 35, 45, 55, 65, 75, 85],
-            "low": [5] * 8,
-            "close": [12] * 8,
-            "volume": [100] * 8,
-        }, index=idx)
+        df = pd.DataFrame(
+            {
+                "open": [10] * 8,
+                "high": [15, 25, 35, 45, 55, 65, 75, 85],
+                "low": [5] * 8,
+                "close": [12] * 8,
+                "volume": [100] * 8,
+            },
+            index=idx,
+        )
         df.index.name = "timestamp"
         htf = confirmer.resample_to_higher_tf(df, target_tf="4h")
         assert htf["high"].iloc[0] == 45
 
     def test_low_uses_min(self, confirmer):
         idx = pd.date_range("2024-01-01", periods=8, freq="1h")
-        df = pd.DataFrame({
-            "open": [10] * 8,
-            "high": [50] * 8,
-            "low": [5, 4, 3, 2, 6, 7, 8, 9],
-            "close": [12] * 8,
-            "volume": [100] * 8,
-        }, index=idx)
+        df = pd.DataFrame(
+            {
+                "open": [10] * 8,
+                "high": [50] * 8,
+                "low": [5, 4, 3, 2, 6, 7, 8, 9],
+                "close": [12] * 8,
+                "volume": [100] * 8,
+            },
+            index=idx,
+        )
         df.index.name = "timestamp"
         htf = confirmer.resample_to_higher_tf(df, target_tf="4h")
         assert htf["low"].iloc[0] == 2
 
     def test_close_uses_last(self, confirmer):
         idx = pd.date_range("2024-01-01", periods=8, freq="1h")
-        df = pd.DataFrame({
-            "open": [10] * 8,
-            "high": [50] * 8,
-            "low": [5] * 8,
-            "close": [12, 22, 32, 42, 52, 62, 72, 82],
-            "volume": [100] * 8,
-        }, index=idx)
+        df = pd.DataFrame(
+            {
+                "open": [10] * 8,
+                "high": [50] * 8,
+                "low": [5] * 8,
+                "close": [12, 22, 32, 42, 52, 62, 72, 82],
+                "volume": [100] * 8,
+            },
+            index=idx,
+        )
         df.index.name = "timestamp"
         htf = confirmer.resample_to_higher_tf(df, target_tf="4h")
         assert htf["close"].iloc[0] == 42
 
     def test_volume_uses_sum(self, confirmer):
         idx = pd.date_range("2024-01-01", periods=8, freq="1h")
-        df = pd.DataFrame({
-            "open": [10] * 8,
-            "high": [50] * 8,
-            "low": [5] * 8,
-            "close": [12] * 8,
-            "volume": [100, 200, 300, 400, 500, 600, 700, 800],
-        }, index=idx)
+        df = pd.DataFrame(
+            {
+                "open": [10] * 8,
+                "high": [50] * 8,
+                "low": [5] * 8,
+                "close": [12] * 8,
+                "volume": [100, 200, 300, 400, 500, 600, 700, 800],
+            },
+            index=idx,
+        )
         df.index.name = "timestamp"
         htf = confirmer.resample_to_higher_tf(df, target_tf="4h")
         assert htf["volume"].iloc[0] == 1000
@@ -119,6 +135,7 @@ class TestResampleToHigherTf:
 # ---------------------------------------------------------------------------
 # get_htf_bias
 # ---------------------------------------------------------------------------
+
 
 class TestGetHtfBias:
     def test_returns_required_keys(self, confirmer, hourly_df):
@@ -157,6 +174,7 @@ class TestGetHtfBias:
 # ---------------------------------------------------------------------------
 # confirm_signal — pure logic
 # ---------------------------------------------------------------------------
+
 
 class TestConfirmSignal:
     def test_hold_unchanged(self, confirmer):

@@ -1,4 +1,5 @@
 """Arbitrage monitoring routes."""
+
 from typing import Any
 
 from fastapi import APIRouter
@@ -22,6 +23,7 @@ def create_router(store: DataStore) -> APIRouter:
     async def get_fees() -> dict[str, Any]:
         """Return fee summary across exchanges."""
         from arbitrage.fee_calculator import FeeCalculator
+
         calc = FeeCalculator()
         return calc.get_fee_summary()
 

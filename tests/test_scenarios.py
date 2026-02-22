@@ -1,6 +1,8 @@
 """Tests for market scenario generator."""
+
 import numpy as np
 import pytest
+
 from scenarios import generate_scenario, list_scenarios
 
 

@@ -6,28 +6,41 @@ Eliminates redundant recomputation across modules.
 
 import logging
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 _log = logging.getLogger(__name__)
 
 # Feature columns used by the ML model (v8.0: expanded to all indicators)
 FEATURE_COLUMNS = [
     # Core momentum & oscillators
-    "rsi", "macd", "macd_hist", "stoch_k", "stoch_d",
+    "rsi",
+    "macd",
+    "macd_hist",
+    "stoch_k",
+    "stoch_d",
     # Bollinger Band positioning
-    "bb_position", "bb_width",
+    "bb_position",
+    "bb_width",
     # Volatility
-    "atr_pct", "high_low_range",
+    "atr_pct",
+    "high_low_range",
     # Volume analysis
-    "volume_ratio", "obv_divergence",
+    "volume_ratio",
+    "obv_divergence",
     # Trend strength
-    "close_to_sma20", "close_to_sma50", "close_to_vwap",
-    "ema_cross", "adx",
+    "close_to_sma20",
+    "close_to_sma50",
+    "close_to_vwap",
+    "ema_cross",
+    "adx",
     # Returns at multiple horizons
-    "returns_1", "returns_5", "returns_10",
+    "returns_1",
+    "returns_5",
+    "returns_10",
     # Directional movement
-    "plus_di", "minus_di",
+    "plus_di",
+    "minus_di",
     # Volatility regime
     "rolling_vol_10",
 ]
@@ -132,21 +145,22 @@ class Indicators:
         out["obv"] = (volume * obv_direction).cumsum()
         out["obv_sma_20"] = out["obv"].rolling(20).mean()
         out["obv_divergence"] = np.where(
-            (close > close.shift(5)) & (out["obv"] < out["obv"].shift(5)), -1,  # bearish divergence
+            (close > close.shift(5)) & (out["obv"] < out["obv"].shift(5)),
+            -1,  # bearish divergence
             np.where(
-                (close < close.shift(5)) & (out["obv"] > out["obv"].shift(5)), 1,  # bullish divergence
-                0
-            )
+                (close < close.shift(5)) & (out["obv"] > out["obv"].shift(5)),
+                1,  # bullish divergence
+                0,
+            ),
         )
 
         # --- v7.0: EMA crossover signals ---
         out["ema_9"] = close.ewm(span=9, adjust=False).mean()
         out["ema_21"] = close.ewm(span=21, adjust=False).mean()
         out["ema_cross"] = np.where(
-            (out["ema_9"] > out["ema_21"]) & (out["ema_9"].shift(1) <= out["ema_21"].shift(1)), 1,
-            np.where(
-                (out["ema_9"] < out["ema_21"]) & (out["ema_9"].shift(1) >= out["ema_21"].shift(1)), -1, 0
-            )
+            (out["ema_9"] > out["ema_21"]) & (out["ema_9"].shift(1) <= out["ema_21"].shift(1)),
+            1,
+            np.where((out["ema_9"] < out["ema_21"]) & (out["ema_9"].shift(1) >= out["ema_21"].shift(1)), -1, 0),
         )
 
         # --- v7.0: ADX (Average Directional Index) for trend strength ---

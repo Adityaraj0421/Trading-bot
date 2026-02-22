@@ -13,12 +13,12 @@ On shutdown:
   6. Exit cleanly
 """
 
-import signal
-import sys
 import logging
+import signal
 import threading
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -63,11 +63,11 @@ class GracefulShutdown:
                 return
             self._shutdown_requested = True
 
-        print(f"\n{'='*50}")
-        print(f"  GRACEFUL SHUTDOWN INITIATED")
+        print(f"\n{'=' * 50}")
+        print("  GRACEFUL SHUTDOWN INITIATED")
         print(f"  Reason: {reason}")
         print(f"  Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"{'='*50}")
+        print(f"{'=' * 50}")
 
         # Execute callbacks in reverse order (LIFO)
         for name, callback in reversed(self._callbacks):
@@ -79,7 +79,7 @@ class GracefulShutdown:
                 _log.error("Shutdown callback '%s' failed: %s", name, e)
                 print(f"  [Shutdown] FAILED: {name} ({e})")
 
-        print(f"\n  [Shutdown] Complete. Goodbye!")
+        print("\n  [Shutdown] Complete. Goodbye!")
 
 
 class RateLimiter:
@@ -88,8 +88,7 @@ class RateLimiter:
     Tracks requests per endpoint and enforces configurable limits.
     """
 
-    def __init__(self, max_requests_per_minute: int = 1200,
-                 max_orders_per_minute: int = 10) -> None:
+    def __init__(self, max_requests_per_minute: int = 1200, max_orders_per_minute: int = 10) -> None:
         self._max_rpm = max_requests_per_minute
         self._max_opm = max_orders_per_minute
         self._request_times: list[float] = []
@@ -108,17 +107,20 @@ class RateLimiter:
         """Record a general API request."""
         with self._lock:
             import time
+
             self._request_times.append(time.time())
 
     def record_order(self) -> None:
         """Record an order placement."""
         with self._lock:
             import time
+
             self._order_times.append(time.time())
 
     def _check_limit(self, times: list, max_count: int) -> bool:
         """Check if the rate limit would be exceeded."""
         import time
+
         now = time.time()
         cutoff = now - 60  # 1 minute window
         with self._lock:
@@ -130,6 +132,7 @@ class RateLimiter:
     def wait_if_needed(self, is_order: bool = False) -> None:
         """Block until rate limit allows the next request."""
         import time
+
         check = self.can_order if is_order else self.can_request
         while not check():
             time.sleep(0.1)
@@ -137,6 +140,7 @@ class RateLimiter:
     def get_status(self) -> dict[str, int]:
         """Get current rate limit status."""
         import time
+
         now = time.time()
         cutoff = now - 60
         with self._lock:

@@ -3,12 +3,13 @@ Unit tests for PaperExecutor and LiveExecutor — trade execution (v2.0).
 Covers order placement, cancellation, error handling, and edge cases.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
 from datetime import datetime
-import ccxt
+from unittest.mock import MagicMock, patch
 
-from executor import PaperExecutor, LiveExecutor
+import ccxt
+import pytest
+
+from executor import LiveExecutor, PaperExecutor
 
 
 @pytest.fixture()
@@ -98,39 +99,33 @@ class TestLiveExecutor:
     def test_place_long_order(self):
         """Long order should call create_limit_buy_order."""
         self.mock_exchange.create_limit_buy_order.return_value = {
-            "id": "live_123", "status": "open",
+            "id": "live_123",
+            "status": "open",
         }
         result = self.executor.place_order("BTC/USDT", "long", 0.1, 50000.0)
-        self.mock_exchange.create_limit_buy_order.assert_called_once_with(
-            "BTC/USDT", 0.1, 50000.0
-        )
+        self.mock_exchange.create_limit_buy_order.assert_called_once_with("BTC/USDT", 0.1, 50000.0)
         assert result["id"] == "live_123"
 
     def test_place_short_order(self):
         """Short order should call create_limit_sell_order."""
         self.mock_exchange.create_limit_sell_order.return_value = {
-            "id": "live_456", "status": "open",
+            "id": "live_456",
+            "status": "open",
         }
         result = self.executor.place_order("BTC/USDT", "short", 0.1, 50000.0)
-        self.mock_exchange.create_limit_sell_order.assert_called_once_with(
-            "BTC/USDT", 0.1, 50000.0
-        )
+        self.mock_exchange.create_limit_sell_order.assert_called_once_with("BTC/USDT", 0.1, 50000.0)
         assert result["id"] == "live_456"
 
     def test_insufficient_funds_returns_error(self):
         """InsufficientFunds exception should be caught and return error dict."""
-        self.mock_exchange.create_limit_buy_order.side_effect = (
-            ccxt.InsufficientFunds("Not enough USDT")
-        )
+        self.mock_exchange.create_limit_buy_order.side_effect = ccxt.InsufficientFunds("Not enough USDT")
         result = self.executor.place_order("BTC/USDT", "long", 100.0, 50000.0)
         assert "error" in result
         assert "Not enough USDT" in result["error"]
 
     def test_exchange_error_returns_error(self):
         """ExchangeError should be caught and return error dict."""
-        self.mock_exchange.create_limit_sell_order.side_effect = (
-            ccxt.ExchangeError("Market closed")
-        )
+        self.mock_exchange.create_limit_sell_order.side_effect = ccxt.ExchangeError("Market closed")
         result = self.executor.place_order("BTC/USDT", "short", 0.1, 50000.0)
         assert "error" in result
         assert "Market closed" in result["error"]
@@ -154,9 +149,7 @@ class TestLiveExecutor:
         with patch("executor.Config") as mock_config:
             mock_config.TRADING_PAIR = "ETH/USDT"
             self.executor.cancel_order("order_789")
-            self.mock_exchange.cancel_order.assert_called_once_with(
-                "order_789", "ETH/USDT"
-            )
+            self.mock_exchange.cancel_order.assert_called_once_with("order_789", "ETH/USDT")
 
     def test_executor_stores_exchange_ref(self):
         """LiveExecutor should maintain exchange reference."""
