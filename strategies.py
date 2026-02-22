@@ -29,6 +29,8 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class StrategySignal:
+    """Trading signal produced by a strategy with confidence and risk parameters."""
+
     signal: str          # BUY, SELL, HOLD
     confidence: float    # 0.0 to 1.0
     strategy_name: str
@@ -46,7 +48,7 @@ class BaseStrategy(ABC):
     def generate_signal(
         self, df: pd.DataFrame, sentiment: SentimentState | None = None
     ) -> StrategySignal:
-        pass
+        """Generate a BUY/SELL/HOLD signal from indicator-enriched OHLCV data."""
 
 
 class MomentumStrategy(BaseStrategy):
@@ -72,6 +74,7 @@ class MomentumStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.6)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Score MA alignment, MACD crossover, and RSI to produce a momentum signal."""
         latest = df.iloc[-1]
         prev = df.iloc[-2]
 
@@ -153,6 +156,7 @@ class MeanReversionStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.6)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Detect oversold/overbought extremes using Bollinger Bands, RSI, and Stochastic."""
         latest = df.iloc[-1]
 
         bb_pos = latest.get("bb_position", 0.5)
@@ -225,6 +229,7 @@ class BreakoutStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.6)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Identify Bollinger Band breakouts confirmed by volume surge."""
         latest = df.iloc[-1]
         prev = df.iloc[-2]
 
@@ -292,6 +297,7 @@ class GridStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.5)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Signal BUY/SELL when price deviates from grid center by threshold levels."""
         latest = df.iloc[-1]
         close = latest["close"]
 
@@ -352,6 +358,7 @@ class ScalpingStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.5)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Detect reversal candle patterns (hammer/shooting star) with volume spike."""
         if len(df) < 5:
             return StrategySignal(
                 signal="HOLD", confidence=0.0,
@@ -440,6 +447,7 @@ class SentimentDrivenStrategy(BaseStrategy):
     def generate_signal(
         self, df: pd.DataFrame, sentiment: SentimentState = None
     ) -> StrategySignal:
+        """Generate contrarian signals at Fear & Greed extremes."""
         if sentiment is None:
             return StrategySignal(
                 signal="HOLD", confidence=0.0,
@@ -511,6 +519,7 @@ class VWAPStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.55)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Signal when price deviates significantly from VWAP with RSI confirmation."""
         latest = df.iloc[-1]
 
         vwap_dev = latest.get("close_to_vwap", 0)
@@ -564,6 +573,7 @@ class OBVDivergenceStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.55)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Detect bullish or bearish OBV divergence as a leading reversal signal."""
         latest = df.iloc[-1]
 
         obv_div = latest.get("obv_divergence", 0)
@@ -619,6 +629,7 @@ class EMACrossoverStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.6)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Signal on EMA 9/21 crossover events filtered by ADX trend strength."""
         latest = df.iloc[-1]
 
         ema_cross = latest.get("ema_cross", 0)

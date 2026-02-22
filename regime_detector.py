@@ -16,6 +16,8 @@ _log = logging.getLogger(__name__)
 
 
 class MarketRegime(Enum):
+    """Identified market regime states used for strategy selection."""
+
     TRENDING_UP = "trending_up"
     TRENDING_DOWN = "trending_down"
     RANGING = "ranging"
@@ -24,6 +26,8 @@ class MarketRegime(Enum):
 
 @dataclass
 class RegimeState:
+    """Snapshot of the detected market regime with confidence and metadata."""
+
     regime: MarketRegime
     confidence: float
     volatility: float
@@ -81,6 +85,7 @@ class RegimeDetector:
         self._try_init_hmm()
 
     def _try_init_hmm(self) -> None:
+        """Attempt to initialise a Gaussian HMM; silently disable if hmmlearn is missing."""
         try:
             import warnings
             warnings.filterwarnings("ignore", module="hmmlearn")
@@ -248,6 +253,7 @@ class RegimeDetector:
             return None
 
     def _combine_regimes(self, vol_result: dict[str, Any], trend_result: dict[str, Any], hmm_result: dict[str, Any] | None) -> tuple[MarketRegime, float]:
+        """Merge volatility, trend, and HMM sub-results into a single regime verdict."""
         votes = {}
 
         if vol_result["regime"] == MarketRegime.HIGH_VOLATILITY and vol_result["confidence"] > self.HIGH_VOL_THRESHOLD:

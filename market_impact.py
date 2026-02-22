@@ -42,6 +42,7 @@ class ExecutionResult:
     is_partial_fill: bool
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize execution result to a rounded dictionary for logging."""
         return {
             "filled_qty": round(self.filled_quantity, 6),
             "fill_rate": round(self.fill_rate, 4),

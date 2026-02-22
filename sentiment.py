@@ -16,6 +16,8 @@ _log = logging.getLogger(__name__)
 
 
 class SentimentLevel(Enum):
+    """Discrete sentiment levels derived from the Fear & Greed index."""
+
     EXTREME_FEAR = "extreme_fear"
     FEAR = "fear"
     NEUTRAL = "neutral"
@@ -25,6 +27,8 @@ class SentimentLevel(Enum):
 
 @dataclass
 class SentimentState:
+    """Snapshot of composite sentiment analysis results."""
+
     fear_greed_index: int
     fear_greed_label: SentimentLevel
     volume_sentiment: float
@@ -94,6 +98,7 @@ class SentimentAnalyzer:
             return self.last_fg_index, self._classify_fg(self.last_fg_index), "fallback"
 
     def _classify_fg(self, value: int) -> SentimentLevel:
+        """Map a Fear & Greed index value to a SentimentLevel bucket."""
         if value <= 25: return SentimentLevel.EXTREME_FEAR
         if value <= 45: return SentimentLevel.FEAR
         if value <= 55: return SentimentLevel.NEUTRAL
@@ -101,6 +106,7 @@ class SentimentAnalyzer:
         return SentimentLevel.EXTREME_GREED
 
     def _volume_sentiment(self, df: pd.DataFrame) -> float:
+        """Compute a volume-weighted sentiment score in [-1, 1]."""
         if len(df) < 20:
             return 0.0
         recent = df.iloc[-20:]  # View, not copy
@@ -145,6 +151,7 @@ class SentimentAnalyzer:
         return float(np.clip(momentum / 0.10, -1, 1))
 
     def _contrarian_signal(self, fg_index: int, composite: float) -> str:
+        """Return a contrarian BUY/SELL/NEUTRAL signal at sentiment extremes."""
         if fg_index <= 20 and composite < -0.3: return "BUY"
         if fg_index >= 80 and composite > 0.3: return "SELL"
         return "NEUTRAL"

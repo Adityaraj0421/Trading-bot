@@ -23,6 +23,8 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class PairAllocation:
+    """Capital allocation for a single trading pair after risk adjustments."""
+
     pair: str
     weight: float           # Portfolio weight (0-1)
     max_position_pct: float # Max capital to allocate

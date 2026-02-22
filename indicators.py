@@ -173,9 +173,11 @@ class Indicators:
 
     @staticmethod
     def get_feature_columns() -> list[str]:
+        """Return the list of feature column names used by the ML model."""
         return FEATURE_COLUMNS
 
     @classmethod
     def invalidate_cache(cls) -> None:
+        """Clear the cached indicator DataFrame, forcing recomputation on next call."""
         cls._cache_key = None
         cls._cache_result = None

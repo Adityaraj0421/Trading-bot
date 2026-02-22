@@ -18,6 +18,8 @@ _log = logging.getLogger(__name__)
 
 
 class DataFetcher:
+    """Fetch OHLCV, ticker, and order book data from a crypto exchange via CCXT."""
+
     def __init__(self) -> None:
         self.exchange = self._init_exchange()
         self.using_demo = False
