@@ -72,6 +72,8 @@ make help         # Show all available commands
 
 4. **Auth middleware**: `API_AUTH_KEY` in .env enables auth. Header: `X-API-Key`. Public paths: `/health`, `/docs`, `/telegram/webhook`. Tests auto-inject the key.
 
+5. **Two-tier data system**: `DataStore` (in-memory, resets on restart) is the fast real-time bridge. `TradeDB` (SQLite, `data/trades.db`) is the persistent store. Routes prefer `TradeDB` via `store.get_trade_db()` when available, falling back to the in-memory log — so trade history survives restarts.
+
 ## Environment
 
 - **Required**: `.env` file (copy from `.env.example`)
@@ -103,3 +105,5 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - Agent runs as daemon thread inside FastAPI lifespan — not a separate process
 - Telegram webhook URL changes with every ngrok restart — update `.env` accordingly
 - `venv/` must be activated or on PATH for `make` commands to find Python packages
+- **Stale agent state**: delete `data/agent_state.json`, `data/agent_state_model.pkl`, `data/agent_state_autonomous.json` to reset capital/PnL to `INITIAL_CAPITAL` from `.env`
+- **Orphaned open trades** after a crash: `sqlite3 data/trades.db "UPDATE trades SET status='abandoned', exit_reason='orphaned_on_restart' WHERE status='open';"` — `data/trades.db` is the source of truth for trade history; `DataStore._trade_log` is session-only

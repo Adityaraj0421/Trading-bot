@@ -636,17 +636,27 @@ class RiskManager:
         return fee
 
     def check_positions(
-        self, current_price: float, current_high: float | None = None, current_low: float | None = None
+        self,
+        current_price: float,
+        current_high: float | None = None,
+        current_low: float | None = None,
+        symbol: str | None = None,
     ) -> list[TradeRecord]:
         """
-        Check all positions: update trailing stops, then check exits.
+        Check positions for exits: update trailing stops, then check exit conditions.
         Accepts high/low for intra-bar trailing stop updates.
+
+        Args:
+            symbol: If provided, only check positions for this trading pair.
+                    This prevents cross-pair price contamination in multi-pair mode.
         """
         high = current_high or current_price
         low = current_low or current_price
 
         closed = []
         for pos in list(self.positions):
+            if symbol and pos.symbol != symbol:
+                continue
             # Update trailing stop first
             pos.update_trailing_stop(high, low)
 

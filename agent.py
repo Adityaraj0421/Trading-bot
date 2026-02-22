@@ -526,9 +526,9 @@ class TradingAgent:
                 self.train_model(df_ind=df_ind)
                 self._last_data_hash = data_hash
 
-        # 4. Check positions for THIS pair
-        closed = self.risk.check_positions(current_price, current_high, current_low)
-        pair_closed = [t for t in closed if t.symbol == pair]
+        # 4. Check positions for THIS pair only (prevents cross-pair price contamination)
+        closed = self.risk.check_positions(current_price, current_high, current_low, symbol=pair)
+        pair_closed = closed  # Already filtered by symbol
         for trade in pair_closed:
             self.log.log_trade_close(
                 trade.symbol,
@@ -941,7 +941,10 @@ class TradingAgent:
                 side=side,
                 price=price,
                 quantity=quantity,
+                sl=stop_loss,
+                tp=take_profit,
                 strategy=strat_sig.strategy_name,
+                confidence=confidence,
             )
 
     def _print_status(
@@ -1040,12 +1043,14 @@ class TradingAgent:
         try:
             summary = self.risk.get_summary()
             price = self._last_price or 0.0
+            prices = getattr(self, "_last_prices", {})
             regime = self._last_regime.value if self._last_regime else "unknown"
 
             _data_store.update_snapshot(
                 {
                     "cycle": self.cycle_count,
                     "price": price,
+                    "prices": prices,
                     "pair": Config.EXCHANGE_ID,
                     "trading_pair": Config.TRADING_PAIR,
                     "trading_pairs": Config.TRADING_PAIRS,
@@ -1066,11 +1071,11 @@ class TradingAgent:
                             "side": p.side,
                             "entry_price": p.entry_price,
                             "quantity": p.quantity,
-                            "unrealized_pnl": p.unrealized_pnl(price),
+                            "unrealized_pnl": p.unrealized_pnl(prices.get(p.symbol, price)),
                             "stop_loss": p.stop_loss,
                             "take_profit": p.take_profit,
                             "trailing_stop": p.trailing_stop,
-                            "strategy": p.strategy_name,
+                            "strategy_name": p.strategy_name,
                         }
                         for p in self.risk.positions
                     ],
@@ -1092,8 +1097,10 @@ class TradingAgent:
                 }
             )
 
-            # Equity point
-            equity_value = summary["capital"] + sum(p.unrealized_pnl(price) for p in self.risk.positions)
+            # Equity point (use per-pair prices for accurate unrealized PnL)
+            equity_value = summary["capital"] + sum(
+                p.unrealized_pnl(prices.get(p.symbol, price)) for p in self.risk.positions
+            )
             _data_store.append_equity(
                 round(equity_value, 2),
                 datetime.now().isoformat(),
