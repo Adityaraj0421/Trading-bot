@@ -2,15 +2,16 @@
 Autonomous mode routes — status, events, kill switch, manual override.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
-from typing import Optional
 
 from api.data_store import DataStore
 
 
 class HaltRequest(BaseModel):
-    reason: Optional[str] = Field(
+    reason: str | None = Field(
         default="Manual kill switch via API",
         max_length=500,
         description="Reason for halting (stored in event log)",
@@ -21,7 +22,7 @@ def create_router(store: DataStore) -> APIRouter:
     router = APIRouter(prefix="/autonomous", tags=["autonomous"])
 
     @router.get("/status")
-    def autonomous_status():
+    def autonomous_status() -> dict[str, Any]:
         snapshot = store.get_snapshot()
         autonomous = snapshot.get("autonomous", {})
         if not autonomous:
@@ -29,14 +30,14 @@ def create_router(store: DataStore) -> APIRouter:
         return autonomous
 
     @router.get("/events")
-    def autonomous_events(limit: int = Query(default=50, ge=1)):
+    def autonomous_events(limit: int = Query(default=50, ge=1)) -> dict[str, Any]:
         events = store.get_events(limit=limit)
         return {"events": events, "count": len(events)}
 
     # --- Production safeguards ---
 
     @router.post("/halt")
-    def emergency_halt(req: HaltRequest):
+    def emergency_halt(req: HaltRequest) -> dict[str, Any]:
         """Kill switch — immediately halt all trading."""
         decision = store.get_decision_engine()
         if decision is None:
@@ -45,7 +46,7 @@ def create_router(store: DataStore) -> APIRouter:
         return {"status": "halted", "reason": req.reason}
 
     @router.post("/resume")
-    def emergency_resume():
+    def emergency_resume() -> dict[str, Any]:
         """Resume trading after a kill switch halt."""
         decision = store.get_decision_engine()
         if decision is None:
@@ -54,7 +55,7 @@ def create_router(store: DataStore) -> APIRouter:
         return {"status": "resumed"}
 
     @router.post("/force-close")
-    def force_close_all():
+    def force_close_all() -> dict[str, Any]:
         """Force close all open positions immediately."""
         decision = store.get_decision_engine()
         if decision is None:
@@ -63,7 +64,7 @@ def create_router(store: DataStore) -> APIRouter:
         return {"status": "force_close_signaled"}
 
     @router.get("/alerts")
-    def get_alerts(unacknowledged: bool = False):
+    def get_alerts(unacknowledged: bool = False) -> dict[str, Any]:
         """Get alerts from the decision engine."""
         decision = store.get_decision_engine()
         if decision is None:
@@ -72,7 +73,7 @@ def create_router(store: DataStore) -> APIRouter:
         return {"alerts": alerts, "count": len(alerts)}
 
     @router.post("/alerts/acknowledge")
-    def acknowledge_alerts():
+    def acknowledge_alerts() -> dict[str, Any]:
         """Acknowledge all alerts."""
         decision = store.get_decision_engine()
         if decision is None:

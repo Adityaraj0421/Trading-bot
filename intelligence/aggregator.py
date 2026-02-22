@@ -3,6 +3,8 @@ Intelligence Aggregator — combines all signal sources into a single adjustment
 Produces an adjustment_factor (0.5 to 1.5) and bias (bullish/bearish/neutral).
 """
 
+from typing import Any
+
 from intelligence.onchain import OnChainAnalyzer
 from intelligence.orderbook import OrderBookAnalyzer
 from intelligence.correlation import CorrelationAnalyzer
@@ -17,7 +19,7 @@ from intelligence.cascade_predictor import CascadePredictor
 class IntelligenceAggregator:
     """Combines all intelligence signals into a single trading adjustment."""
 
-    def __init__(self, exchange=None):
+    def __init__(self, exchange: Any = None) -> None:
         from config import Config
         # Convert trading pairs to Binance format for derivatives providers
         binance_symbols = [p.replace("/", "") for p in Config.TRADING_PAIRS]
@@ -35,7 +37,7 @@ class IntelligenceAggregator:
         ]
         self._last_signals = []
 
-    def get_signals(self) -> dict:
+    def get_signals(self) -> dict[str, Any]:
         """Collect signals from all providers and compute aggregate."""
         signals = []
         for provider in self.providers:
@@ -82,6 +84,6 @@ class IntelligenceAggregator:
             "signals": signals,
         }
 
-    def get_last_signals(self) -> list[dict]:
+    def get_last_signals(self) -> list[dict[str, Any]]:
         """Return the last computed signals."""
         return self._last_signals

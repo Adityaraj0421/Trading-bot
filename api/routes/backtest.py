@@ -1,8 +1,10 @@
 """Backtest routes — run and view backtest results (v2.3)."""
 import threading
+from typing import Any
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import Optional
+
 from api.data_store import DataStore
 
 # Track active backtest thread to prevent resource exhaustion (mutable container for closure)
@@ -14,30 +16,30 @@ _VALID_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h
 
 
 class BacktestRequest(BaseModel):
-    pair: Optional[str] = Field(
+    pair: str | None = Field(
         default=None,
         pattern=r"^[A-Z0-9]{2,10}/[A-Z0-9]{2,10}$",
         description="Trading pair (e.g., BTC/USDT)",
     )
-    scenario: Optional[str] = Field(
+    scenario: str | None = Field(
         default=None,
         max_length=50,
         description="Named scenario (use /backtest/scenarios for valid list)",
     )
-    timeframe: Optional[str] = Field(
+    timeframe: str | None = Field(
         default=None,
         pattern=r"^[0-9]{1,2}[mhdwM]$",
         description="Candle timeframe (e.g., 1h, 4h, 1d)",
     )
     periods: int = Field(default=500, gt=0, le=10000, description="Number of bars to backtest")
-    mode: Optional[str] = Field(default=None, pattern="^(all_pairs|all_scenarios|all_timeframes)?$")
+    mode: str | None = Field(default=None, pattern="^(all_pairs|all_scenarios|all_timeframes)?$")
 
 
 def create_router(store: DataStore) -> APIRouter:
     router = APIRouter(prefix="/backtest", tags=["backtest"])
 
     @router.post("/run")
-    async def run_backtest(req: BacktestRequest):
+    async def run_backtest(req: BacktestRequest) -> dict[str, Any]:
         """Run a backtest in a background thread (max 1 concurrent)."""
         # Rate limit: reject if a backtest is already running
         active = _state["active_thread"]
@@ -83,18 +85,18 @@ def create_router(store: DataStore) -> APIRouter:
         return {"status": "started", "message": "Backtest running in background"}
 
     @router.post("/clear")
-    async def clear_results():
+    async def clear_results() -> dict[str, Any]:
         """Clear all backtest results."""
         store.update_backtest_results([])
         return {"status": "cleared"}
 
     @router.get("/results")
-    async def get_results():
+    async def get_results() -> dict[str, Any]:
         results = store.get_backtest_results()
         return {"results": results, "total": len(results)}
 
     @router.get("/scenarios")
-    async def get_scenarios():
+    async def get_scenarios() -> dict[str, Any]:
         from scenarios import list_scenarios as ls
         return {"scenarios": ls()}
 

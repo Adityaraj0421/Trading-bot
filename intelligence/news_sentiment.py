@@ -13,6 +13,7 @@ import time
 import logging
 import requests
 from collections import deque
+from typing import Any
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -54,12 +55,12 @@ class NewsSentimentAnalyzer:
     }
     CRYPTOPANIC_API = "https://cryptopanic.com/api/v1"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._history: deque = deque(maxlen=50)  # Track sentiment over time
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """Analyze news sentiment from all sources."""
         if not Config.ENABLE_NEWS_NLP:
             return {"source": "news_sentiment", "signal": "neutral", "strength": 0.0, "data": {}}
@@ -222,7 +223,7 @@ class NewsSentimentAnalyzer:
             _log.debug("CryptoPanic fetch failed: %s", e)
             return []
 
-    def _analyze_headlines(self, headlines: list[dict]) -> dict:
+    def _analyze_headlines(self, headlines: list[dict]) -> dict[str, Any]:
         """Weighted sentiment analysis on headlines.
 
         Each headline is scored based on:

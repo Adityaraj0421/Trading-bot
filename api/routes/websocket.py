@@ -21,7 +21,7 @@ def create_router(ws_manager: WebSocketManager) -> APIRouter:
     router = APIRouter(tags=["websocket"])
 
     @router.websocket("/ws")
-    async def websocket_endpoint(ws: WebSocket):
+    async def websocket_endpoint(ws: WebSocket) -> None:
         await ws_manager.connect(ws)
         try:
             # --- Auth phase (message-based, not query param) ---

@@ -9,7 +9,7 @@ The API reads them. All operations are thread-safe via a single lock.
 import threading
 from collections import deque
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 
 class DataStore:
@@ -39,17 +39,17 @@ class DataStore:
         self._trade_db = None  # Reference to TradeDB instance
 
         # v7.1: WebSocket broadcast callback (set by server.py)
-        self._broadcast: Optional[Callable[[str, dict], None]] = None
+        self._broadcast: Callable[[str, dict], None] | None = None
 
     def set_broadcast_callback(self, callback: Callable[[str, dict], None]) -> None:
         """Set a callback for broadcasting state changes to WebSocket clients."""
         self._broadcast = callback
 
-    def set_decision_engine(self, engine) -> None:
+    def set_decision_engine(self, engine: Any) -> None:
         """Store reference to DecisionEngine for production safeguards."""
         self._decision_engine = engine
 
-    def get_decision_engine(self):
+    def get_decision_engine(self) -> Any:
         """Get DecisionEngine reference (for kill switch, alerts, manual override)."""
         return self._decision_engine
 
@@ -151,7 +151,7 @@ class DataStore:
         with self._lock:
             self._rate_limiter_stats = stats.copy()
 
-    def set_trade_db(self, trade_db) -> None:
+    def set_trade_db(self, trade_db: Any) -> None:
         """Store reference to TradeDB for query routes."""
         self._trade_db = trade_db
 
@@ -170,6 +170,6 @@ class DataStore:
         with self._lock:
             return self._rate_limiter_stats.copy()
 
-    def get_trade_db(self):
+    def get_trade_db(self) -> Any:
         """Get TradeDB reference (for analytics queries)."""
         return self._trade_db

@@ -1,5 +1,8 @@
 """Intelligence signal routes."""
+from typing import Any
+
 from fastapi import APIRouter
+
 from api.data_store import DataStore
 
 
@@ -7,7 +10,7 @@ def create_router(store: DataStore) -> APIRouter:
     router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 
     @router.get("/signals")
-    async def get_signals():
+    async def get_signals() -> dict[str, Any]:
         signals = store.get_intelligence()
         if not signals:
             from config import Config
@@ -17,7 +20,7 @@ def create_router(store: DataStore) -> APIRouter:
         return signals
 
     @router.get("/providers")
-    async def list_providers():
+    async def list_providers() -> dict[str, Any]:
         from config import Config
         return {
             "providers": [

@@ -18,7 +18,7 @@ import logging
 import asyncio
 import threading
 from collections import deque
-from typing import Callable, Optional
+from typing import Any, Callable
 from datetime import datetime
 
 _log = logging.getLogger(__name__)
@@ -34,12 +34,12 @@ WS_ENDPOINTS = {
 
 
 def _normalize_pair_binance(pair: str) -> str:
-    """BTC/USDT -> btcusdt"""
+    """BTC/USDT -> btcusdt."""
     return pair.replace("/", "").lower()
 
 
 def _normalize_pair_kraken(pair: str) -> str:
-    """BTC/USDT -> XBT/USDT"""
+    """BTC/USDT -> XBT/USDT."""
     return pair.replace("BTC", "XBT")
 
 
@@ -49,54 +49,54 @@ class WebSocketStreamer:
     Provides callbacks for trade, ticker, kline, and order book updates.
     """
 
-    def __init__(self, exchange_id: str, trading_pair: str, timeframe: str = "1h"):
-        self.exchange_id = exchange_id.lower()
-        self.trading_pair = trading_pair
-        self.timeframe = timeframe
+    def __init__(self, exchange_id: str, trading_pair: str, timeframe: str = "1h") -> None:
+        self.exchange_id: str = exchange_id.lower()
+        self.trading_pair: str = trading_pair
+        self.timeframe: str = timeframe
 
         # Latest data (thread-safe via deques)
         self.latest_ticker: dict = {}
-        self.latest_trades: deque = deque(maxlen=1000)
-        self.latest_klines: deque = deque(maxlen=500)
+        self.latest_trades: deque[dict] = deque(maxlen=1000)
+        self.latest_klines: deque[dict] = deque(maxlen=500)
         self.latest_orderbook: dict = {"bids": [], "asks": [], "ts": 0}
 
         # Callbacks
-        self._on_ticker: Optional[Callable] = None
-        self._on_trade: Optional[Callable] = None
-        self._on_kline: Optional[Callable] = None
-        self._on_orderbook: Optional[Callable] = None
+        self._on_ticker: Callable | None = None
+        self._on_trade: Callable | None = None
+        self._on_kline: Callable | None = None
+        self._on_orderbook: Callable | None = None
 
         # Connection state
-        self._running = False
-        self._connected = False
-        self._reconnect_count = 0
-        self._max_reconnects = 50
-        self._last_message_ts = 0
-        self._heartbeat_timeout = 30  # seconds
-        self._thread: Optional[threading.Thread] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._running: bool = False
+        self._connected: bool = False
+        self._reconnect_count: int = 0
+        self._max_reconnects: int = 50
+        self._last_message_ts: float = 0
+        self._heartbeat_timeout: int = 30  # seconds
+        self._thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         # Stats
-        self.messages_received = 0
-        self.connection_uptime_start = 0
+        self.messages_received: int = 0
+        self.connection_uptime_start: float = 0
 
-    def on_ticker(self, callback: Callable):
+    def on_ticker(self, callback: Callable) -> None:
         """Register callback for ticker updates: callback(ticker_dict)"""
         self._on_ticker = callback
 
-    def on_trade(self, callback: Callable):
+    def on_trade(self, callback: Callable) -> None:
         """Register callback for trade updates: callback(trade_dict)"""
         self._on_trade = callback
 
-    def on_kline(self, callback: Callable):
+    def on_kline(self, callback: Callable) -> None:
         """Register callback for kline/candle updates: callback(kline_dict)"""
         self._on_kline = callback
 
-    def on_orderbook(self, callback: Callable):
+    def on_orderbook(self, callback: Callable) -> None:
         """Register callback for order book updates: callback(book_dict)"""
         self._on_orderbook = callback
 
-    def start(self):
+    def start(self) -> None:
         """Start websocket connection in a background thread."""
         if self._running:
             _log.warning("WebSocket streamer already running")
@@ -107,7 +107,7 @@ class WebSocketStreamer:
         self._thread.start()
         _log.info("WebSocket streamer started for %s on %s", self.trading_pair, self.exchange_id)
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop websocket connection."""
         self._running = False
         if self._loop:
@@ -134,7 +134,7 @@ class WebSocketStreamer:
             "last_message_age": round(time.time() - self._last_message_ts, 1) if self._last_message_ts else None,
         }
 
-    def _run_loop(self):
+    def _run_loop(self) -> None:
         """Run the asyncio event loop in a thread."""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
@@ -145,7 +145,7 @@ class WebSocketStreamer:
         finally:
             self._loop.close()
 
-    async def _connect_with_retry(self):
+    async def _connect_with_retry(self) -> None:
         """Connect with exponential backoff retry."""
         try:
             import websockets
@@ -196,7 +196,7 @@ class WebSocketStreamer:
             _log.error("Max reconnection attempts reached. WebSocket streamer stopped.")
             self._running = False
 
-    async def _heartbeat_monitor(self, ws):
+    async def _heartbeat_monitor(self, ws: Any) -> None:
         """Monitor connection health and force reconnect if stale."""
         while self._running:
             await asyncio.sleep(self._heartbeat_timeout)
@@ -232,7 +232,7 @@ class WebSocketStreamer:
 
         return WS_ENDPOINTS.get(self.exchange_id, "")
 
-    async def _subscribe(self, ws):
+    async def _subscribe(self, ws: Any) -> None:
         """Send subscription messages for exchange-specific protocols."""
         if self.exchange_id == "kraken":
             pair = _normalize_pair_kraken(self.trading_pair)
@@ -276,7 +276,7 @@ class WebSocketStreamer:
 
         # Binance: streams are in URL, no subscription needed
 
-    def _process_message(self, raw_message: str):
+    def _process_message(self, raw_message: str) -> None:
         """Route and parse exchange-specific messages."""
         try:
             data = json.loads(raw_message)
@@ -292,7 +292,7 @@ class WebSocketStreamer:
         elif self.exchange_id == "bybit":
             self._process_bybit(data)
 
-    def _process_binance(self, data: dict):
+    def _process_binance(self, data: dict) -> None:
         """Process Binance combined stream messages."""
         stream = data.get("stream", "")
         payload = data.get("data", data)
@@ -347,7 +347,7 @@ class WebSocketStreamer:
             if self._on_orderbook:
                 self._on_orderbook(book)
 
-    def _process_kraken(self, data):
+    def _process_kraken(self, data: Any) -> None:
         """Process Kraken messages."""
         if isinstance(data, dict):
             # System/subscription messages
@@ -382,7 +382,7 @@ class WebSocketStreamer:
                         if self._on_trade:
                             self._on_trade(trade)
 
-    def _process_coinbase(self, data: dict):
+    def _process_coinbase(self, data: dict) -> None:
         """Process Coinbase messages."""
         msg_type = data.get("type", "")
 
@@ -409,7 +409,7 @@ class WebSocketStreamer:
             if self._on_trade:
                 self._on_trade(trade)
 
-    def _process_bybit(self, data: dict):
+    def _process_bybit(self, data: dict) -> None:
         """Process Bybit messages."""
         topic = data.get("topic", "")
         payload = data.get("data", {})

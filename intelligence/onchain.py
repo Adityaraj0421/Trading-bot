@@ -23,6 +23,7 @@ import numpy as np
 import requests
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ class OnChainAnalyzer:
     # History for trend computation
     MAX_HISTORY = 50  # ~4 hours of 5-min readings
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._prev_metrics: dict = {}
@@ -98,7 +99,7 @@ class OnChainAnalyzer:
 
     # ── Public Interface ──────────────────────────────────────────
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """Original signal generation interface."""
         if not Config.ENABLE_ONCHAIN:
             return {"source": "onchain", "signal": "neutral",
@@ -142,7 +143,7 @@ class OnChainAnalyzer:
 
     # ── v2.0: ML Feature Extraction ───────────────────────────────
 
-    def _update_features(self, metrics: dict):
+    def _update_features(self, metrics: dict) -> None:
         """Compute normalized ML features from raw metrics."""
 
         # 1. Hash Rate Trend (-1 to +1)
@@ -261,7 +262,7 @@ class OnChainAnalyzer:
 
     # ── Original Analysis (preserved) ─────────────────────────────
 
-    def _fetch_all_metrics(self) -> dict:
+    def _fetch_all_metrics(self) -> dict[str, Any]:
         """Fetch all on-chain metrics, using cache if fresh."""
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache:
@@ -299,7 +300,7 @@ class OnChainAnalyzer:
         self._cache_ts = now
         return metrics
 
-    def _analyze(self, metrics: dict) -> tuple:
+    def _analyze(self, metrics: dict) -> tuple[str, float, dict[str, Any]]:
         """Analyze on-chain metrics and produce a signal."""
         scores = []
         analysis = {}
@@ -400,7 +401,7 @@ class OnChainAnalyzer:
         "Accept": "application/json, text/plain, */*",
     }
 
-    def _fetch_json(self, url: str, parse_text: bool = False, timeout: int = 8):
+    def _fetch_json(self, url: str, parse_text: bool = False, timeout: int = 8) -> Any:
         """Fetch a URL and return parsed JSON or numeric value."""
         try:
             resp = requests.get(url, headers=self._HEADERS, timeout=timeout)

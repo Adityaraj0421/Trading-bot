@@ -16,6 +16,7 @@ import math
 import logging
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -82,7 +83,7 @@ class OrderBookAnalyzer:
     ABSORPTION_VOL_MULT = 3.0     # Volume at level >= 3x average
     ABSORPTION_PRICE_MOVE = 0.05  # Price moves < 0.05% despite absorption
 
-    def __init__(self, exchange=None):
+    def __init__(self, exchange: Any = None) -> None:
         self.exchange = exchange
         self._cache: dict = {}
         self._cache_ts: float = 0
@@ -107,7 +108,7 @@ class OrderBookAnalyzer:
 
     # ── Public Interface ──────────────────────────────────────────
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """Analyze order book with advanced flow intelligence."""
         if not Config.ENABLE_ORDERBOOK or self.exchange is None:
             return {"source": "orderbook", "signal": "neutral",
@@ -130,7 +131,7 @@ class OrderBookAnalyzer:
         """Return current VPIN value (0.0 to 1.0)."""
         return self._compute_vpin()
 
-    def get_cvd(self) -> dict:
+    def get_cvd(self) -> dict[str, Any]:
         """Return CVD state and divergence info."""
         return {
             "cumulative_delta": round(self._cumulative_delta, 4),
@@ -148,7 +149,7 @@ class OrderBookAnalyzer:
 
     # ── Core Analysis ─────────────────────────────────────────────
 
-    def _analyze_book(self) -> dict:
+    def _analyze_book(self) -> dict[str, Any]:
         """Full order book analysis with flow intelligence."""
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache:
@@ -366,7 +367,7 @@ class OrderBookAnalyzer:
     # ══════════════════════════════════════════════════════════════
 
     def _update_volume_bars(self, bids: list, asks: list,
-                            mid_price: float, now: float):
+                            mid_price: float, now: float) -> None:
         """
         Update VPIN volume bars from order book snapshot.
 
@@ -441,7 +442,7 @@ class OrderBookAnalyzer:
     # ══════════════════════════════════════════════════════════════
 
     def _update_cvd(self, bids: list, asks: list,
-                    mid_price: float, now: float):
+                    mid_price: float, now: float) -> None:
         """
         Update cumulative volume delta.
 
@@ -515,7 +516,7 @@ class OrderBookAnalyzer:
     # ══════════════════════════════════════════════════════════════
 
     def _update_wall_tracking(self, bid_walls: list, ask_walls: list,
-                              mid_price: float, now: float):
+                              mid_price: float, now: float) -> None:
         """
         Track wall persistence across snapshots.
 

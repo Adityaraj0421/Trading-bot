@@ -22,6 +22,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from datetime import datetime
 from collections import deque
+from typing import Any
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class FundingPosition:
     funding_payments: int = 0
     last_funding_time: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "pair": self.pair,
             "direction": self.direction,
@@ -98,7 +99,7 @@ class FundingArbitrageEngine:
 
     BINANCE_FUTURES_API = "https://fapi.binance.com"
 
-    def __init__(self, symbols: list[str] = None, capital: float = None):
+    def __init__(self, symbols: list[str] | None = None, capital: float | None = None) -> None:
         self.symbols = symbols or [
             p.replace("/", "") for p in Config.TRADING_PAIRS
         ]
@@ -315,7 +316,7 @@ class FundingArbitrageEngine:
 
         return exits
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Get funding arbitrage engine status."""
         return {
             "active_positions": len(self.positions),
@@ -327,7 +328,7 @@ class FundingArbitrageEngine:
             "symbols_monitored": self.symbols,
         }
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "positions": [p.to_dict() for p in self.positions],
             "total_yield": self._total_yield,

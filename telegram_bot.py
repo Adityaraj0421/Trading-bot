@@ -17,7 +17,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Callable
+from typing import Any, Callable
 
 import requests
 
@@ -41,19 +41,19 @@ class PendingConfirmation:
     confidence: float
     created_at: datetime = field(default_factory=datetime.now)
     event: threading.Event = field(default_factory=threading.Event)
-    decision: Optional[str] = None  # "approved" / "rejected" / None
-    message_id: Optional[int] = None
+    decision: str | None = None  # "approved" / "rejected" / None
+    message_id: int | None = None
 
 
 class TelegramBot:
     """Interactive Telegram bot with commands and trade confirmations."""
 
-    def __init__(self, data_store=None):
-        self._token = Config.TELEGRAM_BOT_TOKEN
-        self._chat_id = str(Config.TELEGRAM_CHAT_ID)
-        self._webhook_url = Config.TELEGRAM_WEBHOOK_URL
-        self._webhook_secret = Config.TELEGRAM_WEBHOOK_SECRET
-        self._data_store = data_store
+    def __init__(self, data_store: Any = None) -> None:
+        self._token: str = Config.TELEGRAM_BOT_TOKEN
+        self._chat_id: str = str(Config.TELEGRAM_CHAT_ID)
+        self._webhook_url: str = Config.TELEGRAM_WEBHOOK_URL
+        self._webhook_secret: str = Config.TELEGRAM_WEBHOOK_SECRET
+        self._data_store: Any = data_store
 
         # Pending trade confirmations: trade_id -> PendingConfirmation
         self._pending: dict[str, PendingConfirmation] = {}
@@ -82,7 +82,7 @@ class TelegramBot:
     def enabled(self) -> bool:
         return bool(self._token and self._chat_id)
 
-    def set_data_store(self, store) -> None:
+    def set_data_store(self, store: Any) -> None:
         self._data_store = store
 
     # ------------------------------------------------------------------
@@ -443,9 +443,9 @@ class TelegramBot:
     # Telegram API helpers (raw requests.post — works from sync threads)
     # ------------------------------------------------------------------
 
-    def _send(self, text: str, parse_mode: str = None,
-              reply_markup: dict = None,
-              return_message_id: bool = False) -> Optional[int]:
+    def _send(self, text: str, parse_mode: str | None = None,
+              reply_markup: dict | None = None,
+              return_message_id: bool = False) -> int | None:
         """Send a message to the configured chat."""
         if not self.enabled:
             return None
@@ -507,7 +507,7 @@ class TelegramBot:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_snapshot(self) -> dict:
+    def _get_snapshot(self) -> dict[str, Any]:
         """Get agent snapshot from DataStore."""
         if not self._data_store:
             return {}

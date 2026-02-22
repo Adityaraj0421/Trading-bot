@@ -9,7 +9,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Optional
 
 from fastapi import WebSocket
 
@@ -19,9 +18,9 @@ _log = logging.getLogger(__name__)
 class WebSocketManager:
     """Manages WebSocket connections and broadcasts events to all clients."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connections: set[WebSocket] = set()
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Capture the FastAPI event loop for thread-safe broadcasting."""

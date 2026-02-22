@@ -36,24 +36,24 @@ class AlertLevel:
 class Notifier:
     """Multi-channel notification system for the trading agent."""
 
-    def __init__(self):
-        self._telegram_token = getattr(Config, "TELEGRAM_BOT_TOKEN", "")
-        self._telegram_chat_id = getattr(Config, "TELEGRAM_CHAT_ID", "")
-        self._discord_webhook = getattr(Config, "DISCORD_WEBHOOK_URL", "")
-        self._email_enabled = getattr(Config, "EMAIL_ALERTS_ENABLED", False)
-        self._email_smtp = getattr(Config, "EMAIL_SMTP_HOST", "")
-        self._email_port = int(getattr(Config, "EMAIL_SMTP_PORT", 587))
-        self._email_user = getattr(Config, "EMAIL_USER", "")
-        self._email_pass = getattr(Config, "EMAIL_PASS", "")
-        self._email_to = getattr(Config, "EMAIL_TO", "")
+    def __init__(self) -> None:
+        self._telegram_token: str = getattr(Config, "TELEGRAM_BOT_TOKEN", "")
+        self._telegram_chat_id: str = getattr(Config, "TELEGRAM_CHAT_ID", "")
+        self._discord_webhook: str = getattr(Config, "DISCORD_WEBHOOK_URL", "")
+        self._email_enabled: bool = getattr(Config, "EMAIL_ALERTS_ENABLED", False)
+        self._email_smtp: str = getattr(Config, "EMAIL_SMTP_HOST", "")
+        self._email_port: int = int(getattr(Config, "EMAIL_SMTP_PORT", 587))
+        self._email_user: str = getattr(Config, "EMAIL_USER", "")
+        self._email_pass: str = getattr(Config, "EMAIL_PASS", "")
+        self._email_to: str = getattr(Config, "EMAIL_TO", "")
 
-        self._history: deque = deque(maxlen=500)
-        self._daily_trades: list = []
+        self._history: deque[dict] = deque(maxlen=500)
+        self._daily_trades: list[dict] = []
         self._daily_pnl: float = 0.0
 
         # Rate limiting
-        self._last_send: dict = {}  # channel -> timestamp
-        self._min_interval = 2  # Min seconds between messages per channel
+        self._last_send: dict[str, float] = {}  # channel -> timestamp
+        self._min_interval: int = 2  # Min seconds between messages per channel
 
     @property
     def telegram_enabled(self) -> bool:
@@ -73,7 +73,7 @@ class Notifier:
 
     def notify_trade_open(self, symbol: str, side: str, price: float,
                           quantity: float, sl: float = 0, tp: float = 0,
-                          strategy: str = "", confidence: float = 0):
+                          strategy: str = "", confidence: float = 0) -> None:
         """Notify about a new trade."""
         side_emoji = "🟢" if side == "long" else "🔴"
         msg = (
@@ -86,7 +86,7 @@ class Notifier:
 
     def notify_trade_close(self, symbol: str, side: str, entry: float,
                            exit_price: float, pnl: float, reason: str,
-                           strategy: str, hold_bars: int):
+                           strategy: str, hold_bars: int) -> None:
         """Notify about a closed trade."""
         pnl_emoji = "✅" if pnl >= 0 else "❌"
         pnl_sign = "+" if pnl >= 0 else ""
@@ -105,7 +105,7 @@ class Notifier:
         })
         self._daily_pnl += pnl
 
-    def notify_state_change(self, old_state: str, new_state: str, reason: str):
+    def notify_state_change(self, old_state: str, new_state: str, reason: str) -> None:
         """Notify about system state change."""
         state_emojis = {
             "normal": "🟢", "cautious": "🟡",
@@ -119,12 +119,12 @@ class Notifier:
         level = AlertLevel.CRITICAL if new_state in ("halted", "defensive") else AlertLevel.WARNING
         self._send_all(msg, level)
 
-    def notify_kill_switch(self, reason: str):
+    def notify_kill_switch(self, reason: str) -> None:
         """Notify about kill switch activation."""
         msg = f"🚨 **EMERGENCY HALT** 🚨\nAll trading stopped.\nReason: {reason}"
         self._send_all(msg, AlertLevel.CRITICAL)
 
-    def notify_large_loss(self, pnl: float, capital_pct: float):
+    def notify_large_loss(self, pnl: float, capital_pct: float) -> None:
         """Notify about a large loss."""
         msg = (
             f"⚠️ **LARGE LOSS**: ${pnl:,.2f} ({capital_pct:.1f}% of capital)\n"
@@ -133,7 +133,7 @@ class Notifier:
         self._send_all(msg, AlertLevel.WARNING)
 
     def notify_daily_summary(self, capital: float, total_pnl: float,
-                             win_rate: float, open_positions: int):
+                             win_rate: float, open_positions: int) -> None:
         """Send daily performance summary."""
         pnl_emoji = "📈" if total_pnl >= 0 else "📉"
         trade_count = len(self._daily_trades)
@@ -166,7 +166,8 @@ class Notifier:
         self._daily_pnl = 0.0
 
     def notify_heartbeat(self, cycle: int, capital: float, total_pnl: float,
-                         open_positions: int, pairs: list, prices: dict = None):
+                         open_positions: int, pairs: list[str],
+                         prices: dict[str, float] | None = None) -> None:
         """v7.0: Hourly heartbeat — agent is alive + quick stats."""
         pnl_sign = "+" if total_pnl >= 0 else ""
         daily_sign = "+" if self._daily_pnl >= 0 else ""
@@ -187,12 +188,12 @@ class Notifier:
         )
         self._send_all(msg, AlertLevel.INFO)
 
-    def notify_error(self, component: str, error: str):
+    def notify_error(self, component: str, error: str) -> None:
         """Notify about a system error."""
         msg = f"⚙️ **ERROR** in {component}:\n{error[:200]}"
         self._send_all(msg, AlertLevel.WARNING)
 
-    def _send_all(self, message: str, level: str):
+    def _send_all(self, message: str, level: str) -> None:
         """Send to all enabled channels (async, non-blocking)."""
         self._history.append({
             "ts": datetime.now().isoformat(),
@@ -228,7 +229,7 @@ class Notifier:
         self._last_send[channel] = now
         return False
 
-    def _send_telegram(self, message: str):
+    def _send_telegram(self, message: str) -> None:
         """Send via Telegram Bot API."""
         if self._rate_limited("telegram"):
             return
@@ -250,7 +251,7 @@ class Notifier:
         except Exception as e:
             _log.debug("Telegram error: %s", e)
 
-    def _send_discord(self, message: str):
+    def _send_discord(self, message: str) -> None:
         """Send via Discord webhook."""
         if self._rate_limited("discord"):
             return
@@ -265,7 +266,7 @@ class Notifier:
         except Exception as e:
             _log.debug("Discord error: %s", e)
 
-    def _send_email(self, message: str, level: str):
+    def _send_email(self, message: str, level: str) -> None:
         """Send via email (SMTP)."""
         if self._rate_limited("email"):
             return

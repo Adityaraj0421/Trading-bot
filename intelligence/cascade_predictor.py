@@ -26,6 +26,7 @@ import requests
 import numpy as np
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class CascadePredictor:
     # Leverage distribution assumptions (based on research)
     LEVERAGE_DIST = [2, 3, 5, 10, 20, 25, 50, 75, 100, 125]
 
-    def __init__(self, symbols: list[str] = None):
+    def __init__(self, symbols: list[str] | None = None) -> None:
         self.symbols = symbols or ["BTCUSDT", "ETHUSDT"]
         self._cache: dict[str, CascadeRisk] = {}
         self._cache_ts: float = 0
@@ -107,7 +108,7 @@ class CascadePredictor:
             s: deque(maxlen=50) for s in self.symbols
         }
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """Standard intelligence provider interface."""
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache:
@@ -459,7 +460,7 @@ class CascadePredictor:
 
         return "neutral", 0.0
 
-    def _aggregate_signal(self) -> dict:
+    def _aggregate_signal(self) -> dict[str, Any]:
         """Aggregate cascade signals across all monitored symbols."""
         if not self._cache:
             return {
@@ -505,7 +506,7 @@ class CascadePredictor:
             if risk.risk_score >= self.CASCADE_EXTREME
         ]
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         return {
             "symbols": self.symbols,
             "risks": {s: r.to_dict() for s, r in self._cache.items()},

@@ -23,6 +23,7 @@ import logging
 from collections import deque
 from dataclasses import dataclass, field
 from itertools import permutations
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ class TriangularArbitrageEngine:
     # Minimum net profit to consider
     MIN_NET_PROFIT_PCT = 0.001  # 0.1%
 
-    def __init__(self, exchange=None, fee_pct: float = 0.001):
+    def __init__(self, exchange: Any = None, fee_pct: float = 0.001) -> None:
         """
         Args:
             exchange: CCXT exchange instance
@@ -201,7 +202,7 @@ class TriangularArbitrageEngine:
             LatencyProfile(exchange=exchange),
         )
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Dashboard status."""
         return {
             "scan_count": self._scan_count,
@@ -290,7 +291,7 @@ class TriangularArbitrageEngine:
 
     # ── Internal: Latency Monitoring ──────────────────────────────
 
-    def _record_latency(self, exchange: str, latency_ms: float):
+    def _record_latency(self, exchange: str, latency_ms: float) -> None:
         """Record a latency sample for an exchange."""
         if exchange not in self._latencies:
             self._latencies[exchange] = deque(maxlen=100)

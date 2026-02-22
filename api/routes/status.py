@@ -2,6 +2,8 @@
 Status routes — health check, agent status, configuration.
 """
 
+from typing import Any
+
 from fastapi import APIRouter
 
 from api.data_store import DataStore
@@ -12,7 +14,7 @@ def create_router(store: DataStore) -> APIRouter:
     router = APIRouter(tags=["status"])
 
     @router.get("/health")
-    def health():
+    def health() -> dict[str, Any]:
         snapshot = store.get_snapshot()
         return {
             "status": "healthy",
@@ -21,14 +23,14 @@ def create_router(store: DataStore) -> APIRouter:
         }
 
     @router.get("/status")
-    def status():
+    def status() -> dict[str, Any]:
         snapshot = store.get_snapshot()
         if not snapshot:
             return {"status": "waiting"}
         return snapshot
 
     @router.get("/config")
-    def config():
+    def config() -> dict[str, Any]:
         return {
             "exchange": Config.EXCHANGE_ID,
             "pair": Config.TRADING_PAIR,

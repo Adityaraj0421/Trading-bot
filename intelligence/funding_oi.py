@@ -19,6 +19,7 @@ import time
 import logging
 import requests
 from collections import deque
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ _MARK_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex"
 class FundingOIAnalyzer:
     """Intelligence provider: Binance perpetual futures funding rate + open interest."""
 
-    def __init__(self, symbols: list[str] = None):
+    def __init__(self, symbols: list[str] | None = None) -> None:
         self.symbols = symbols or ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
         self._cache: dict = {}
         self._cache_ts: float = 0
@@ -55,7 +56,7 @@ class FundingOIAnalyzer:
         """Convert 'BTC/USDT' to 'BTCUSDT'."""
         return pair.replace("/", "").replace("-", "")
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """Return aggregated funding/OI signal across all tracked symbols."""
         now = time.time()
         if self._cache and now - self._cache_ts < self._cache_ttl:
@@ -116,7 +117,7 @@ class FundingOIAnalyzer:
         self._cache_ts = now
         return result
 
-    def _analyze_symbol(self, symbol: str) -> dict:
+    def _analyze_symbol(self, symbol: str) -> dict[str, Any]:
         """Analyze funding rate + OI for a single symbol."""
         funding = self._fetch_funding(symbol)
         oi = self._fetch_open_interest(symbol)

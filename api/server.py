@@ -12,7 +12,9 @@ in the environment. All endpoints except /health require the key.
 import asyncio
 import logging
 import threading
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     # Endpoints that don't require authentication
     PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc", "/telegram/webhook"}
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
         # Skip auth if no key configured (development mode)
         if not Config.API_AUTH_KEY:
             return await call_next(request)
@@ -119,7 +121,7 @@ def create_app(lifespan=None) -> FastAPI:
 # ---------------------------------------------------------------------------
 # Agent thread
 # ---------------------------------------------------------------------------
-def _run_agent():
+def _run_agent() -> None:
     """Import and start the trading agent in the current thread."""
     try:
         from agent import TradingAgent, set_data_store
@@ -135,7 +137,7 @@ def _run_agent():
 # Lifespan — starts the agent thread on server startup
 # ---------------------------------------------------------------------------
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Start the trading agent in a daemon thread when the server boots."""
     # Capture the event loop for thread-safe WebSocket broadcasts
     ws_manager.set_event_loop(asyncio.get_running_loop())

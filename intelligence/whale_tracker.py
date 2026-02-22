@@ -17,6 +17,7 @@ import time
 import logging
 import requests
 from collections import deque
+from typing import Any
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -55,12 +56,12 @@ class WhaleTracker:
         "Accept": "application/json, text/plain, */*",
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._history: deque = deque(maxlen=100)  # Track whale activity over time
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """Check for recent whale activity and produce signal."""
         if not Config.ENABLE_WHALE_TRACKING:
             return {"source": "whale_tracker", "signal": "neutral", "strength": 0.0, "data": {}}
@@ -87,7 +88,7 @@ class WhaleTracker:
             _log.warning("Whale tracking failed: %s", e)
             return {"source": "whale_tracker", "signal": "neutral", "strength": 0.0, "data": {"error": str(e)}}
 
-    def _detect_whales(self) -> dict:
+    def _detect_whales(self) -> dict[str, Any]:
         """Detect large transactions from multiple sources."""
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache:
@@ -182,7 +183,7 @@ class WhaleTracker:
         self._cache_ts = now
         return result
 
-    def _analyze(self, data: dict) -> tuple:
+    def _analyze(self, data: dict) -> tuple[str, float]:
         """Analyze whale data to produce signal and strength.
 
         Key signals:

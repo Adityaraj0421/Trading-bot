@@ -11,6 +11,7 @@ import time
 import logging
 import numpy as np
 import requests
+from typing import Any
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -27,12 +28,12 @@ _HEADERS = {
 class CorrelationAnalyzer:
     """Tracks correlation between crypto and traditional markets."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._cache_ttl: int = 600  # 10 min — correlation doesn't change fast
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """Compute rolling correlation between BTC and stock indices."""
         if not Config.ENABLE_CORRELATION:
             return {"source": "correlation", "signal": "neutral", "strength": 0.0, "data": {}}
@@ -162,7 +163,7 @@ class CorrelationAnalyzer:
             return None
 
     def _compute_signal(self, btc_returns: np.ndarray, spy_returns: np.ndarray,
-                        window: int, source_method: str) -> dict:
+                        window: int, source_method: str) -> dict[str, Any]:
         """Common correlation computation."""
         corr = np.corrcoef(btc_returns, spy_returns)[0, 1]
         spy_trend = "up" if spy_returns.mean() > 0 else "down"

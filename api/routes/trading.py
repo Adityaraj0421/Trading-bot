@@ -2,6 +2,8 @@
 Trading routes — trades, positions, equity history.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Query
 
 from api.data_store import DataStore
@@ -11,7 +13,7 @@ def create_router(store: DataStore) -> APIRouter:
     router = APIRouter(tags=["trading"])
 
     @router.get("/trades")
-    def get_trades(limit: int = Query(default=100, ge=0)):
+    def get_trades(limit: int = Query(default=100, ge=0)) -> dict[str, Any]:
         trades = store.get_trade_log()
         total = len(trades)
         if limit > 0:
@@ -19,13 +21,13 @@ def create_router(store: DataStore) -> APIRouter:
         return {"trades": trades, "total": total}
 
     @router.get("/positions")
-    def get_positions():
+    def get_positions() -> dict[str, Any]:
         snapshot = store.get_snapshot()
         positions = snapshot.get("positions", [])
         return {"positions": positions, "count": len(positions)}
 
     @router.get("/equity")
-    def get_equity(limit: int = Query(default=0, ge=0)):
+    def get_equity(limit: int = Query(default=0, ge=0)) -> dict[str, Any]:
         equity = store.get_equity_history()
         total_points = len(equity)
         if limit > 0:
@@ -33,7 +35,7 @@ def create_router(store: DataStore) -> APIRouter:
         return {"equity": equity, "total_points": total_points}
 
     @router.get("/pnl-summary")
-    def get_pnl_summary():
+    def get_pnl_summary() -> dict[str, Any]:
         """v7.0: PnL breakdown by pair and by strategy."""
         trades = store.get_trade_log()
         closed = [t for t in trades if t.get("exit_price")]

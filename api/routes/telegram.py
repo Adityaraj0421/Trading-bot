@@ -8,17 +8,19 @@ Security: validates the X-Telegram-Bot-Api-Secret-Token header
 against the configured TELEGRAM_WEBHOOK_SECRET.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from config import Config
 
 
-def create_router(telegram_bot) -> APIRouter:
+def create_router(telegram_bot: Any) -> APIRouter:
     router = APIRouter(prefix="/telegram", tags=["telegram"])
 
     @router.post("/webhook")
-    async def telegram_webhook(request: Request):
+    async def telegram_webhook(request: Request) -> dict[str, Any]:
         # Verify secret token from Telegram
         if Config.TELEGRAM_WEBHOOK_SECRET:
             header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
@@ -31,7 +33,7 @@ def create_router(telegram_bot) -> APIRouter:
         return {"ok": True}
 
     @router.get("/status")
-    def telegram_status():
+    def telegram_status() -> dict[str, Any]:
         return {
             "enabled": telegram_bot.enabled,
             "webhook_url": Config.TELEGRAM_WEBHOOK_URL or None,

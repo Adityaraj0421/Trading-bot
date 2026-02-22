@@ -78,7 +78,7 @@ class LLMSentimentProvider:
         "Accept": "application/json",
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._sentiment_history: deque = deque(maxlen=200)
@@ -96,7 +96,7 @@ class LLMSentimentProvider:
 
         _log.info(f"LLM Sentiment: backend={self._llm_backend}")
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """
         Standard intelligence provider interface.
         Returns sentiment signal for the aggregator.
@@ -387,7 +387,7 @@ class LLMSentimentProvider:
         }
 
     def _to_signal(self, ew_sentiment: float, volume_spike: dict,
-                   scores: list[dict]) -> dict:
+                   scores: list[dict]) -> dict[str, Any]:
         """Convert analysis to standard intelligence signal format."""
         # Determine signal direction
         if ew_sentiment > 0.15:
@@ -426,7 +426,7 @@ class LLMSentimentProvider:
             },
         }
 
-    def _neutral_signal(self, reason: str = "") -> dict:
+    def _neutral_signal(self, reason: str = "") -> dict[str, Any]:
         return {
             "source": "LLMSentiment",
             "signal": "neutral",

@@ -1,8 +1,10 @@
 """Risk simulation routes — Monte Carlo, VaR, stress testing (v2.0)."""
 import threading
+from typing import Any
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import Optional
+
 from api.data_store import DataStore
 
 # Track active simulation thread (mutable container for closure — avoids nonlocal on module var)
@@ -10,23 +12,23 @@ _state = {"active_thread": None}
 
 
 class MonteCarloRequest(BaseModel):
-    n_simulations: Optional[int] = Field(default=None, gt=0, le=100000, description="Max 100K simulations")
-    n_days: Optional[int] = Field(default=None, gt=0, le=1000, description="Max 1000 days horizon")
-    initial_equity: Optional[float] = Field(default=None, gt=0, le=1e9, description="Starting equity")
+    n_simulations: int | None = Field(default=None, gt=0, le=100000, description="Max 100K simulations")
+    n_days: int | None = Field(default=None, gt=0, le=1000, description="Max 1000 days horizon")
+    initial_equity: float | None = Field(default=None, gt=0, le=1e9, description="Starting equity")
 
 
 def create_router(store: DataStore) -> APIRouter:
     router = APIRouter(prefix="/risk", tags=["risk"])
 
     @router.get("/simulation")
-    async def get_simulation():
+    async def get_simulation() -> dict[str, Any]:
         mc = store.get_monte_carlo()
         if not mc:
             return {"status": "not_run", "message": "Run Monte Carlo simulation first"}
         return mc
 
     @router.post("/monte-carlo")
-    async def run_monte_carlo(req: MonteCarloRequest):
+    async def run_monte_carlo(req: MonteCarloRequest) -> dict[str, Any]:
         """Run Monte Carlo simulation in background thread (max 1 concurrent)."""
         active = _state["active_thread"]
         if active is not None and active.is_alive():
@@ -73,7 +75,7 @@ def create_router(store: DataStore) -> APIRouter:
         return {"status": "started", "message": "Monte Carlo simulation running in background"}
 
     @router.get("/stress-tests")
-    async def get_stress_scenarios():
+    async def get_stress_scenarios() -> dict[str, Any]:
         from risk_simulation.scenarios import StressTestRunner
         runner = StressTestRunner()
         return {"scenarios": runner.list_scenarios()}

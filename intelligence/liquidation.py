@@ -18,6 +18,7 @@ import time
 import logging
 import requests
 from collections import deque
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ _TAKER_BUY_SELL_URL = "https://fapi.binance.com/futures/data/takerlongshortRatio
 class LiquidationAnalyzer:
     """Intelligence provider: liquidation cluster estimation."""
 
-    def __init__(self, symbols: list[str] = None):
+    def __init__(self, symbols: list[str] | None = None) -> None:
         self.symbols = symbols or ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
         self._cache: dict = {}
         self._cache_ts: float = 0
@@ -45,7 +46,7 @@ class LiquidationAnalyzer:
             s: deque(maxlen=24) for s in self.symbols
         }
 
-    def get_signal(self) -> dict:
+    def get_signal(self) -> dict[str, Any]:
         """Return aggregated liquidation risk signal."""
         now = time.time()
         if self._cache and now - self._cache_ts < self._cache_ttl:
@@ -104,7 +105,7 @@ class LiquidationAnalyzer:
         self._cache_ts = now
         return result
 
-    def _analyze_symbol(self, symbol: str) -> dict:
+    def _analyze_symbol(self, symbol: str) -> dict[str, Any]:
         """Analyze liquidation risk for a single symbol."""
         bull = 0.0
         bear = 0.0

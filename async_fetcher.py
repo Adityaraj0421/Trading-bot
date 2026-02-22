@@ -9,6 +9,7 @@ import aiohttp
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from typing import Any
 from config import Config
 
 _log = logging.getLogger(__name__)
@@ -20,12 +21,12 @@ class AsyncDataFetcher:
     Runs exchange OHLCV fetches and sentiment API calls concurrently.
     """
 
-    def __init__(self):
-        self._exchange = None
-        self.using_demo = False
-        self._session = None
+    def __init__(self) -> None:
+        self._exchange: Any = None
+        self.using_demo: bool = False
+        self._session: aiohttp.ClientSession | None = None
 
-    async def _get_exchange(self):
+    async def _get_exchange(self) -> Any:
         """Lazy-init async exchange."""
         if self._exchange is None:
             try:
@@ -41,7 +42,7 @@ class AsyncDataFetcher:
                 self._exchange = None
         return self._exchange
 
-    async def _get_session(self):
+    async def _get_session(self) -> aiohttp.ClientSession:
         """Lazy-init aiohttp session."""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
@@ -50,7 +51,7 @@ class AsyncDataFetcher:
         return self._session
 
     async def fetch_ohlcv(
-        self, symbol: str = None, timeframe: str = None, limit: int = None
+        self, symbol: str | None = None, timeframe: str | None = None, limit: int | None = None
     ) -> pd.DataFrame:
         """Async OHLCV fetch with demo fallback."""
         symbol = symbol or Config.TRADING_PAIR
@@ -90,7 +91,7 @@ class AsyncDataFetcher:
             _log.debug("Fear/Greed fetch failed: %s", e)
             return {"value": 50, "source": "fallback"}
 
-    async def fetch_all(self) -> tuple:
+    async def fetch_all(self) -> tuple[pd.DataFrame, dict[str, Any]]:
         """
         Fetch OHLCV and Fear & Greed concurrently.
         This is the key optimization — both API calls happen in parallel.
@@ -101,7 +102,7 @@ class AsyncDataFetcher:
         df, fg_data = await asyncio.gather(ohlcv_task, fg_task)
         return df, fg_data
 
-    def _generate_demo_data(self, periods=200, timeframe="1h") -> pd.DataFrame:
+    def _generate_demo_data(self, periods: int = 200, timeframe: str = "1h") -> pd.DataFrame:
         """Sync fallback for demo data."""
         from demo_data import generate_ohlcv
 
@@ -114,7 +115,7 @@ class AsyncDataFetcher:
             timeframe_minutes=minutes,
         )
 
-    async def close(self):
+    async def close(self) -> None:
         """Clean up async resources."""
         if self._exchange:
             await self._exchange.close()
