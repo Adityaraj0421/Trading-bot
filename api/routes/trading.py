@@ -10,10 +10,12 @@ from api.data_store import DataStore
 
 
 def create_router(store: DataStore) -> APIRouter:
+    """Create trading routes (trades, positions, equity, PnL)."""
     router = APIRouter(tags=["trading"])
 
     @router.get("/trades")
     def get_trades(limit: int = Query(default=100, ge=0)) -> dict[str, Any]:
+        """Return recent trade log entries."""
         trades = store.get_trade_log()
         total = len(trades)
         if limit > 0:
@@ -22,12 +24,14 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/positions")
     def get_positions() -> dict[str, Any]:
+        """Return currently open positions."""
         snapshot = store.get_snapshot()
         positions = snapshot.get("positions", [])
         return {"positions": positions, "count": len(positions)}
 
     @router.get("/equity")
     def get_equity(limit: int = Query(default=0, ge=0)) -> dict[str, Any]:
+        """Return equity curve data points."""
         equity = store.get_equity_history()
         total_points = len(equity)
         if limit > 0:

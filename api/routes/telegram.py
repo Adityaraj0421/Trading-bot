@@ -17,10 +17,12 @@ from config import Config
 
 
 def create_router(telegram_bot: Any) -> APIRouter:
+    """Create Telegram webhook and status routes."""
     router = APIRouter(prefix="/telegram", tags=["telegram"])
 
     @router.post("/webhook")
     async def telegram_webhook(request: Request) -> dict[str, Any]:
+        """Receive and process incoming Telegram updates."""
         # Verify secret token from Telegram
         if Config.TELEGRAM_WEBHOOK_SECRET:
             header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
@@ -34,6 +36,7 @@ def create_router(telegram_bot: Any) -> APIRouter:
 
     @router.get("/status")
     def telegram_status() -> dict[str, Any]:
+        """Return Telegram bot configuration and status."""
         return {
             "enabled": telegram_bot.enabled,
             "webhook_url": Config.TELEGRAM_WEBHOOK_URL or None,

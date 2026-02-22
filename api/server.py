@@ -45,6 +45,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc", "/telegram/webhook"}
 
     async def dispatch(self, request: Request, call_next: Any) -> Any:
+        """Check X-API-Key header and reject unauthorized requests."""
         # Skip auth if no key configured (development mode)
         if not Config.API_AUTH_KEY:
             return await call_next(request)

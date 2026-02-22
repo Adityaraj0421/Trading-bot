@@ -36,6 +36,7 @@ class BacktestRequest(BaseModel):
 
 
 def create_router(store: DataStore) -> APIRouter:
+    """Create backtest routes (run, results, scenarios)."""
     router = APIRouter(prefix="/backtest", tags=["backtest"])
 
     @router.post("/run")
@@ -92,11 +93,13 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/results")
     async def get_results() -> dict[str, Any]:
+        """Return stored backtest results."""
         results = store.get_backtest_results()
         return {"results": results, "total": len(results)}
 
     @router.get("/scenarios")
     async def get_scenarios() -> dict[str, Any]:
+        """List available backtest scenarios."""
         from scenarios import list_scenarios as ls
         return {"scenarios": ls()}
 

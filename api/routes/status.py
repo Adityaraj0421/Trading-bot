@@ -11,10 +11,12 @@ from config import Config
 
 
 def create_router(store: DataStore) -> APIRouter:
+    """Create status routes (health, config, system modules)."""
     router = APIRouter(tags=["status"])
 
     @router.get("/health")
     def health() -> dict[str, Any]:
+        """Return health check with agent liveness."""
         snapshot = store.get_snapshot()
         return {
             "status": "healthy",
@@ -24,6 +26,7 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/status")
     def status() -> dict[str, Any]:
+        """Return current agent snapshot (cycle data, positions, PnL)."""
         snapshot = store.get_snapshot()
         if not snapshot:
             return {"status": "waiting"}
@@ -31,6 +34,7 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/config")
     def config() -> dict[str, Any]:
+        """Return current agent configuration (pairs, timeframe, risk params)."""
         return {
             "exchange": Config.EXCHANGE_ID,
             "pair": Config.TRADING_PAIR,

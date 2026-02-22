@@ -27,11 +27,13 @@ class WebSocketManager:
         self._loop = loop
 
     async def connect(self, ws: WebSocket) -> None:
+        """Accept a new WebSocket connection and register it."""
         await ws.accept()
         self._connections.add(ws)
         _log.info("WebSocket client connected (%d total)", len(self._connections))
 
     async def disconnect(self, ws: WebSocket) -> None:
+        """Unregister a WebSocket connection."""
         self._connections.discard(ws)
         _log.info("WebSocket client disconnected (%d total)", len(self._connections))
 
@@ -80,4 +82,5 @@ class WebSocketManager:
 
     @property
     def client_count(self) -> int:
+        """Return the number of active WebSocket connections."""
         return len(self._connections)

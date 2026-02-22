@@ -7,10 +7,12 @@ from api.data_store import DataStore
 
 
 def create_router(store: DataStore) -> APIRouter:
+    """Create intelligence signal routes."""
     router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 
     @router.get("/signals")
     async def get_signals() -> dict[str, Any]:
+        """Return aggregated intelligence signals from all providers."""
         signals = store.get_intelligence()
         if not signals:
             from config import Config
@@ -21,6 +23,7 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/providers")
     async def list_providers() -> dict[str, Any]:
+        """List intelligence providers and their enabled status."""
         from config import Config
         return {
             "providers": [

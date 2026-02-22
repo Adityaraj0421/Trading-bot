@@ -26,6 +26,7 @@ _log = logging.getLogger(__name__)
 
 
 class AlertLevel:
+    """Constants for notification severity levels."""
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -57,14 +58,17 @@ class Notifier:
 
     @property
     def telegram_enabled(self) -> bool:
+        """Whether Telegram notifications are configured."""
         return bool(self._telegram_token and self._telegram_chat_id)
 
     @property
     def discord_enabled(self) -> bool:
+        """Whether Discord webhook notifications are configured."""
         return bool(self._discord_webhook)
 
     @property
     def email_enabled(self) -> bool:
+        """Whether email SMTP notifications are configured."""
         return bool(self._email_enabled and self._email_smtp and self._email_user)
 
     def has_channels(self) -> bool:

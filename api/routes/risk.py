@@ -18,10 +18,12 @@ class MonteCarloRequest(BaseModel):
 
 
 def create_router(store: DataStore) -> APIRouter:
+    """Create risk simulation routes (Monte Carlo, stress tests)."""
     router = APIRouter(prefix="/risk", tags=["risk"])
 
     @router.get("/simulation")
     async def get_simulation() -> dict[str, Any]:
+        """Return Monte Carlo simulation results."""
         mc = store.get_monte_carlo()
         if not mc:
             return {"status": "not_run", "message": "Run Monte Carlo simulation first"}
@@ -76,6 +78,7 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/stress-tests")
     async def get_stress_scenarios() -> dict[str, Any]:
+        """List available stress test scenarios."""
         from risk_simulation.scenarios import StressTestRunner
         runner = StressTestRunner()
         return {"scenarios": runner.list_scenarios()}

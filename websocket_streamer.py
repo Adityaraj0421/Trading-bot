@@ -118,6 +118,7 @@ class WebSocketStreamer:
         _log.info("WebSocket streamer stopped")
 
     def is_connected(self) -> bool:
+        """Return True if the WebSocket is connected and running."""
         return self._connected and self._running
 
     def get_status(self) -> dict:

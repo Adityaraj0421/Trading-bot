@@ -80,9 +80,11 @@ class TelegramBot:
 
     @property
     def enabled(self) -> bool:
+        """Whether the Telegram bot is configured with token and chat ID."""
         return bool(self._token and self._chat_id)
 
     def set_data_store(self, store: Any) -> None:
+        """Attach the shared DataStore for command handlers."""
         self._data_store = store
 
     # ------------------------------------------------------------------
@@ -221,6 +223,7 @@ class TelegramBot:
     # ------------------------------------------------------------------
 
     def _cmd_help(self) -> None:
+        """Send the list of available bot commands."""
         msg = (
             "*Crypto Trading Agent*\n\n"
             "/status - Agent state, capital, PnL, regime\n"
@@ -235,6 +238,7 @@ class TelegramBot:
         self._send(msg, parse_mode="Markdown")
 
     def _cmd_status(self) -> None:
+        """Send agent status summary (state, capital, PnL, regime)."""
         snap = self._get_snapshot()
         if not snap:
             self._send("Agent not running yet.")
@@ -264,6 +268,7 @@ class TelegramBot:
         self._send(msg, parse_mode="Markdown")
 
     def _cmd_balance(self) -> None:
+        """Send capital breakdown and exposure."""
         snap = self._get_snapshot()
         if not snap:
             self._send("Agent not running yet.")
@@ -293,6 +298,7 @@ class TelegramBot:
         self._send(msg, parse_mode="Markdown")
 
     def _cmd_positions(self) -> None:
+        """Send open positions with entry, stops, and unrealized PnL."""
         snap = self._get_snapshot()
         if not snap:
             self._send("Agent not running yet.")
@@ -320,6 +326,7 @@ class TelegramBot:
         self._send(msg, parse_mode="Markdown")
 
     def _cmd_trades(self) -> None:
+        """Send the last 5 closed trades."""
         if not self._data_store:
             self._send("Agent not running yet.")
             return
@@ -344,6 +351,7 @@ class TelegramBot:
         self._send(msg, parse_mode="Markdown")
 
     def _cmd_pause(self) -> None:
+        """Halt trading via the decision engine kill switch."""
         if not self._data_store:
             self._send("Agent not running yet.")
             return
@@ -355,6 +363,7 @@ class TelegramBot:
         self._send("🔴 *Trading PAUSED*\nUse /resume to restart.", parse_mode="Markdown")
 
     def _cmd_resume(self) -> None:
+        """Resume trading after a pause."""
         if not self._data_store:
             self._send("Agent not running yet.")
             return

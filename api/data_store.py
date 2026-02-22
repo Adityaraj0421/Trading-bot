@@ -56,6 +56,7 @@ class DataStore:
     # --- Writer methods (called by agent) ---
 
     def update_snapshot(self, snapshot: dict) -> None:
+        """Replace the current agent snapshot and broadcast to WebSocket clients."""
         with self._lock:
             self._snapshot = snapshot.copy()
             self._snapshot["updated_at"] = datetime.now().isoformat()
@@ -64,6 +65,7 @@ class DataStore:
             self._broadcast("snapshot", data)
 
     def append_equity(self, equity: float, timestamp: str) -> None:
+        """Append an equity data point and broadcast to WebSocket clients."""
         point = {"equity": equity, "timestamp": timestamp}
         with self._lock:
             self._equity_history.append(point)
@@ -71,65 +73,79 @@ class DataStore:
             self._broadcast("equity", point)
 
     def append_trade(self, trade: dict) -> None:
+        """Append a trade record and broadcast to WebSocket clients."""
         with self._lock:
             self._trade_log.append(trade)
         if self._broadcast:
             self._broadcast("trade", trade)
 
     def append_event(self, event: dict) -> None:
+        """Append an autonomous-mode event and broadcast to WebSocket clients."""
         with self._lock:
             self._events.append(event)
         if self._broadcast:
             self._broadcast("event", event)
 
     def update_intelligence(self, signals: dict) -> None:
+        """Replace the latest intelligence signals snapshot."""
         with self._lock:
             self._intelligence = signals.copy()
 
     def update_arbitrage(self, data: dict) -> None:
+        """Replace the latest arbitrage opportunities snapshot."""
         with self._lock:
             self._arbitrage = data.copy()
 
     def update_backtest_results(self, results: list[dict]) -> None:
+        """Replace the stored backtest results list."""
         with self._lock:
             self._backtest_results = results
 
     def update_monte_carlo(self, results: dict) -> None:
+        """Replace the stored Monte Carlo simulation results."""
         with self._lock:
             self._monte_carlo = results.copy()
 
     # --- Reader methods (called by API) ---
 
     def get_snapshot(self) -> dict:
+        """Return a copy of the current agent snapshot."""
         with self._lock:
             return self._snapshot.copy()
 
     def get_equity_history(self) -> list[dict]:
+        """Return the full equity history as a list."""
         with self._lock:
             return list(self._equity_history)
 
     def get_trade_log(self) -> list[dict]:
+        """Return a copy of the full trade log."""
         with self._lock:
             return self._trade_log.copy()
 
     def get_events(self, limit: int = 100) -> list[dict]:
+        """Return the most recent *limit* autonomous-mode events."""
         with self._lock:
             events = list(self._events)
             return events[-limit:]
 
     def get_intelligence(self) -> dict:
+        """Return a copy of the latest intelligence signals."""
         with self._lock:
             return self._intelligence.copy()
 
     def get_arbitrage(self) -> dict:
+        """Return a copy of the latest arbitrage opportunities."""
         with self._lock:
             return self._arbitrage.copy()
 
     def get_backtest_results(self) -> list[dict]:
+        """Return a copy of the stored backtest results."""
         with self._lock:
             return self._backtest_results.copy()
 
     def get_monte_carlo(self) -> dict:
+        """Return a copy of the Monte Carlo simulation results."""
         with self._lock:
             return self._monte_carlo.copy()
 
@@ -148,6 +164,7 @@ class DataStore:
             self._system_modules["updated_at"] = datetime.now().isoformat()
 
     def update_rate_limiter_stats(self, stats: dict) -> None:
+        """Replace the stored rate limiter usage statistics."""
         with self._lock:
             self._rate_limiter_stats = stats.copy()
 
@@ -158,15 +175,18 @@ class DataStore:
     # --- v7.0 reader methods ---
 
     def get_notifications(self, limit: int = 100) -> list[dict]:
+        """Return the most recent *limit* notification log entries."""
         with self._lock:
             notifs = list(self._notifications)
             return notifs[-limit:]
 
     def get_system_modules(self) -> dict:
+        """Return a copy of the v7.0 system module statuses."""
         with self._lock:
             return self._system_modules.copy()
 
     def get_rate_limiter_stats(self) -> dict:
+        """Return a copy of the rate limiter usage statistics."""
         with self._lock:
             return self._rate_limiter_stats.copy()
 

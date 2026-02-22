@@ -19,10 +19,12 @@ class HaltRequest(BaseModel):
 
 
 def create_router(store: DataStore) -> APIRouter:
+    """Create autonomous-mode routes (status, events, kill switch, alerts)."""
     router = APIRouter(prefix="/autonomous", tags=["autonomous"])
 
     @router.get("/status")
     def autonomous_status() -> dict[str, Any]:
+        """Return autonomous trading mode status and state."""
         snapshot = store.get_snapshot()
         autonomous = snapshot.get("autonomous", {})
         if not autonomous:
@@ -31,6 +33,7 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/events")
     def autonomous_events(limit: int = Query(default=50, ge=1)) -> dict[str, Any]:
+        """Return recent autonomous-mode events."""
         events = store.get_events(limit=limit)
         return {"events": events, "count": len(events)}
 

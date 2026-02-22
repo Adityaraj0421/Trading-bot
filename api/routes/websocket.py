@@ -18,10 +18,12 @@ from config import Config
 
 
 def create_router(ws_manager: WebSocketManager) -> APIRouter:
+    """Create WebSocket route for real-time dashboard streaming."""
     router = APIRouter(tags=["websocket"])
 
     @router.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        """Handle WebSocket connections with message-based auth and keepalive."""
         await ws_manager.connect(ws)
         try:
             # --- Auth phase (message-based, not query param) ---
