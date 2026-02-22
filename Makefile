@@ -89,7 +89,7 @@ test-coverage: ## Run tests with coverage report
 	@echo "HTML coverage report: htmlcov/index.html"
 
 test-config: ## Run config and model tests only
-	$(PYTHON) -m pytest tests/test_config.py tests/test_models.py -v
+	$(PYTHON) -m pytest tests/test_config.py tests/test_model.py -v
 
 lint: ## Run ruff linter
 	$(PYTHON) -m ruff check .

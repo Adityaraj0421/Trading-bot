@@ -72,8 +72,6 @@ class Indicators:
         volume = out["volume"]
 
         # --- Moving Averages (computed once, reused below) ---
-        sma_20 = close.rolling(10).mean()
-        out["sma_10"] = sma_20  # reuse variable
         out["sma_10"] = close.rolling(10).mean()
         out["sma_20"] = close.rolling(20).mean()
         out["sma_50"] = close.rolling(50).mean()

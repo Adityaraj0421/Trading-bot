@@ -451,8 +451,12 @@ class TradingAgent:
         # v7.0: Record equity snapshot to trade DB
         if self.trade_db and self.cycle_count % 5 == 0:
             try:
-                price = self._last_price or 0
-                unrealized = sum(p.unrealized_pnl(price) for p in self.risk.positions)
+                _prices = getattr(self, "_last_prices", {})
+                _fallback_price = self._last_price or 0
+                unrealized = sum(
+                    p.unrealized_pnl(_prices.get(p.symbol, _fallback_price))
+                    for p in self.risk.positions
+                )
                 equity = self.risk.capital + unrealized
                 self.trade_db.record_equity(
                     equity=equity,

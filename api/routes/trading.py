@@ -37,10 +37,14 @@ def create_router(store: DataStore) -> APIRouter:
             elif status == "closed":
                 trades = db.get_trade_history(limit=fetch_limit)
             else:
-                # Merge: most-recent closed trades + all open trades
+                # Merge and sort by entry_time DESC (most recently opened first)
                 closed = db.get_trade_history(limit=fetch_limit)
                 open_trades = db.get_open_trades()
-                trades = open_trades + closed
+                trades = sorted(
+                    open_trades + closed,
+                    key=lambda t: t.get("entry_time", ""),
+                    reverse=True,
+                )
             total = len(trades)
             if limit > 0:
                 trades = trades[:limit]

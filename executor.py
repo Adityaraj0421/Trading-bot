@@ -49,6 +49,8 @@ class LiveExecutor:
 
     def place_order(self, symbol: str, side: str, quantity: float, price: float) -> dict[str, Any]:
         """Place a limit order on the exchange."""
+        if side not in ("long", "short"):
+            raise ValueError(f"Invalid side '{side}': must be 'long' or 'short'")
         try:
             if side == "long":
                 order = self.exchange.create_limit_buy_order(symbol, quantity, price)
@@ -77,8 +79,14 @@ class LiveExecutor:
         Returns:
             True if the order was cancelled, False on failure.
         """
+        effective_symbol = symbol or Config.TRADING_PAIR
+        if symbol is None:
+            _log.warning(
+                "[Live] cancel_order called without symbol — falling back to primary pair %s",
+                effective_symbol,
+            )
         try:
-            self.exchange.cancel_order(order_id, symbol or Config.TRADING_PAIR)
+            self.exchange.cancel_order(order_id, effective_symbol)
             return True
         except Exception as e:
             _log.error("[Live] Cancel error: %s", e)

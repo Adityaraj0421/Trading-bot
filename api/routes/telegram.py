@@ -8,6 +8,8 @@ Security: validates the X-Telegram-Bot-Api-Secret-Token header
 against the configured TELEGRAM_WEBHOOK_SECRET.
 """
 
+import json
+import secrets
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -23,13 +25,17 @@ def create_router(telegram_bot: Any) -> APIRouter:
     @router.post("/webhook")
     async def telegram_webhook(request: Request) -> dict[str, Any]:
         """Receive and process incoming Telegram updates."""
-        # Verify secret token from Telegram
+        # Verify secret token from Telegram (constant-time comparison prevents timing attacks)
         if Config.TELEGRAM_WEBHOOK_SECRET:
             header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-            if header_secret != Config.TELEGRAM_WEBHOOK_SECRET:
+            if not secrets.compare_digest(header_secret, Config.TELEGRAM_WEBHOOK_SECRET):
                 return JSONResponse(status_code=403, content={"detail": "Invalid secret"})
 
-        body = await request.json()
+        # Guard against oversized payloads (Telegram updates are never > a few KB)
+        raw = await request.body()
+        if len(raw) > 1_048_576:  # 1 MB
+            return JSONResponse(status_code=413, content={"detail": "Payload too large"})
+        body = json.loads(raw)
         # Handle in a non-blocking way — Telegram expects 200 quickly
         telegram_bot.handle_update(body)
         return {"ok": True}
