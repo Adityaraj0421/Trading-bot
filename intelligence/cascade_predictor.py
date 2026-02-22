@@ -67,6 +67,7 @@ class CascadeRisk:
     timestamp: float = 0.0
 
     def to_dict(self) -> dict:
+        """Serialize cascade risk assessment to dict."""
         return {
             "symbol": self.symbol,
             "risk_score": round(self.risk_score, 1),
@@ -507,6 +508,7 @@ class CascadePredictor:
         ]
 
     def get_status(self) -> dict[str, Any]:
+        """Return cascade predictor status for dashboard display."""
         return {
             "symbols": self.symbols,
             "risks": {s: r.to_dict() for s, r in self._cache.items()},

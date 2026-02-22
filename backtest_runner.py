@@ -203,4 +203,5 @@ class BacktestRunner:
         return results
 
     def get_all_results(self) -> list[dict[str, Any]]:
+        """Return all accumulated backtest results."""
         return self.results

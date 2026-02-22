@@ -45,9 +45,11 @@ class TriangularPath:
 
     @property
     def is_profitable(self) -> bool:
+        """True if the path yields positive return after fees."""
         return self.net_return > 0
 
     def to_dict(self) -> dict:
+        """Serialize triangular path to dict."""
         return {
             "exchange": self.exchange,
             "path": self.path,

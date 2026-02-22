@@ -33,6 +33,7 @@ class CircuitState(Enum):
 
 @dataclass
 class ErrorRecord:
+    """Single error event with component, severity, and traceback."""
     component: str
     error_type: str
     message: str
@@ -44,6 +45,7 @@ class ErrorRecord:
 
 @dataclass
 class HealthMetrics:
+    """System health snapshot used by the self-healer."""
     memory_ok: bool = True
     api_healthy: bool = True
     data_fresh: bool = True
@@ -55,10 +57,12 @@ class HealthMetrics:
 
     @property
     def overall_healthy(self) -> bool:
+        """True if all critical systems healthy and error rate is low."""
         critical = self.api_healthy and self.data_fresh and self.memory_ok
         return critical and self.error_rate < 0.3
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize health metrics to dict."""
         return {
             "memory_ok": self.memory_ok,
             "api_healthy": self.api_healthy,

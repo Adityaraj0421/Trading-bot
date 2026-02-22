@@ -67,6 +67,7 @@ class StructuredLogger:
     # --- Specific event loggers ---
 
     def log_cycle_start(self, cycle: int, price: float, pair: str) -> None:
+        """Log the start of a new trading cycle."""
         self._log_event("cycle_start", {
             "cycle": cycle, "price": price, "pair": pair,
         })
@@ -74,6 +75,7 @@ class StructuredLogger:
 
     def log_signal(self, signal: str, confidence: float, source: str,
                    regime: str = "", strategy: str = "") -> None:
+        """Log a trading signal with its source and confidence."""
         self._log_event("signal", {
             "signal": signal, "confidence": confidence,
             "source": source, "regime": regime, "strategy": strategy,
@@ -82,6 +84,7 @@ class StructuredLogger:
     def log_trade_open(self, symbol: str, side: str, price: float,
                        quantity: float, sl: float, tp: float,
                        trailing: float, strategy: str = "") -> None:
+        """Log a new trade entry with position details and risk levels."""
         self._log_event("trade_open", {
             "symbol": symbol, "side": side, "price": price,
             "quantity": quantity, "stop_loss": sl, "take_profit": tp,
@@ -96,6 +99,7 @@ class StructuredLogger:
                         exit_price: float, pnl_net: float, pnl_gross: float,
                         fees: float, reason: str, hold_bars: int,
                         strategy: str = "") -> None:
+        """Log a trade exit with PnL, fees, and exit reason."""
         level = "INFO" if pnl_net >= 0 else "WARNING"
         self._log_event("trade_close", {
             "symbol": symbol, "side": side,
@@ -113,6 +117,7 @@ class StructuredLogger:
 
     def log_regime_change(self, old_regime: str, new_regime: str,
                           confidence: float) -> None:
+        """Log a market regime transition."""
         self._log_event("regime_change", {
             "old_regime": old_regime, "new_regime": new_regime,
             "confidence": confidence,
@@ -121,6 +126,7 @@ class StructuredLogger:
 
     def log_model_train(self, accuracy: float, samples: int,
                         drift_detected: bool = False) -> None:
+        """Log an ML model training event with accuracy and drift status."""
         level = "WARNING" if drift_detected else "INFO"
         self._log_event("model_train", {
             "accuracy": accuracy, "samples": samples,
@@ -132,6 +138,7 @@ class StructuredLogger:
             self.console.info(f"Model trained: accuracy={accuracy:.2%}, samples={samples}")
 
     def log_error(self, component: str, error: str) -> None:
+        """Log an error from a named component."""
         self._log_event("error", {
             "component": component, "error": error,
         }, level="ERROR")
@@ -139,6 +146,7 @@ class StructuredLogger:
 
     def log_portfolio(self, capital: float, positions: int, total_pnl: float,
                       fees: float, win_rate: float) -> None:
+        """Log a portfolio snapshot with capital, positions, and PnL."""
         self._log_event("portfolio", {
             "capital": round(capital, 2),
             "open_positions": positions,

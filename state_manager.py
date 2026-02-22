@@ -123,6 +123,7 @@ class StateManager:
             return False
 
     def exists(self) -> bool:
+        """Check whether a saved state file exists on disk."""
         return os.path.exists(self.state_file)
 
     def clear(self) -> None:

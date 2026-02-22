@@ -58,6 +58,7 @@ class OnChainFeatures:
 
     @staticmethod
     def feature_names() -> list[str]:
+        """Return ordered feature names for model registration."""
         return [
             "onchain_hash_rate_trend",
             "onchain_mempool_pressure",

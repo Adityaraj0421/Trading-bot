@@ -29,6 +29,7 @@ class Genome:
     max_drawdown: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize genome to dict."""
         return {
             "strategy_name": self.strategy_name,
             "parameters": self.parameters,
@@ -41,6 +42,7 @@ class Genome:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Genome":
+        """Create a Genome from a serialized dict."""
         return cls(**data)
 
 

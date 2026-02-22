@@ -79,6 +79,7 @@ if _HAS_TORCH:
             )
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Return Q-values for each strategy given a state vector."""
             return self.net(x)
 
 

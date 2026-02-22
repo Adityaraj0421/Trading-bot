@@ -43,6 +43,7 @@ class FundingPosition:
     last_funding_time: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize funding position to dict."""
         return {
             "pair": self.pair,
             "direction": self.direction,
@@ -58,6 +59,7 @@ class FundingPosition:
 
     @property
     def annualized_yield_pct(self) -> float:
+        """Compute annualized yield percentage based on funding collected so far."""
         if self.size_usd <= 0:
             return 0.0
         hours_held = max(1, (datetime.now() - self.entry_time).total_seconds() / 3600)
@@ -329,6 +331,7 @@ class FundingArbitrageEngine:
         }
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize engine state for persistence."""
         return {
             "positions": [p.to_dict() for p in self.positions],
             "total_yield": self._total_yield,

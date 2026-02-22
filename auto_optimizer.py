@@ -61,6 +61,7 @@ class TrialResult:
     score: float = 0.0  # Composite optimization score
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize trial result to dict."""
         return {
             "params": self.params,
             "total_return": self.total_return,

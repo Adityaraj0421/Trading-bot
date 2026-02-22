@@ -427,6 +427,7 @@ class LLMSentimentProvider:
         }
 
     def _neutral_signal(self, reason: str = "") -> dict[str, Any]:
+        """Return a neutral signal with an optional reason."""
         return {
             "source": "LLMSentiment",
             "signal": "neutral",

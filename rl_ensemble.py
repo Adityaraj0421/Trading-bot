@@ -76,9 +76,11 @@ class ReplayBuffer:
 
     def push(self, state: np.ndarray, action_idx: int, reward: float,
              next_state: np.ndarray, done: float) -> None:
+        """Store a transition tuple in the replay buffer."""
         self.buffer.append((state, action_idx, reward, next_state, done))
 
     def sample(self, batch_size: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Sample a random batch of transitions for training."""
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         batch = [self.buffer[i] for i in indices]
         states, actions, rewards, next_states, dones = zip(*batch)
@@ -115,6 +117,7 @@ if HAS_TORCH:
             self.advantage_stream = nn.Linear(hidden, num_actions)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Compute Q-values using dueling architecture (value + advantage)."""
             features = self.feature(x)
             value = self.value_stream(features)
             advantage = self.advantage_stream(features)
@@ -155,6 +158,7 @@ if HAS_TORCH:
             return np.array(vals, dtype=np.float32)
 
         def predict(self, features: dict[str, float]) -> tuple[str, float]:
+            """Select action via epsilon-greedy policy. Returns (action, confidence)."""
             state = self._extract_state(features)
             if np.random.random() < self.epsilon:
                 return ACTIONS[np.random.randint(NUM_ACTIONS)], 0.4
@@ -169,6 +173,7 @@ if HAS_TORCH:
 
         def update(self, features: dict[str, float], action: str, reward: float,
                    next_features: dict[str, float] | None = None) -> None:
+            """Store experience and trigger a training step if buffer is large enough."""
             state = self._extract_state(features)
             action_idx = ACTIONS.index(action)
             done = next_features is None
@@ -186,6 +191,7 @@ if HAS_TORCH:
                 self._train_step()
 
         def _train_step(self) -> None:
+            """Run one Double-DQN training step with soft target network update."""
             states, actions, rewards, next_states, dones = self.replay.sample(
                 self.batch_size
             )
@@ -219,6 +225,7 @@ if HAS_TORCH:
             self.train_steps += 1
 
         def get_sharpe(self) -> float:
+            """Compute Sharpe ratio from recent trade rewards."""
             if len(self.trade_history) < 10:
                 return 0.0
             returns = np.array(self.trade_history)
@@ -247,6 +254,7 @@ if HAS_TORCH:
             self.critic = nn.Linear(hidden, 1)
 
         def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            """Return (action_logits, state_value) from shared features."""
             shared = self.shared(x)
             return self.actor(shared), self.critic(shared)
 
@@ -278,6 +286,7 @@ if HAS_TORCH:
             self.train_steps = 0
 
         def predict(self, features: dict[str, float]) -> tuple[str, float]:
+            """Sample action from policy with epsilon-greedy exploration."""
             state = np.array(
                 [features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32
             )
@@ -294,6 +303,7 @@ if HAS_TORCH:
 
         def update(self, features: dict[str, float], action: str, reward: float,
                    next_features: dict[str, float] | None = None) -> None:
+            """Append transition to trajectory; train PPO when batch is full."""
             state = np.array(
                 [features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32
             )
@@ -317,6 +327,7 @@ if HAS_TORCH:
                 self._train_ppo()
 
         def _train_ppo(self) -> None:
+            """Run PPO update using collected trajectory with clipped surrogate objective."""
             if len(self.trajectory) < 4:
                 return
 
@@ -364,6 +375,7 @@ if HAS_TORCH:
             self.train_steps += 1
 
         def get_sharpe(self) -> float:
+            """Compute Sharpe ratio from recent trade rewards."""
             if len(self.trade_history) < 10:
                 return 0.0
             returns = np.array(self.trade_history)
@@ -393,6 +405,7 @@ class QLearnerAgent:
         self.total_trades = 0
 
     def _discretize(self, features: dict[str, float]) -> tuple[int, ...]:
+        """Bin continuous features into discrete state indices."""
         state = []
         for name, bins in self.state_bins.items():
             val = features.get(name, 0.0)
@@ -400,11 +413,13 @@ class QLearnerAgent:
         return tuple(state)
 
     def _get_q(self, state_key: tuple) -> dict[str, float]:
+        """Return Q-values for a state, initializing to zero if unseen."""
         if state_key not in self.q_table:
             self.q_table[state_key] = {a: 0.0 for a in self.actions}
         return self.q_table[state_key]
 
     def predict(self, features: dict[str, float]) -> tuple[str, float]:
+        """Select action via epsilon-greedy over Q-table. Returns (action, confidence)."""
         state_key = self._discretize(features)
         q_vals = self._get_q(state_key)
         if np.random.random() < self.epsilon:
@@ -421,6 +436,7 @@ class QLearnerAgent:
 
     def update(self, features: dict[str, float], action: str, reward: float,
                next_features: dict[str, float] | None = None) -> None:
+        """Update Q-value for the state-action pair using TD learning."""
         state_key = self._discretize(features)
         q_vals = self._get_q(state_key)
         max_next_q = 0.0
@@ -434,6 +450,7 @@ class QLearnerAgent:
         self.epsilon = max(0.05, self.epsilon * 0.999)
 
     def get_sharpe(self) -> float:
+        """Compute Sharpe ratio from recent trade rewards."""
         if len(self.trade_history) < 10:
             return 0.0
         returns = np.array(self.trade_history)
@@ -524,6 +541,7 @@ class RLEnsemble:
         self._last_actions: dict[int, str] = {}
 
     def _encode_regime(self, regime: str) -> float:
+        """Map regime string to numeric code for RL state representation."""
         mapping = {
             "ranging": 0, "trending_up": 1, "trending_down": 2,
             "high_volatility": 3, "volatile": 3, "crash": 3,
@@ -532,6 +550,7 @@ class RLEnsemble:
         return float(mapping.get(regime, 0))
 
     def _extract_features(self, df_ind: Any, regime: str = "") -> dict[str, float]:
+        """Extract feature dict from the latest row of indicator DataFrame."""
         last = df_ind.iloc[-1]
         return {
             "regime_code": self._encode_regime(regime),
@@ -594,6 +613,7 @@ class RLEnsemble:
             agent.update(self._last_features, action, reward, next_features)
 
     def get_stats(self) -> dict[str, Any]:
+        """Return per-agent statistics for dashboard display."""
         stats = {"engine": "deep_rl" if self._use_deep else "tabular_q"}
         for agent in self.agents:
             name = f"agent_{agent.agent_id}"
@@ -613,6 +633,7 @@ class RLEnsemble:
         return stats
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize ensemble state (network weights + histories) for persistence."""
         data = {"version": "2.0", "engine": "deep_rl" if self._use_deep else "tabular_q"}
 
         if self._use_deep:
@@ -650,6 +671,7 @@ class RLEnsemble:
         return data
 
     def from_dict(self, data: dict[str, Any]) -> None:
+        """Restore ensemble state from serialized dict."""
         version = data.get("version", "1.0")
 
         if version == "2.0" and self._use_deep and data.get("engine") == "deep_rl":

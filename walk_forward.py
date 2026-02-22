@@ -76,6 +76,7 @@ class WFOResult:
     rejection_reasons: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize walk-forward result to dict."""
         return {
             "n_folds": self.n_folds,
             "total_oos_bars": self.total_oos_bars,

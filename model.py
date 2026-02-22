@@ -280,6 +280,7 @@ if _HAS_TORCH:
 # ── Signal Constants ──────────────────────────────────────────────
 
 class Signal:
+    """Trading signal constants (BUY, SELL, HOLD)."""
     BUY = "BUY"
     SELL = "SELL"
     HOLD = "HOLD"
@@ -618,6 +619,7 @@ class TradingModel:
     # ── Feature Importance ───────────────────────────────────────────
 
     def get_feature_importance(self) -> dict[str, float]:
+        """Return feature importance scores sorted by importance (descending)."""
         if not self.is_trained:
             return {}
         if self._tier in (1, 2) and hasattr(self, 'xgb_model'):

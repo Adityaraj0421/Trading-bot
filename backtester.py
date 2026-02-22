@@ -36,6 +36,7 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class BacktestTrade:
+    """Record of a completed backtest trade with costs and attribution."""
     symbol: str
     side: str
     entry_price: float
@@ -57,6 +58,7 @@ class BacktestTrade:
 
 @dataclass
 class BacktestPosition:
+    """Tracks an open position during backtesting."""
     symbol: str
     side: str
     entry_price: float
@@ -128,11 +130,13 @@ class Backtester:
                 return price * (1 + self.slippage_pct)  # Pay more when exiting short
 
     def _calculate_fees(self, price: float, quantity: float) -> float:
+        """Calculate trading fees for a given notional value."""
         return price * quantity * self.fee_pct
 
     def _open_position(self, bar_idx: int, timestamp: Any, price: float,
                        signal: str, confidence: float,
                        strat_sig: Any, regime_name: str) -> None:
+        """Open a new position with slippage, fees, and risk limits applied."""
         side = "long" if signal == "BUY" else "short"
         risk_amount = self.capital * Config.MAX_POSITION_PCT
         actual_entry = self._apply_slippage(price, side, is_entry=True)
@@ -168,6 +172,7 @@ class Backtester:
 
     def _close_position(self, pos: BacktestPosition, bar_idx: int,
                         timestamp: Any, price: float, reason: str) -> None:
+        """Close a position, record trade with PnL, fees, and slippage."""
         actual_exit = self._apply_slippage(price, pos.side, is_entry=False)
         exit_fee = self._calculate_fees(actual_exit, pos.quantity)
 
@@ -203,6 +208,7 @@ class Backtester:
         self.positions.remove(pos)
 
     def _check_positions(self, bar_idx: int, timestamp: Any, row: Any) -> None:
+        """Update trailing stops and check exit conditions for all positions."""
         price = row["close"]
         high = row["high"]
         low = row["low"]
@@ -381,6 +387,7 @@ class Backtester:
         return results
 
     def _combine(self, strat_sig: Any, ml_signal: str, ml_conf: float) -> tuple[str, float]:
+        """Combine strategy and ML signals into a final (signal, confidence) pair."""
         s = strat_sig.signal
         sc = strat_sig.confidence
         if s == ml_signal:
@@ -393,6 +400,7 @@ class Backtester:
             return s, sc * 0.4
 
     def _compute_metrics(self) -> dict[str, Any]:
+        """Compute all performance metrics from the equity curve and trades."""
         equity = np.array(self.equity_curve)
         if len(equity) < 2:
             return {"error": "no_data"}
@@ -486,6 +494,7 @@ class Backtester:
         }
 
     def print_report(self, results: dict[str, Any] | None = None) -> None:
+        """Print formatted backtest results with strategy attribution."""
         if results is None:
             results = self._compute_metrics()
 

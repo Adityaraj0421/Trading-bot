@@ -56,6 +56,7 @@ class MetaConfig:
     regime_adjustments: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize config to dict."""
         return {
             "strategy_weight": round(self.strategy_weight, 4),
             "ml_weight": round(self.ml_weight, 4),
@@ -98,6 +99,7 @@ class TradeObservation:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize trade observation to dict."""
         return {
             "pnl": self.pnl,
             "signal_source": self.signal_source,
@@ -150,6 +152,7 @@ class ABExperiment:
     conclusion: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize experiment state for dashboard display."""
         return {
             "id": self.experiment_id,
             "status": self.status.value,
