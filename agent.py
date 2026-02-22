@@ -73,6 +73,8 @@ def set_data_store(store: Any, agent: Any = None) -> None:
 
 
 class TradingAgent:
+    """Fully autonomous crypto trading agent orchestrating data, strategy, ML, risk, and execution."""
+
     # Expected average confidence of a healthy ML model (for drift detection baseline)
     _DRIFT_BASELINE_CONFIDENCE = 0.7
 
@@ -275,6 +277,7 @@ class TradingAgent:
             return False
 
     def _should_retrain(self, data_hash: tuple[int, float]) -> bool:
+        """Return True if the ML model should be retrained (time elapsed or drift)."""
         if self.last_train_time is None:
             return True
         if data_hash == self._last_data_hash:
@@ -346,6 +349,7 @@ class TradingAgent:
             return self._last_arb_scan
 
     def run_cycle(self) -> None:
+        """Execute one full trading cycle: orchestrate, fetch, analyze, and trade."""
         self.cycle_count += 1
         self.risk.set_bar(self.cycle_count)
         now = datetime.now().strftime("%H:%M:%S")
@@ -748,6 +752,7 @@ class TradingAgent:
                        df_ind: Any, strat_sig: Any,
                        position_mult: float = 1.0, intel_adjustment: float = 1.0,
                        pair: str | None = None) -> None:
+        """Size, confirm, and place a trade for the given signal."""
         pair = pair or Config.TRADING_PAIR
         allowed, reason = self.risk.can_open_position(signal, confidence, symbol=pair)
         if not allowed:
@@ -1065,6 +1070,11 @@ class TradingAgent:
         return all_ok
 
     def run(self, cycles: int | None = None) -> None:
+        """Start the main trading loop.
+
+        Args:
+            cycles: Number of cycles to run, or None for infinite.
+        """
         # v7.0: Run preflight check before main loop
         self.preflight_check()
 
@@ -1308,6 +1318,7 @@ class TradingAgent:
 
 
 def main() -> None:
+    """CLI entry point: create an agent and run it."""
     agent = TradingAgent()
     cycles = None
     if len(sys.argv) > 1:

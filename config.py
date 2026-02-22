@@ -17,6 +17,8 @@ load_dotenv(Path(__file__).parent / ".env")
 
 
 class Config:
+    """Central configuration loaded from environment variables with sensible defaults."""
+
     # Exchange settings
     EXCHANGE_ID = os.getenv("EXCHANGE_ID", "binance")
     API_KEY = os.getenv("API_KEY", "")
@@ -129,6 +131,7 @@ class Config:
 
     @classmethod
     def any_intelligence_enabled(cls) -> bool:
+        """Return True if at least one intelligence module is enabled."""
         return any([
             cls.ENABLE_ONCHAIN,
             cls.ENABLE_WHALE_TRACKING,
@@ -141,6 +144,7 @@ class Config:
 
     @classmethod
     def any_notifications_enabled(cls) -> bool:
+        """Return True if at least one notification channel is configured."""
         return any([
             cls.TELEGRAM_BOT_TOKEN and cls.TELEGRAM_CHAT_ID,
             cls.DISCORD_WEBHOOK_URL,
@@ -158,10 +162,17 @@ class Config:
 
     @classmethod
     def is_paper_mode(cls) -> bool:
+        """Return True if the agent is running in paper-trading mode."""
         return cls.TRADING_MODE.lower() == "paper"
 
     @classmethod
     def validate(cls) -> None:
+        """Validate all configuration values and print a summary.
+
+        Raises:
+            ValueError: If any hard constraint is violated (e.g. missing API
+                keys in live mode, invalid risk parameters).
+        """
         cls._resolve_paths()
 
         # ── Hard failures (ValueError → agent won't start) ────────────

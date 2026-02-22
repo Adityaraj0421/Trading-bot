@@ -39,6 +39,7 @@ class PaperExecutor:
         return order
 
     def cancel_order(self, order_id: str) -> bool:
+        """Cancel a paper order (always succeeds)."""
         return True
 
 
@@ -71,6 +72,11 @@ class LiveExecutor:
             return {"error": str(e)}
 
     def cancel_order(self, order_id: str, symbol: str | None = None) -> bool:
+        """Cancel an open order on the exchange.
+
+        Returns:
+            True if the order was cancelled, False on failure.
+        """
         try:
             self.exchange.cancel_order(order_id, symbol or Config.TRADING_PAIR)
             return True

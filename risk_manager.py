@@ -22,6 +22,8 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class Position:
+    """An open trading position with trailing-stop tracking."""
+
     symbol: str
     side: str  # "long" or "short"
     entry_price: float
@@ -50,6 +52,7 @@ class Position:
 
     @property
     def notional_value(self) -> float:
+        """Return the notional value (entry_price * quantity) of the position."""
         return self.entry_price * self.quantity
 
     def update_trailing_stop(self, current_high: float, current_low: float,
@@ -93,6 +96,7 @@ class Position:
         return None
 
     def unrealized_pnl(self, current_price: float) -> float:
+        """Calculate unrealized profit/loss at the given price."""
         if self.side == "long":
             return (current_price - self.entry_price) * self.quantity
         else:
@@ -101,6 +105,8 @@ class Position:
 
 @dataclass
 class TradeRecord:
+    """Immutable record of a completed (closed) trade."""
+
     symbol: str
     side: str
     entry_price: float
@@ -117,6 +123,8 @@ class TradeRecord:
 
 
 class RiskManager:
+    """Portfolio-level risk manager with volatility-adaptive sizing and tiered drawdown protocol."""
+
     # Volatility targeting constants
     TARGET_ANNUAL_VOL = 0.15       # 15% annualized portfolio volatility target
     VOL_LOOKBACK = 20              # Bars for realized volatility calculation
@@ -598,6 +606,7 @@ class RiskManager:
         return closed
 
     def get_summary(self) -> dict[str, Any]:
+        """Return a compact summary of capital, positions, PnL, and win rate."""
         return {
             "capital": round(self.capital, 2),
             "open_positions": len(self.positions),

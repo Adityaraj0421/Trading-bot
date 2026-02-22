@@ -22,6 +22,8 @@ from auto_optimizer import AutoOptimizer
 
 
 class DecisionState(Enum):
+    """Operational state that governs trading aggression and safety limits."""
+
     NORMAL = "normal"         # Full trading
     CAUTIOUS = "cautious"     # Reduced position sizes after losses
     DEFENSIVE = "defensive"   # Minimal trading, near safety limits
@@ -51,6 +53,7 @@ class AutonomousEvent:
     data: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the event to a JSON-compatible dict."""
         return {
             "type": self.event_type,
             "description": self.description,
