@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT, ETH/USDT, SOL/USDT on Binance. Runs 9 strategies with ML ensemble, risk management, and real-time intelligence signals. Paper and live trading modes.
+Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT, ETH/USDT, SOL/USDT on Binance. Runs 10 strategies with ML ensemble, risk management, and real-time intelligence signals. Paper and live trading modes.
 
 ## Architecture
 
 ```
 agent.py (main loop, runs in background thread)
     ├── data_fetcher.py      → CCXT/Binance market data
-    ├── indicators.py        → 15+ technical indicators
+    ├── indicators.py        → 15+ technical indicators (24 FEATURE_COLUMNS for ML)
     ├── decision_engine.py   → Strategy ensemble + ML signals
     ├── risk_manager.py      → Position sizing, stop-loss, daily limits
     ├── executor.py          → Paper/live trade execution
@@ -50,10 +50,11 @@ make help         # Show all available commands
 | `api/server.py` | FastAPI app factory, auth middleware, agent thread |
 | `config.py` | All configuration from .env |
 | `dashboard/app/page.tsx` | Dashboard home page |
+| `pair_scorer.py` | Dynamic pair selection by ATR×volume score; rescored every N agent cycles |
 
 ## Testing
 
-- **Framework**: pytest (tests/ directory, 42 test files, 890 tests)
+- **Framework**: pytest (tests/ directory, 44 test files, 935 tests)
 - **Run**: `make test` or `./venv/bin/python -m pytest tests/ -v`
 - **Linting**: `make lint` (ruff) — should report 0 errors
 - **API tests**: `tests/test_api.py` — uses TestClient with auth header injection
@@ -126,3 +127,7 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - **Kelly fraction edge case**: `_kelly_fraction()` returns `min(0.01, MAX_POSITION_PCT)` (not `MAX_POSITION_PCT`) when a strategy has no losing trades — avoids aggressive sizing from incomplete win/loss data.
 - **Uvicorn `--reload` breaks DataStore wiring**: Hot-reload creates a new DataStore but the agent thread keeps its old reference. `set_data_store()` only runs during initial lifespan startup. After code changes, do a full `make stop && make dev` restart — don't rely on uvicorn auto-reload for changes that affect agent↔API wiring.
 - **Dashboard rendering nested API data**: Intelligence signals contain nested dicts/arrays (imbalances, bid_walls, top_headlines). Always use type checks (`typeof val === "object"`, `Array.isArray(val)`) before rendering — `String(obj)` produces `[object Object]`.
+- **LSTM model shape invalidation**: When `FEATURE_COLUMNS` count changes (e.g. adding new indicators), delete `data/agent_state_model.pkl` before restarting — LSTM input layer shape is fixed at train time and will crash on mismatch.
+- **HOLD signal confidence**: Strategies return `confidence=0.3` for HOLD (not `0.0`). Only the data-guard (insufficient rows, e.g. `len(df) < 3`) returns `confidence=0.0`. Test assertions on HOLD should use `< 0.5`, not `== 0.0`.
+- **Test count assertions**: When adding strategies or FEATURE_COLUMNS, update count assertions in: `test_indicators.py` (feature cols), `test_strategies.py` (strategy count), `test_evolution_integration.py` (strategy count), `test_model.py` ×2 (feature cols), `test_strategy_evolver.py` (PARAM_BOUNDS count).
+- **ruff import sort (I001)**: After adding new imports, run `./venv/bin/python -m ruff check --fix <file>` — ruff auto-fixes import order silently.
