@@ -45,7 +45,7 @@ Create `docs/plans/2026-02-24-phase4-code-quality-design.md` with this plan cont
 
 **File:** `requirements.txt`
 
-Remove these 4 unused packages:
+These 4 packages were confirmed absent from `requirements.txt` — no removal needed; this batch is already complete (no-op):
 - `ta>=0.11.0` — replaced by custom `Indicators` class
 - `schedule>=1.2.0` — replaced by `threading.Event.wait()`
 - `httpx>=0.27.0` — `requests` used for all HTTP
@@ -57,7 +57,7 @@ Verify: `make test` (935 tests pass) + `make lint` (0 errors).
 
 ### Batch 1 — Infrastructure layer
 
-**Files:** `config.py`, `graceful_shutdown.py`, `trade_db.py`, `logger.py`, `demo_data.py`
+**Files:** `config.py`, `graceful_shutdown.py`, `trade_db.py`, `logger.py`, `demo_data.py`, `state_manager.py`
 
 For each:
 1. Add return type annotations to all public methods
@@ -114,7 +114,7 @@ Key patterns:
 - `risk_manager.py`: `calculate_position_size(...) -> float`, `calculate_stop_take(...) -> tuple[float, float]`
 - `executor.py`: `execute_trade(signal: dict[str, Any]) -> dict[str, Any] | None`
 
-Note: `agent.py` is 1,300+ lines — add annotations method-by-method, don't change logic.
+Note: `agent.py` is 1,534 lines — add annotations method-by-method, don't change logic.
 
 Verify: `make test` + `make lint`
 
@@ -144,6 +144,17 @@ Key patterns:
 
 Verify: `make test` + `make lint`
 
+### Batch 7b — Intelligence layer
+
+**Files:** `intelligence/aggregator.py`, `intelligence/cascade_predictor.py`, `intelligence/correlation.py`, `intelligence/funding_oi.py`, `intelligence/liquidation.py`, `intelligence/llm_sentiment.py`, `intelligence/news_sentiment.py`, `intelligence/onchain.py`, `intelligence/orderbook.py`, `intelligence/whale_tracker.py`
+
+Key patterns:
+- All public methods get type annotations and Google-style docstrings
+- `correlation.py` uses optional `yfinance` via try/except — document in docstring that yfinance is an optional soft dependency
+- Each module docstring should describe what intelligence signal it provides
+
+Verify: `make test` + `make lint`
+
 ### Batch 8 — CLAUDE.md refresh
 
 Update `CLAUDE.md`:
@@ -162,7 +173,7 @@ Commit all changes with message: `chore: Phase 4 code quality sweep (type hints,
 | `requirements.txt` | Remove 4 unused deps | 0 |
 | `config.py` | Foundation — typed first | 1 |
 | `risk_manager.py` | Safety-critical | 5 |
-| `agent.py` | Main loop, 1,300+ lines | 5 |
+| `agent.py` | Main loop, 1,534 lines | 5 |
 | `strategies.py` | 10 strategy classes | 3 |
 | `api/data_store.py` | Thread-safe bridge | 7 |
 | `CLAUDE.md` | Project docs refresh | 8 |
@@ -184,7 +195,7 @@ make lint      # must show 0 errors
 Final verification:
 ```bash
 make test-coverage   # check coverage stays stable
-./venv/bin/python -m ruff check --select ANN src/   # spot remaining annotation gaps
+./venv/bin/python -m ruff check --select ANN .   # spot remaining annotation gaps
 ```
 
 No tests should fail at any point — type annotations are additive and don't change runtime behavior.
