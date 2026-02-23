@@ -5,6 +5,8 @@ Dual-output logging: structured JSON to file, pretty console output.
 Tracks all signals, trades, regime changes, and model events.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from collections import deque
@@ -30,6 +32,7 @@ class StructuredLogger:
         self.events: deque[dict[str, Any]] = deque(maxlen=2000)
 
     def _setup_console_logger(self) -> None:
+        """Configure the human-readable console handler."""
         self.console = logging.getLogger(f"{self.name}.console")
         self.console.setLevel(getattr(logging, Config.LOG_LEVEL, logging.INFO))
         if not self.console.handlers:
@@ -38,6 +41,7 @@ class StructuredLogger:
             self.console.addHandler(handler)
 
     def _setup_file_logger(self) -> None:
+        """Configure the rotating JSON-lines file handler."""
         self.file_logger = logging.getLogger(f"{self.name}.file")
         self.file_logger.setLevel(logging.DEBUG)
         if not self.file_logger.handlers:
@@ -52,6 +56,18 @@ class StructuredLogger:
             self.file_logger.addHandler(handler)
 
     def _log_event(self, event_type: str, data: dict[str, Any], level: str = "INFO") -> dict[str, Any]:
+        """Build a structured event, append it to the in-memory buffer, and write to file.
+
+        Args:
+            event_type: Short category string (e.g. ``"trade_open"``).
+            data: Payload fields merged into the event dictionary.
+            level: Log severity string — ``"INFO"``, ``"WARNING"``, or
+                ``"ERROR"``.
+
+        Returns:
+            The complete event dictionary including ``timestamp``, ``type``,
+            and ``level`` keys in addition to all *data* fields.
+        """
         event = {
             "timestamp": datetime.now().isoformat(),
             "type": event_type,
@@ -65,7 +81,13 @@ class StructuredLogger:
     # --- Specific event loggers ---
 
     def log_cycle_start(self, cycle: int, price: float, pair: str) -> None:
-        """Log the start of a new trading cycle."""
+        """Log the start of a new trading cycle.
+
+        Args:
+            cycle: Monotonically increasing cycle counter.
+            price: Latest close price for *pair*.
+            pair: Trading pair symbol, e.g. ``"BTC/USDT"``.
+        """
         self._log_event(
             "cycle_start",
             {
@@ -77,7 +99,15 @@ class StructuredLogger:
         self.console.info(f"Cycle #{cycle} | {pair} = ${price:,.2f}")
 
     def log_signal(self, signal: str, confidence: float, source: str, regime: str = "", strategy: str = "") -> None:
-        """Log a trading signal with its source and confidence."""
+        """Log a trading signal with its source and confidence.
+
+        Args:
+            signal: Signal direction — ``"BUY"``, ``"SELL"``, or ``"HOLD"``.
+            confidence: Signal confidence in the range [0, 1].
+            source: Component that generated the signal (e.g. strategy name).
+            regime: Market regime label at signal generation time.
+            strategy: Strategy identifier when *source* is a composite label.
+        """
         self._log_event(
             "signal",
             {
@@ -100,7 +130,18 @@ class StructuredLogger:
         trailing: float,
         strategy: str = "",
     ) -> None:
-        """Log a new trade entry with position details and risk levels."""
+        """Log a new trade entry with position details and risk levels.
+
+        Args:
+            symbol: Trading pair symbol, e.g. ``"BTC/USDT"``.
+            side: Trade direction — ``"buy"`` or ``"sell"``.
+            price: Entry execution price.
+            quantity: Asset quantity traded.
+            sl: Stop-loss price level.
+            tp: Take-profit price level.
+            trailing: Initial trailing-stop price level.
+            strategy: Name of the strategy that generated the signal.
+        """
         self._log_event(
             "trade_open",
             {
@@ -132,7 +173,20 @@ class StructuredLogger:
         hold_bars: int,
         strategy: str = "",
     ) -> None:
-        """Log a trade exit with PnL, fees, and exit reason."""
+        """Log a trade exit with PnL, fees, and exit reason.
+
+        Args:
+            symbol: Trading pair symbol, e.g. ``"BTC/USDT"``.
+            side: Trade direction — ``"buy"`` or ``"sell"``.
+            entry: Entry execution price.
+            exit_price: Exit execution price.
+            pnl_net: Net profit/loss after fees and slippage.
+            pnl_gross: Gross profit/loss before fees and slippage.
+            fees: Total fees paid on the round trip.
+            reason: Human-readable exit reason (e.g. ``"stop_loss"``).
+            hold_bars: Number of OHLCV bars the position was held.
+            strategy: Name of the strategy that generated the entry signal.
+        """
         level = "INFO" if pnl_net >= 0 else "WARNING"
         self._log_event(
             "trade_close",
@@ -158,7 +212,13 @@ class StructuredLogger:
         )
 
     def log_regime_change(self, old_regime: str, new_regime: str, confidence: float) -> None:
-        """Log a market regime transition."""
+        """Log a market regime transition.
+
+        Args:
+            old_regime: Previous regime label (e.g. ``"trending_up"``).
+            new_regime: Newly detected regime label.
+            confidence: Detector confidence in the new regime, in [0, 1].
+        """
         self._log_event(
             "regime_change",
             {
@@ -170,7 +230,15 @@ class StructuredLogger:
         self.console.info(f"Regime: {old_regime} -> {new_regime} ({confidence:.0%})")
 
     def log_model_train(self, accuracy: float, samples: int, drift_detected: bool = False) -> None:
-        """Log an ML model training event with accuracy and drift status."""
+        """Log an ML model training event with accuracy and drift status.
+
+        Args:
+            accuracy: Validation accuracy of the freshly trained model,
+                in the range [0, 1].
+            samples: Number of training samples used.
+            drift_detected: When True, the log level is elevated to WARNING
+                and a console warning is emitted.
+        """
         level = "WARNING" if drift_detected else "INFO"
         self._log_event(
             "model_train",
@@ -187,7 +255,13 @@ class StructuredLogger:
             self.console.info(f"Model trained: accuracy={accuracy:.2%}, samples={samples}")
 
     def log_error(self, component: str, error: str) -> None:
-        """Log an error from a named component."""
+        """Log an error from a named component.
+
+        Args:
+            component: Name of the subsystem that raised the error
+                (e.g. ``"DataFetcher"``).
+            error: Human-readable error message or exception string.
+        """
         self._log_event(
             "error",
             {
@@ -199,7 +273,15 @@ class StructuredLogger:
         self.console.error(f"[{component}] {error}")
 
     def log_portfolio(self, capital: float, positions: int, total_pnl: float, fees: float, win_rate: float) -> None:
-        """Log a portfolio snapshot with capital, positions, and PnL."""
+        """Log a portfolio snapshot with capital, positions, and PnL.
+
+        Args:
+            capital: Available cash balance.
+            positions: Number of currently open positions.
+            total_pnl: Cumulative realised net PnL.
+            fees: Cumulative fees paid across all closed trades.
+            win_rate: Fraction of winning trades, in [0, 1].
+        """
         self._log_event(
             "portfolio",
             {
@@ -212,7 +294,18 @@ class StructuredLogger:
         )
 
     def get_recent_events(self, event_type: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-        """Query recent events, optionally filtered by type."""
+        """Return recent events from the in-memory buffer, optionally filtered by type.
+
+        Args:
+            event_type: When provided, only events whose ``type`` field
+                matches this value are returned.
+            limit: Maximum number of events to return (from the tail of the
+                buffer).
+
+        Returns:
+            List of event dictionaries ordered from oldest to newest within
+            the returned slice.
+        """
         events = list(self.events)
         if event_type:
             events = [e for e in events if e["type"] == event_type]

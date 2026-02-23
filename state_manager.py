@@ -7,11 +7,14 @@ v5.0: Also persists autonomous subsystem state (decision engine,
 meta-learner, evolver, optimizer, healer).
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
-import pickle
+import pickle  # noqa: S403 — ML model serialisation, trusted local file only
 from datetime import datetime
+from typing import Any
 
 from config import Config
 
@@ -30,8 +33,26 @@ class StateManager:
         self.model_file = self.state_file.replace(".json", "_model.pkl")
         self.autonomous_file = self.state_file.replace(".json", "_autonomous.json")
 
-    def save(self, agent) -> bool:
-        """Save complete agent state to disk."""
+    def save(self, agent: Any) -> bool:
+        """Persist the complete agent state to disk.
+
+        Writes three files:
+
+        1. ``<state_file>`` — JSON with cycle count, risk manager state, and
+           metadata.
+        2. ``<state_file_model>.pkl`` — Pickle of the trained ML model
+           (only when the model has been trained).
+        3. ``<state_file_autonomous>.json`` — JSON snapshot of the autonomous
+           decision engine subsystems (v5.0+).
+
+        Args:
+            agent: The live :class:`agent.TradingAgent` instance whose state
+                should be serialised.
+
+        Returns:
+            True on success; False if any exception is raised during
+            serialisation (the error is logged but not re-raised).
+        """
         try:
             state = {
                 "saved_at": datetime.now().isoformat(),
@@ -69,8 +90,22 @@ class StateManager:
             _log.error("[StateManager] Save error: %s", e)
             return False
 
-    def load(self, agent) -> bool:
-        """Restore agent state from disk."""
+    def load(self, agent: Any) -> bool:
+        """Restore the agent state from the files written by :meth:`save`.
+
+        Reads the JSON state file and, if present, the model pickle and
+        autonomous subsystem JSON.  If the state file does not exist, returns
+        False immediately without modifying *agent*.
+
+        Args:
+            agent: The :class:`agent.TradingAgent` instance to restore into.
+                Its attributes (``cycle_count``, ``risk``, ``model``,
+                ``decision``) are mutated in-place.
+
+        Returns:
+            True when the state was successfully restored; False if the state
+            file is missing or any exception occurs during deserialisation.
+        """
         if not os.path.exists(self.state_file):
             return False
 
@@ -127,11 +162,21 @@ class StateManager:
             return False
 
     def exists(self) -> bool:
-        """Check whether a saved state file exists on disk."""
+        """Check whether a saved state file exists on disk.
+
+        Returns:
+            True when the primary state JSON file is present at
+            :attr:`state_file`; False otherwise.
+        """
         return os.path.exists(self.state_file)
 
     def clear(self) -> None:
-        """Delete saved state."""
+        """Delete all saved state files from disk.
+
+        Removes the JSON state file, the model pickle file, and the
+        autonomous subsystem JSON file if they exist.  Missing files are
+        silently skipped.
+        """
         for f in [self.state_file, self.model_file, self.autonomous_file]:
             if os.path.exists(f):
                 os.remove(f)

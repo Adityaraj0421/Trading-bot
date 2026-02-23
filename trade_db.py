@@ -11,10 +11,13 @@ Replaces JSON-based trade history with a proper database for:
 Uses SQLite (zero config, file-based) with WAL mode for concurrent reads.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
 import sqlite3
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
@@ -32,8 +35,18 @@ class TradeDB:
         self._init_db()
 
     @contextmanager
-    def _conn(self):
-        """Context manager for database connections."""
+    def _conn(self) -> Generator[sqlite3.Connection, None, None]:
+        """Context manager that yields a WAL-mode SQLite connection.
+
+        Commits on success; rolls back and re-raises on any exception.
+
+        Yields:
+            An open :class:`sqlite3.Connection` with ``row_factory`` set to
+            :class:`sqlite3.Row` for dict-like row access.
+
+        Raises:
+            sqlite3.Error: Propagated after rollback on any database error.
+        """
         conn = sqlite3.connect(self.db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")  # Better concurrent access
@@ -49,11 +62,16 @@ class TradeDB:
             conn.close()
 
     def close(self) -> None:
-        """Close the database (no-op since we use per-query connections)."""
+        """Close the database.
+
+        This is a no-op because connections are opened and closed per query.
+        Provided for API symmetry so callers can call ``db.close()`` without
+        checking the implementation.
+        """
         _log.info("TradeDB closed: %s", self.db_path)
 
-    def _init_db(self):
-        """Create tables if they don't exist."""
+    def _init_db(self) -> None:
+        """Create all required tables and indexes if they do not already exist."""
         with self._conn() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS trades (
@@ -141,7 +159,23 @@ class TradeDB:
         tp: float,
         trailing: float,
     ) -> int:
-        """Record a new trade opening. Returns trade ID."""
+        """Record a new trade opening and return the database row ID.
+
+        Args:
+            symbol: Trading pair symbol, e.g. ``"BTC/USDT"``.
+            side: Trade direction — ``"buy"`` or ``"sell"``.
+            entry_price: Execution price at entry.
+            quantity: Asset quantity purchased or sold.
+            strategy: Name of the strategy that generated the signal.
+            regime: Market regime label at entry time.
+            confidence: Strategy signal confidence in the range [0, 1].
+            sl: Stop-loss price level.
+            tp: Take-profit price level.
+            trailing: Initial trailing-stop price level.
+
+        Returns:
+            The auto-incremented primary key (``id``) of the new row.
+        """
         with self._conn() as conn:
             cursor = conn.execute(
                 """
@@ -179,7 +213,25 @@ class TradeDB:
         reason: str = "",
         hold_bars: int = 0,
     ) -> None:
-        """Record a trade closing."""
+        """Record a trade closing by trade ID or by symbol/side lookup.
+
+        Prefer passing *trade_id* for an exact match.  When only *symbol*
+        and *side* are supplied, the most recently opened matching trade is
+        closed (fallback path).
+
+        Args:
+            trade_id: Primary key of the trade to close.  Takes precedence
+                over symbol/side when provided.
+            symbol: Trading pair symbol used for the fallback lookup.
+            side: Trade direction used for the fallback lookup.
+            exit_price: Execution price at exit.
+            pnl_gross: Gross profit/loss before fees and slippage.
+            pnl_net: Net profit/loss after fees and slippage.
+            fees: Total fees paid on the round trip.
+            slippage: Total slippage cost on the round trip.
+            reason: Human-readable exit reason (e.g. ``"stop_loss"``).
+            hold_bars: Number of OHLCV bars the position was held.
+        """
         with self._conn() as conn:
             if trade_id:
                 conn.execute(
@@ -230,13 +282,26 @@ class TradeDB:
                 )
 
     def get_open_trades(self) -> list[dict[str, Any]]:
-        """Get all currently open trades."""
+        """Return all currently open trades ordered by entry time.
+
+        Returns:
+            List of trade row dictionaries with ``status='open'``.
+        """
         with self._conn() as conn:
             rows = conn.execute("SELECT * FROM trades WHERE status='open' ORDER BY entry_time").fetchall()
             return [dict(r) for r in rows]
 
     def orphan_trades(self, trade_ids: list[int]) -> None:
-        """Mark specific trades as abandoned (orphaned on restart)."""
+        """Mark specific open trades as abandoned due to a restart.
+
+        Sets ``status='abandoned'`` and ``exit_reason='orphaned_on_restart'``
+        for each supplied trade ID.  Called by the startup reconciliation
+        routine to prevent stale open positions after a crash.
+
+        Args:
+            trade_ids: List of trade primary keys to mark as abandoned.
+                If empty, this method is a no-op.
+        """
         if not trade_ids:
             return
         placeholders = ",".join("?" * len(trade_ids))
@@ -250,7 +315,20 @@ class TradeDB:
     def get_trade_history(
         self, limit: int = 100, strategy: str | None = None, since: str | None = None
     ) -> list[dict[str, Any]]:
-        """Get trade history with optional filters."""
+        """Return closed trade history with optional filters.
+
+        Args:
+            limit: Maximum number of rows to return (most recent first).
+            strategy: When provided, restricts results to trades using this
+                strategy name.
+            since: ISO-8601 datetime string; restricts results to trades
+                whose ``exit_time`` is on or after this value.
+
+        Returns:
+            List of closed trade row dictionaries ordered by ``exit_time``
+            descending.  Each dict uses the column names from the
+            ``trades`` table (e.g. ``pnl_net``, ``strategy_name``).
+        """
         query = "SELECT * FROM trades WHERE status='closed'"
         params = []
 
@@ -273,7 +351,15 @@ class TradeDB:
     def record_equity(
         self, equity: float, capital: float, unrealized_pnl: float, open_positions: int, cycle: int
     ) -> None:
-        """Record an equity snapshot."""
+        """Record a point-in-time equity snapshot.
+
+        Args:
+            equity: Total portfolio equity (capital + unrealized PnL).
+            capital: Available cash balance.
+            unrealized_pnl: Sum of open-position mark-to-market PnL.
+            open_positions: Number of currently open positions.
+            cycle: Agent cycle counter at the time of the snapshot.
+        """
         with self._conn() as conn:
             conn.execute(
                 """
@@ -285,7 +371,17 @@ class TradeDB:
             )
 
     def get_equity_curve(self, since: str | None = None, limit: int = 1000) -> list[dict[str, Any]]:
-        """Get equity curve data."""
+        """Return equity snapshots ordered chronologically.
+
+        Args:
+            since: ISO-8601 datetime string; restricts results to snapshots
+                on or after this timestamp.
+            limit: Maximum number of rows to return.
+
+        Returns:
+            List of equity snapshot row dictionaries ordered by ``timestamp``
+            ascending (oldest first).
+        """
         query = "SELECT * FROM equity_snapshots"
         params = []
         if since:
@@ -303,7 +399,17 @@ class TradeDB:
     def record_event(
         self, event_type: str, description: str, severity: str = "info", data: dict[str, Any] | None = None
     ) -> None:
-        """Record a system event."""
+        """Record a structured system event.
+
+        Args:
+            event_type: Short category label (e.g. ``"trade_open"``,
+                ``"regime_change"``).
+            description: Human-readable description of the event.
+            severity: Log severity level — ``"info"``, ``"warning"``, or
+                ``"error"``.
+            data: Optional dictionary of supplementary key/value data stored
+                as a JSON string.
+        """
         with self._conn() as conn:
             conn.execute(
                 """
@@ -314,7 +420,16 @@ class TradeDB:
             )
 
     def get_events(self, event_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        """Get system events."""
+        """Return recent system events, optionally filtered by type.
+
+        Args:
+            event_type: When provided, restricts results to events with this
+                ``event_type`` value.
+            limit: Maximum number of rows to return (most recent first).
+
+        Returns:
+            List of event row dictionaries ordered by ``timestamp`` descending.
+        """
         query = "SELECT * FROM events"
         params = []
         if event_type:
@@ -330,7 +445,21 @@ class TradeDB:
     # --- Daily Summaries ---
 
     def generate_daily_summary(self, date: str | None = None) -> dict[str, Any]:
-        """Generate or retrieve a daily summary."""
+        """Generate or retrieve the daily trade summary for a given date.
+
+        If a summary row already exists for *date* it is returned directly;
+        otherwise one is computed from closed trades and persisted.
+
+        Args:
+            date: Date string in ``YYYY-MM-DD`` format.  Defaults to today.
+
+        Returns:
+            Dictionary with summary keys: ``date``, ``total_pnl``,
+            ``trade_count``, ``win_count``, ``loss_count``, ``best_trade``,
+            ``worst_trade``, ``total_fees``, ``strategies_used``, and
+            ``regimes_seen``.  Returns ``{"date": date, "trade_count": 0}``
+            when no trades were closed on that date.
+        """
         date = date or datetime.now().strftime("%Y-%m-%d")
 
         with self._conn() as conn:
@@ -399,7 +528,14 @@ class TradeDB:
     # --- Analytics ---
 
     def get_strategy_performance(self) -> dict[str, dict[str, Any]]:
-        """Get performance breakdown by strategy."""
+        """Return closed-trade performance metrics grouped by strategy.
+
+        Returns:
+            Dictionary keyed by ``strategy_name`` where each value contains
+            aggregated stats: ``total_trades``, ``wins``, ``total_pnl``,
+            ``avg_pnl``, ``best_trade``, ``worst_trade``, ``avg_hold``, and
+            ``total_fees``.
+        """
         with self._conn() as conn:
             rows = conn.execute("""
                 SELECT strategy_name,
@@ -419,7 +555,13 @@ class TradeDB:
             return {r["strategy_name"]: dict(r) for r in rows}
 
     def get_regime_performance(self) -> dict[str, dict[str, Any]]:
-        """Get performance breakdown by market regime."""
+        """Return closed-trade performance metrics grouped by market regime.
+
+        Returns:
+            Dictionary keyed by ``regime`` where each value contains
+            aggregated stats: ``total_trades``, ``wins``, ``total_pnl``,
+            and ``avg_pnl``.
+        """
         with self._conn() as conn:
             rows = conn.execute("""
                 SELECT regime,
@@ -435,7 +577,20 @@ class TradeDB:
             return {r["regime"]: dict(r) for r in rows}
 
     def get_total_stats(self) -> dict[str, Any]:
-        """Get overall trading statistics."""
+        """Return aggregate statistics across all closed trades.
+
+        Returns:
+            Dictionary with keys: ``total_trades``, ``wins``,
+            ``total_pnl``, ``avg_pnl``, ``best_trade``, ``worst_trade``,
+            ``total_fees``, ``total_slippage``, ``avg_hold_bars``, and
+            ``win_rate`` (as a percentage, e.g. ``62.5`` for 62.5%).
+            Returns an empty dict when there are no closed trades.
+
+        Note:
+            ``win_rate`` is a percentage value (0–100), not a fraction.
+            Divide by 100 before comparing to the 0–1 fraction used in
+            the dashboard and ``/status`` snapshot.
+        """
         with self._conn() as conn:
             row = conn.execute("""
                 SELECT

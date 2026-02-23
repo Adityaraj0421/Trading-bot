@@ -5,6 +5,8 @@ Supports multi-pair, trailing stops, transaction costs, websockets,
 notifications, trade database, and all intelligence modules.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
@@ -21,124 +23,130 @@ class Config:
     """Central configuration loaded from environment variables with sensible defaults."""
 
     # Exchange settings
-    EXCHANGE_ID = os.getenv("EXCHANGE_ID", "binance")
-    API_KEY = os.getenv("API_KEY", "")
-    API_SECRET = os.getenv("API_SECRET", "")
-    API_PRIVATE_KEY_PATH = os.getenv("API_PRIVATE_KEY_PATH", "")  # Ed25519 private key file
+    EXCHANGE_ID: str = os.getenv("EXCHANGE_ID", "binance")
+    API_KEY: str = os.getenv("API_KEY", "")
+    API_SECRET: str = os.getenv("API_SECRET", "")
+    API_PRIVATE_KEY_PATH: str = os.getenv("API_PRIVATE_KEY_PATH", "")  # Ed25519 private key file
 
     # Trading settings
-    TRADING_PAIR = os.getenv("TRADING_PAIR", "BTC/USDT")
-    TRADING_PAIRS = [p.strip() for p in os.getenv("TRADING_PAIRS", "BTC/USDT").split(",") if p.strip()]
+    TRADING_PAIR: str = os.getenv("TRADING_PAIR", "BTC/USDT")
+    TRADING_PAIRS: list[str] = [p.strip() for p in os.getenv("TRADING_PAIRS", "BTC/USDT").split(",") if p.strip()]
     # v9.1: Dynamic pair selection — pool of candidates, top N selected each scoring cycle
-    PAIR_POOL = [p.strip() for p in os.getenv("PAIR_POOL", "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,AVAX/USDT").split(",") if p.strip()]
-    PAIR_SELECTOR_TOP_N = int(os.getenv("PAIR_SELECTOR_TOP_N", "3"))
-    PAIR_SCORER_INTERVAL_CYCLES = int(os.getenv("PAIR_SCORER_INTERVAL_CYCLES", "200"))
-    TIMEFRAME = os.getenv("TIMEFRAME", "1h")
-    CONFIRMATION_TIMEFRAME = os.getenv("CONFIRMATION_TIMEFRAME", "4h")
-    INITIAL_CAPITAL = float(os.getenv("INITIAL_CAPITAL", "1000"))
+    PAIR_POOL: list[str] = [p.strip() for p in os.getenv("PAIR_POOL", "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,AVAX/USDT").split(",") if p.strip()]
+    PAIR_SELECTOR_TOP_N: int = int(os.getenv("PAIR_SELECTOR_TOP_N", "3"))
+    PAIR_SCORER_INTERVAL_CYCLES: int = int(os.getenv("PAIR_SCORER_INTERVAL_CYCLES", "200"))
+    TIMEFRAME: str = os.getenv("TIMEFRAME", "1h")
+    CONFIRMATION_TIMEFRAME: str = os.getenv("CONFIRMATION_TIMEFRAME", "4h")
+    INITIAL_CAPITAL: float = float(os.getenv("INITIAL_CAPITAL", "1000"))
 
     # Risk management
-    MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "0.02"))
-    STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.02"))
-    TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.05"))
-    TRAILING_STOP_PCT = float(os.getenv("TRAILING_STOP_PCT", "0.015"))
-    ATR_TRAILING_MULT = float(os.getenv("ATR_TRAILING_MULT", "2.0"))  # v9.1: ATR × mult replaces fixed trailing %
-    BREAKEVEN_TRIGGER_PCT = float(os.getenv("BREAKEVEN_TRIGGER_PCT", "0.6"))  # v9.1: move SL to entry at 60% of TP dist
-    MAX_DAILY_LOSS_PCT = 0.05
-    MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", "3"))
-    MAX_HOLD_BARS = int(os.getenv("MAX_HOLD_BARS", "100"))
+    MAX_POSITION_PCT: float = float(os.getenv("MAX_POSITION_PCT", "0.02"))
+    STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "0.02"))
+    TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "0.05"))
+    TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "0.015"))
+    ATR_TRAILING_MULT: float = float(os.getenv("ATR_TRAILING_MULT", "2.0"))  # v9.1: ATR × mult replaces fixed trailing %
+    BREAKEVEN_TRIGGER_PCT: float = float(os.getenv("BREAKEVEN_TRIGGER_PCT", "0.6"))  # v9.1: move SL to entry at 60% of TP dist
+    MAX_DAILY_LOSS_PCT: float = 0.05
+    MAX_OPEN_POSITIONS: int = int(os.getenv("MAX_OPEN_POSITIONS", "3"))
+    MAX_HOLD_BARS: int = int(os.getenv("MAX_HOLD_BARS", "100"))
 
     # Transaction costs
-    FEE_PCT = float(os.getenv("FEE_PCT", "0.001"))
-    SLIPPAGE_PCT = float(os.getenv("SLIPPAGE_PCT", "0.0005"))
+    FEE_PCT: float = float(os.getenv("FEE_PCT", "0.001"))
+    SLIPPAGE_PCT: float = float(os.getenv("SLIPPAGE_PCT", "0.0005"))
 
     # Agent settings
-    TRADING_MODE = os.getenv("TRADING_MODE", "paper")
-    LOOKBACK_BARS = 200
-    AGENT_INTERVAL_SECONDS = int(os.getenv("AGENT_INTERVAL_SECONDS", "300"))
+    TRADING_MODE: str = os.getenv("TRADING_MODE", "paper")
+    LOOKBACK_BARS: int = 200
+    AGENT_INTERVAL_SECONDS: int = int(os.getenv("AGENT_INTERVAL_SECONDS", "300"))
 
     # Model settings
-    MODEL_RETRAIN_HOURS = float(os.getenv("MODEL_RETRAIN_HOURS", "24"))
-    MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.6"))
-    DRIFT_THRESHOLD = float(os.getenv("DRIFT_THRESHOLD", "0.15"))
-    ML_LABEL_THRESHOLD = float(os.getenv("ML_LABEL_THRESHOLD", "0.005"))
+    MODEL_RETRAIN_HOURS: float = float(os.getenv("MODEL_RETRAIN_HOURS", "24"))
+    MIN_CONFIDENCE: float = float(os.getenv("MIN_CONFIDENCE", "0.6"))
+    DRIFT_THRESHOLD: float = float(os.getenv("DRIFT_THRESHOLD", "0.15"))
+    ML_LABEL_THRESHOLD: float = float(os.getenv("ML_LABEL_THRESHOLD", "0.005"))
 
     # State persistence
-    STATE_FILE = os.getenv("STATE_FILE", "")
+    STATE_FILE: str = os.getenv("STATE_FILE", "")
 
     # Logging
-    LOG_FILE = os.getenv("LOG_FILE", "")
-    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    LOG_FILE: str = os.getenv("LOG_FILE", "")
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
     # API Server
-    API_HOST = os.getenv("API_HOST", "0.0.0.0")
-    API_PORT = int(os.getenv("API_PORT", "8000"))
-    ENABLE_API = os.getenv("ENABLE_API", "true").lower() == "true"
-    API_AUTH_KEY = os.getenv("API_AUTH_KEY", "")  # API key for authentication (empty = no auth)
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
+    API_PORT: int = int(os.getenv("API_PORT", "8000"))
+    ENABLE_API: bool = os.getenv("ENABLE_API", "true").lower() == "true"
+    API_AUTH_KEY: str = os.getenv("API_AUTH_KEY", "")  # API key for authentication (empty = no auth)
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 
     # Data directory (for Docker volume mounts)
-    DATA_DIR = os.getenv("DATA_DIR", ".")
+    DATA_DIR: str = os.getenv("DATA_DIR", ".")
 
     # Multi-exchange (for arbitrage)
-    BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
-    BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "")
-    COINBASE_API_KEY = os.getenv("COINBASE_API_KEY", "")
-    COINBASE_API_SECRET = os.getenv("COINBASE_API_SECRET", "")
-    KRAKEN_API_KEY = os.getenv("KRAKEN_API_KEY", "")
-    KRAKEN_API_SECRET = os.getenv("KRAKEN_API_SECRET", "")
+    BINANCE_API_KEY: str = os.getenv("BINANCE_API_KEY", "")
+    BINANCE_API_SECRET: str = os.getenv("BINANCE_API_SECRET", "")
+    COINBASE_API_KEY: str = os.getenv("COINBASE_API_KEY", "")
+    COINBASE_API_SECRET: str = os.getenv("COINBASE_API_SECRET", "")
+    KRAKEN_API_KEY: str = os.getenv("KRAKEN_API_KEY", "")
+    KRAKEN_API_SECRET: str = os.getenv("KRAKEN_API_SECRET", "")
 
     # Intelligence toggles
-    ENABLE_ONCHAIN = os.getenv("ENABLE_ONCHAIN", "false").lower() == "true"
-    ENABLE_WHALE_TRACKING = os.getenv("ENABLE_WHALE_TRACKING", "false").lower() == "true"
-    ENABLE_NEWS_NLP = os.getenv("ENABLE_NEWS_NLP", "false").lower() == "true"
-    ENABLE_CORRELATION = os.getenv("ENABLE_CORRELATION", "false").lower() == "true"
-    ENABLE_ORDERBOOK = os.getenv("ENABLE_ORDERBOOK", "false").lower() == "true"
-    ENABLE_FUNDING_OI = os.getenv("ENABLE_FUNDING_OI", "true").lower() == "true"
-    ENABLE_LIQUIDATION = os.getenv("ENABLE_LIQUIDATION", "true").lower() == "true"
-    INTELLIGENCE_INTERVAL_SECONDS = int(os.getenv("INTELLIGENCE_INTERVAL_SECONDS", "300"))
-    CRYPTOPANIC_API_KEY = os.getenv("CRYPTOPANIC_API_KEY", "")
+    ENABLE_ONCHAIN: bool = os.getenv("ENABLE_ONCHAIN", "false").lower() == "true"
+    ENABLE_WHALE_TRACKING: bool = os.getenv("ENABLE_WHALE_TRACKING", "false").lower() == "true"
+    ENABLE_NEWS_NLP: bool = os.getenv("ENABLE_NEWS_NLP", "false").lower() == "true"
+    ENABLE_CORRELATION: bool = os.getenv("ENABLE_CORRELATION", "false").lower() == "true"
+    ENABLE_ORDERBOOK: bool = os.getenv("ENABLE_ORDERBOOK", "false").lower() == "true"
+    ENABLE_FUNDING_OI: bool = os.getenv("ENABLE_FUNDING_OI", "true").lower() == "true"
+    ENABLE_LIQUIDATION: bool = os.getenv("ENABLE_LIQUIDATION", "true").lower() == "true"
+    INTELLIGENCE_INTERVAL_SECONDS: int = int(os.getenv("INTELLIGENCE_INTERVAL_SECONDS", "300"))
+    CRYPTOPANIC_API_KEY: str = os.getenv("CRYPTOPANIC_API_KEY", "")
 
     # Arbitrage
-    ARBITRAGE_ENABLED = os.getenv("ARBITRAGE_ENABLED", "false").lower() == "true"
-    ARBITRAGE_MIN_SPREAD_PCT = float(os.getenv("ARBITRAGE_MIN_SPREAD_PCT", "0.003"))
-    ARBITRAGE_INTERVAL_SECONDS = int(os.getenv("ARBITRAGE_INTERVAL_SECONDS", "60"))
-    ARBITRAGE_CAPITAL_PCT = float(os.getenv("ARBITRAGE_CAPITAL_PCT", "0.1"))
+    ARBITRAGE_ENABLED: bool = os.getenv("ARBITRAGE_ENABLED", "false").lower() == "true"
+    ARBITRAGE_MIN_SPREAD_PCT: float = float(os.getenv("ARBITRAGE_MIN_SPREAD_PCT", "0.003"))
+    ARBITRAGE_INTERVAL_SECONDS: int = int(os.getenv("ARBITRAGE_INTERVAL_SECONDS", "60"))
+    ARBITRAGE_CAPITAL_PCT: float = float(os.getenv("ARBITRAGE_CAPITAL_PCT", "0.1"))
 
     # Monte Carlo
-    MC_SIMULATIONS = int(os.getenv("MC_SIMULATIONS", "10000"))
-    MC_HORIZON_DAYS = int(os.getenv("MC_HORIZON_DAYS", "252"))
+    MC_SIMULATIONS: int = int(os.getenv("MC_SIMULATIONS", "10000"))
+    MC_HORIZON_DAYS: int = int(os.getenv("MC_HORIZON_DAYS", "252"))
 
     # WebSocket streaming
-    ENABLE_WEBSOCKET = os.getenv("ENABLE_WEBSOCKET", "false").lower() == "true"
+    ENABLE_WEBSOCKET: bool = os.getenv("ENABLE_WEBSOCKET", "false").lower() == "true"
 
     # Notifications
-    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-    TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
-    TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
-    TELEGRAM_TRADE_CONFIRMATION = os.getenv("TELEGRAM_TRADE_CONFIRMATION", "false").lower() == "true"
-    TELEGRAM_CONFIRMATION_TIMEOUT = int(os.getenv("TELEGRAM_CONFIRMATION_TIMEOUT", "60"))
-    TELEGRAM_CONFIRMATION_DEFAULT = os.getenv("TELEGRAM_CONFIRMATION_DEFAULT", "reject")
-    DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
-    EMAIL_ALERTS_ENABLED = os.getenv("EMAIL_ALERTS_ENABLED", "false").lower() == "true"
-    EMAIL_SMTP_HOST = os.getenv("EMAIL_SMTP_HOST", "")
-    EMAIL_SMTP_PORT = int(os.getenv("EMAIL_SMTP_PORT", "587"))
-    EMAIL_USER = os.getenv("EMAIL_USER", "")
-    EMAIL_PASS = os.getenv("EMAIL_PASS", "")
-    EMAIL_TO = os.getenv("EMAIL_TO", "")
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+    TELEGRAM_WEBHOOK_URL: str = os.getenv("TELEGRAM_WEBHOOK_URL", "")
+    TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+    TELEGRAM_TRADE_CONFIRMATION: bool = os.getenv("TELEGRAM_TRADE_CONFIRMATION", "false").lower() == "true"
+    TELEGRAM_CONFIRMATION_TIMEOUT: int = int(os.getenv("TELEGRAM_CONFIRMATION_TIMEOUT", "60"))
+    TELEGRAM_CONFIRMATION_DEFAULT: str = os.getenv("TELEGRAM_CONFIRMATION_DEFAULT", "reject")
+    DISCORD_WEBHOOK_URL: str = os.getenv("DISCORD_WEBHOOK_URL", "")
+    EMAIL_ALERTS_ENABLED: bool = os.getenv("EMAIL_ALERTS_ENABLED", "false").lower() == "true"
+    EMAIL_SMTP_HOST: str = os.getenv("EMAIL_SMTP_HOST", "")
+    EMAIL_SMTP_PORT: int = int(os.getenv("EMAIL_SMTP_PORT", "587"))
+    EMAIL_USER: str = os.getenv("EMAIL_USER", "")
+    EMAIL_PASS: str = os.getenv("EMAIL_PASS", "")
+    EMAIL_TO: str = os.getenv("EMAIL_TO", "")
 
     # Trade Database
-    ENABLE_TRADE_DB = os.getenv("ENABLE_TRADE_DB", "true").lower() == "true"
-    TRADE_DB_PATH = os.getenv("TRADE_DB_PATH", "")
+    ENABLE_TRADE_DB: bool = os.getenv("ENABLE_TRADE_DB", "true").lower() == "true"
+    TRADE_DB_PATH: str = os.getenv("TRADE_DB_PATH", "")
 
     # Rate Limiting
-    MAX_REQUESTS_PER_MINUTE = int(os.getenv("MAX_REQUESTS_PER_MINUTE", "1200"))
-    MAX_ORDERS_PER_MINUTE = int(os.getenv("MAX_ORDERS_PER_MINUTE", "10"))
+    MAX_REQUESTS_PER_MINUTE: int = int(os.getenv("MAX_REQUESTS_PER_MINUTE", "1200"))
+    MAX_ORDERS_PER_MINUTE: int = int(os.getenv("MAX_ORDERS_PER_MINUTE", "10"))
 
     @classmethod
     def any_intelligence_enabled(cls) -> bool:
-        """Return True if at least one intelligence module is enabled."""
+        """Return True if at least one intelligence module is enabled.
+
+        Returns:
+            True when any of the ENABLE_ONCHAIN, ENABLE_WHALE_TRACKING,
+            ENABLE_NEWS_NLP, ENABLE_CORRELATION, ENABLE_ORDERBOOK,
+            ENABLE_FUNDING_OI, or ENABLE_LIQUIDATION flags is True.
+        """
         return any(
             [
                 cls.ENABLE_ONCHAIN,
@@ -153,7 +161,12 @@ class Config:
 
     @classmethod
     def any_notifications_enabled(cls) -> bool:
-        """Return True if at least one notification channel is configured."""
+        """Return True if at least one notification channel is configured.
+
+        Returns:
+            True when Telegram (bot token + chat ID), Discord webhook URL,
+            or email alerts are configured.
+        """
         return any(
             [
                 cls.TELEGRAM_BOT_TOKEN and cls.TELEGRAM_CHAT_ID,
@@ -163,7 +176,8 @@ class Config:
         )
 
     @classmethod
-    def _resolve_paths(cls):
+    def _resolve_paths(cls) -> None:
+        """Resolve file paths relative to DATA_DIR when not explicitly set."""
         if not cls.STATE_FILE:
             cls.STATE_FILE = os.path.join(cls.DATA_DIR, "agent_state.json")
         if not cls.LOG_FILE:
@@ -173,7 +187,11 @@ class Config:
 
     @classmethod
     def is_paper_mode(cls) -> bool:
-        """Return True if the agent is running in paper-trading mode."""
+        """Return True if the agent is running in paper-trading mode.
+
+        Returns:
+            True when TRADING_MODE is set to ``"paper"`` (case-insensitive).
+        """
         return cls.TRADING_MODE.lower() == "paper"
 
     @classmethod

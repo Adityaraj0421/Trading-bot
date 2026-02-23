@@ -3,6 +3,8 @@ Demo data generator for offline testing.
 Generates realistic-looking OHLCV data when exchange APIs are unreachable.
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timedelta
 
@@ -20,11 +22,32 @@ def generate_ohlcv(
     volatility: float = 0.015,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """
-    Generate synthetic OHLCV data with realistic properties:
-    - Trending behavior (random walk with drift)
-    - Mean-reverting volatility
-    - Correlated volume spikes with price moves
+    """Generate synthetic OHLCV data with realistic statistical properties.
+
+    Produces a DataFrame suitable as a drop-in replacement for live exchange
+    data when the exchange API is unavailable.  The generated series exhibits:
+
+    - A random walk with slight upward drift and momentum clustering.
+    - Log-normally distributed volume that spikes on large price moves.
+    - OHLC bars that are internally consistent (high >= close >= low).
+
+    Args:
+        symbol: Trading pair label stored as the DataFrame name attribute
+            (informational only; does not affect the generated values).
+        periods: Number of OHLCV candles to generate.
+        timeframe_minutes: Duration of each candle in minutes.  Used to
+            compute the ``timestamp`` index.
+        start_price: Approximate starting close price for the series.
+        volatility: Per-period log-return standard deviation (e.g. ``0.015``
+            for roughly 1.5% per candle).
+        seed: Random seed for reproducibility.  Pass different seeds to
+            obtain independent price series.
+
+    Returns:
+        A :class:`pandas.DataFrame` with a :class:`pandas.DatetimeIndex`
+        named ``"timestamp"`` and columns ``open``, ``high``, ``low``,
+        ``close``, and ``volume``, covering *periods* candles ending at
+        the current hour boundary.
     """
     rng = np.random.default_rng(seed)
 
