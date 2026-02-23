@@ -96,8 +96,8 @@ class TestStrategyEngineEvolution:
     def test_apply_evolved_params_ignores_unknown(self):
         engine = StrategyEngine()
         engine.apply_evolved_params({"NonExistent": {"foo": 1}})
-        # v9.0: 9 strategies (was 6) — added VWAP, OBVDivergence, EMACrossover
-        assert len(engine.strategies) == 9  # unchanged
+        # v9.1: 10 strategies (was 9) — added Ichimoku
+        assert len(engine.strategies) == 10  # unchanged
 
 
 # ---------------------------------------------------------------------------

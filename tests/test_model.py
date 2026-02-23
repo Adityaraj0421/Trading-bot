@@ -97,8 +97,8 @@ class TestTradingModelInit:
     def test_feature_cols_match(self):
         model = TradingModel()
         assert model.feature_cols == FEATURE_COLUMNS
-        # v9.0: FEATURE_COLUMNS expanded from 15 to 22
-        assert len(model.feature_cols) == 22
+        # v9.1: FEATURE_COLUMNS expanded to 24 (added williams_r, cci)
+        assert len(model.feature_cols) == 24
 
 
 # ---------------------------------------------------------------------------
@@ -231,9 +231,9 @@ class TestGetFeatureImportance:
         assert model.get_feature_importance() == {}
 
     def test_trained_returns_all_features(self, trained_model):
-        """v9.0: 22 features (was 15)."""
+        """v9.1: 24 features (was 22; added williams_r, cci)."""
         imp = trained_model.get_feature_importance()
-        assert len(imp) == 22
+        assert len(imp) == 24
         # In tier 1 (LSTM+XGB), raw feature importances may not sum to 1.0
         # because LSTM embeddings share the importance budget.
         if trained_model._tier >= 2:

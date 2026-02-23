@@ -13,6 +13,7 @@ from sentiment import SentimentLevel, SentimentState
 from strategies import (
     BreakoutStrategy,
     GridStrategy,
+    IchimokuStrategy,
     MeanReversionStrategy,
     MomentumStrategy,
     ScalpingStrategy,
@@ -507,9 +508,9 @@ class TestStrategyEngine:
     def engine(self):
         return StrategyEngine()
 
-    def test_has_all_nine_strategies(self, engine):
-        """v9.0: 9 strategies (was 6; added VWAP, OBVDivergence, EMACrossover)."""
-        assert len(engine.strategies) == 9
+    def test_has_all_ten_strategies(self, engine):
+        """v9.1: 10 strategies (was 9; added Ichimoku)."""
+        assert len(engine.strategies) == 10
         expected = {
             "Momentum",
             "MeanReversion",
@@ -520,6 +521,7 @@ class TestStrategyEngine:
             "VWAP",
             "OBVDivergence",
             "EMACrossover",
+            "Ichimoku",
         }
         assert set(engine.strategies.keys()) == expected
 
@@ -589,3 +591,163 @@ class TestStrategyEngine:
         for regime, config in engine.REGIME_STRATEGY_MAP.items():
             total = sum(config["weights"].values())
             assert total == pytest.approx(1.0), f"{regime}: weights sum to {total}"
+
+    def test_ichimoku_in_trending_regimes(self, engine):
+        """Ichimoku should appear as a secondary in TRENDING_UP and TRENDING_DOWN."""
+        from regime_detector import MarketRegime
+
+        up_secondaries = engine.REGIME_STRATEGY_MAP[MarketRegime.TRENDING_UP]["secondary"]
+        down_secondaries = engine.REGIME_STRATEGY_MAP[MarketRegime.TRENDING_DOWN]["secondary"]
+        assert "Ichimoku" in up_secondaries
+        assert "Ichimoku" in down_secondaries
+
+
+# ---------------------------------------------------------------------------
+# IchimokuStrategy
+# ---------------------------------------------------------------------------
+
+
+def make_ichimoku_df(rows: int = 25, **overrides) -> pd.DataFrame:
+    """Build DataFrame with Ichimoku indicator columns for strategy tests.
+
+    Default: ADX below threshold (no signal), no TK cross, price in-cloud.
+    Use overrides to set specific values on the last row.
+    """
+    df = make_df(rows=rows)
+    # Add Ichimoku-specific columns (neutral defaults)
+    df["ichimoku_tk_cross"] = 0
+    df["ichimoku_above_cloud"] = 0
+    df["ichimoku_below_cloud"] = 0
+    df["ichimoku_tenkan"] = 50000.0
+    df["ichimoku_kijun"] = 50000.0
+    df["adx"] = 15.0  # Below default adx_threshold (20) — no signal
+    # Apply overrides to the last row
+    for col, val in overrides.items():
+        df.loc[df.index[-1], col] = val
+    return df
+
+
+class TestIchimokuStrategy:
+    @pytest.fixture()
+    def strat(self):
+        return IchimokuStrategy()
+
+    def test_name_and_regimes(self, strat):
+        from regime_detector import MarketRegime
+
+        assert strat.name == "Ichimoku"
+        assert MarketRegime.TRENDING_UP in strat.best_regimes
+        assert MarketRegime.TRENDING_DOWN in strat.best_regimes
+
+    def test_bullish_tk_cross_above_cloud_generates_buy(self, strat):
+        """TK bullish cross (=1) + above cloud + ADX >= 20 → BUY."""
+        df = make_ichimoku_df(
+            ichimoku_tk_cross=1,
+            ichimoku_above_cloud=1,
+            adx=25.0,
+        )
+        sig = strat.generate_signal(df)
+        assert sig.signal == "BUY"
+        assert sig.confidence >= 0.60
+        assert sig.strategy_name == "Ichimoku"
+        assert "cross" in sig.reason.lower()
+
+    def test_bearish_tk_cross_below_cloud_generates_sell(self, strat):
+        """TK bearish cross (=-1) + below cloud + ADX >= 20 → SELL."""
+        df = make_ichimoku_df(
+            ichimoku_tk_cross=-1,
+            ichimoku_below_cloud=1,
+            adx=25.0,
+        )
+        sig = strat.generate_signal(df)
+        assert sig.signal == "SELL"
+        assert sig.confidence >= 0.60
+        assert sig.strategy_name == "Ichimoku"
+
+    def test_weak_adx_generates_hold(self, strat):
+        """ADX below threshold filters out TK cross — HOLD."""
+        df = make_ichimoku_df(
+            ichimoku_tk_cross=1,
+            ichimoku_above_cloud=1,
+            adx=10.0,  # < threshold 20
+        )
+        sig = strat.generate_signal(df)
+        assert sig.signal == "HOLD"
+        assert sig.confidence < 0.5  # Not a trading signal
+
+    def test_bullish_cross_below_cloud_generates_hold(self, strat):
+        """Bullish TK cross but price below cloud — not a valid setup → HOLD."""
+        df = make_ichimoku_df(
+            ichimoku_tk_cross=1,
+            ichimoku_above_cloud=0,  # NOT above cloud
+            ichimoku_below_cloud=1,  # actually below cloud
+            adx=25.0,
+        )
+        sig = strat.generate_signal(df)
+        # Can't get a BUY cross below cloud; no bearish cross either → HOLD
+        assert sig.signal == "HOLD"
+
+    def test_sustained_bullish_alignment_low_conf_buy(self, strat):
+        """No fresh cross but tenkan > kijun + above cloud + strong ADX → BUY at 0.45."""
+        df = make_ichimoku_df(
+            ichimoku_tk_cross=0,  # No fresh cross
+            ichimoku_above_cloud=1,
+            ichimoku_tenkan=51000.0,  # tenkan > kijun
+            ichimoku_kijun=50000.0,
+            adx=25.0,
+        )
+        sig = strat.generate_signal(df)
+        assert sig.signal == "BUY"
+        assert sig.confidence == pytest.approx(0.45)
+
+    def test_sustained_bearish_alignment_low_conf_sell(self, strat):
+        """No fresh cross but tenkan < kijun + below cloud + strong ADX → SELL at 0.45."""
+        df = make_ichimoku_df(
+            ichimoku_tk_cross=0,
+            ichimoku_below_cloud=1,
+            ichimoku_tenkan=49000.0,  # tenkan < kijun
+            ichimoku_kijun=50000.0,
+            adx=25.0,
+        )
+        sig = strat.generate_signal(df)
+        assert sig.signal == "SELL"
+        assert sig.confidence == pytest.approx(0.45)
+
+    def test_sl_tp_based_on_atr(self, strat):
+        """SL = atr_pct × 2, TP = atr_pct × 4."""
+        df = make_ichimoku_df(
+            ichimoku_tk_cross=1,
+            ichimoku_above_cloud=1,
+            adx=25.0,
+            atr_pct=0.03,
+        )
+        sig = strat.generate_signal(df)
+        assert sig.signal == "BUY"
+        assert sig.suggested_sl_pct == pytest.approx(0.06)  # 0.03 × 2
+        assert sig.suggested_tp_pct == pytest.approx(0.12)  # 0.03 × 4
+
+    def test_volume_bonus_increases_confidence(self, strat):
+        """vol_ratio > 1.2 adds 0.10 to confidence."""
+        df_low_vol = make_ichimoku_df(
+            ichimoku_tk_cross=1, ichimoku_above_cloud=1, adx=20.0, volume_ratio=1.0
+        )
+        df_high_vol = make_ichimoku_df(
+            ichimoku_tk_cross=1, ichimoku_above_cloud=1, adx=20.0, volume_ratio=1.5
+        )
+        sig_low = strat.generate_signal(df_low_vol)
+        sig_high = strat.generate_signal(df_high_vol)
+        assert sig_high.confidence > sig_low.confidence
+
+    def test_missing_ichimoku_columns_generates_hold(self, strat):
+        """Strategy returns HOLD gracefully when Ichimoku columns are absent."""
+        df = make_df()  # No ichimoku columns — all defaults → adx=0 < threshold=20
+        sig = strat.generate_signal(df)
+        assert sig.signal == "HOLD"
+        assert sig.confidence < 0.5  # Not a tradeable signal
+
+    def test_insufficient_data_returns_hold(self, strat):
+        """Fewer than 3 rows → HOLD with 0 confidence."""
+        df = make_ichimoku_df(rows=2)
+        sig = strat.generate_signal(df)
+        assert sig.signal == "HOLD"
+        assert sig.confidence == 0.0

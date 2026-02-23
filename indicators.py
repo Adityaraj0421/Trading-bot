@@ -11,7 +11,7 @@ import pandas as pd
 
 _log = logging.getLogger(__name__)
 
-# Feature columns used by the ML model (v8.0: expanded to all indicators)
+# Feature columns used by the ML model (v9.1: expanded to 24 — added Williams %R and CCI)
 FEATURE_COLUMNS = [
     # Core momentum & oscillators
     "rsi",
@@ -43,6 +43,9 @@ FEATURE_COLUMNS = [
     "minus_di",
     # Volatility regime
     "rolling_vol_10",
+    # v9.1: New oscillators for richer ML signal
+    "williams_r",
+    "cci",
 ]
 
 
@@ -173,6 +176,54 @@ class Indicators:
         out["adx"] = dx.rolling(14).mean()
         out["plus_di"] = plus_di
         out["minus_di"] = minus_di
+
+        # --- v9.1: Williams %R (14-period): -100 (oversold) to 0 (overbought) ---
+        hh14 = high.rolling(14).max()
+        ll14 = low.rolling(14).min()
+        out["williams_r"] = -100 * (hh14 - close) / (hh14 - ll14).replace(0, np.nan)
+
+        # --- v9.1: CCI (20-period Commodity Channel Index) ---
+        # Reuses typical_price computed above for VWAP
+        mean_dev = typical_price.rolling(20).apply(
+            lambda x: np.mean(np.abs(x - np.mean(x))), raw=True
+        )
+        out["cci"] = (typical_price - typical_price.rolling(20).mean()) / (
+            0.015 * mean_dev.replace(0, np.nan)
+        )
+
+        # --- v9.1: Ichimoku Cloud (structural trend tool — not in FEATURE_COLUMNS) ---
+        # No Chikou span: shift(-26) would consume 26 tail rows from every feed.
+        tenkan_high = high.rolling(9).max()
+        tenkan_low = low.rolling(9).min()
+        out["ichimoku_tenkan"] = (tenkan_high + tenkan_low) / 2
+
+        kijun_high = high.rolling(26).max()
+        kijun_low = low.rolling(26).min()
+        out["ichimoku_kijun"] = (kijun_high + kijun_low) / 2
+
+        out["ichimoku_span_a"] = ((out["ichimoku_tenkan"] + out["ichimoku_kijun"]) / 2).shift(26)
+        span_b_high = high.rolling(52).max()
+        span_b_low = low.rolling(52).min()
+        out["ichimoku_span_b"] = ((span_b_high + span_b_low) / 2).shift(26)
+
+        # Derived helper flags consumed by IchimokuStrategy
+        out["ichimoku_above_cloud"] = (
+            (close > out["ichimoku_span_a"]) & (close > out["ichimoku_span_b"])
+        ).astype(int)
+        out["ichimoku_below_cloud"] = (
+            (close < out["ichimoku_span_a"]) & (close < out["ichimoku_span_b"])
+        ).astype(int)
+        out["ichimoku_tk_cross"] = np.where(
+            (out["ichimoku_tenkan"] > out["ichimoku_kijun"])
+            & (out["ichimoku_tenkan"].shift(1) <= out["ichimoku_kijun"].shift(1)),
+            1,
+            np.where(
+                (out["ichimoku_tenkan"] < out["ichimoku_kijun"])
+                & (out["ichimoku_tenkan"].shift(1) >= out["ichimoku_kijun"].shift(1)),
+                -1,
+                0,
+            ),
+        )
 
         # --- Target for training ---
         out["future_return"] = close.shift(-1) / close - 1

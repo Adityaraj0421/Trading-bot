@@ -29,6 +29,10 @@ class Config:
     # Trading settings
     TRADING_PAIR = os.getenv("TRADING_PAIR", "BTC/USDT")
     TRADING_PAIRS = [p.strip() for p in os.getenv("TRADING_PAIRS", "BTC/USDT").split(",") if p.strip()]
+    # v9.1: Dynamic pair selection — pool of candidates, top N selected each scoring cycle
+    PAIR_POOL = [p.strip() for p in os.getenv("PAIR_POOL", "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,AVAX/USDT").split(",") if p.strip()]
+    PAIR_SELECTOR_TOP_N = int(os.getenv("PAIR_SELECTOR_TOP_N", "3"))
+    PAIR_SCORER_INTERVAL_CYCLES = int(os.getenv("PAIR_SCORER_INTERVAL_CYCLES", "200"))
     TIMEFRAME = os.getenv("TIMEFRAME", "1h")
     CONFIRMATION_TIMEFRAME = os.getenv("CONFIRMATION_TIMEFRAME", "4h")
     INITIAL_CAPITAL = float(os.getenv("INITIAL_CAPITAL", "1000"))
@@ -38,6 +42,8 @@ class Config:
     STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.02"))
     TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.05"))
     TRAILING_STOP_PCT = float(os.getenv("TRAILING_STOP_PCT", "0.015"))
+    ATR_TRAILING_MULT = float(os.getenv("ATR_TRAILING_MULT", "2.0"))  # v9.1: ATR × mult replaces fixed trailing %
+    BREAKEVEN_TRIGGER_PCT = float(os.getenv("BREAKEVEN_TRIGGER_PCT", "0.6"))  # v9.1: move SL to entry at 60% of TP dist
     MAX_DAILY_LOSS_PCT = 0.05
     MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", "3"))
     MAX_HOLD_BARS = int(os.getenv("MAX_HOLD_BARS", "100"))
@@ -226,6 +232,12 @@ class Config:
             raise ValueError(
                 f"AGENT_INTERVAL_SECONDS must be >= 10, got {cls.AGENT_INTERVAL_SECONDS}. "
                 "Lower values risk exchange rate limits and IP bans."
+            )
+
+        if not (1 <= cls.PAIR_SELECTOR_TOP_N <= len(cls.PAIR_POOL)):
+            raise ValueError(
+                f"PAIR_SELECTOR_TOP_N ({cls.PAIR_SELECTOR_TOP_N}) must be between 1 "
+                f"and len(PAIR_POOL) ({len(cls.PAIR_POOL)})"
             )
 
         # ── Soft warnings (log but don't crash) ──────────────────────

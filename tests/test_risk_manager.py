@@ -132,6 +132,137 @@ class TestPosition:
         # Price drops to trailing stop level
         assert pos.check_exit(trail - 1) == "trailing_stop"
 
+    # --- ATR-adaptive trailing stop ---
+
+    def test_atr_trailing_uses_atr_mult(self):
+        """When atr_pct is provided, trail_pct = ATR_TRAILING_MULT × atr_pct."""
+        pos = self._make_pos(side="long", entry_price=50000.0, stop_loss=48000.0, take_profit=60000.0)
+        atr_pct = 0.03  # 3% ATR → trail_pct = 2.0 × 0.03 = 0.06 (> fixed 0.015)
+        pos.update_trailing_stop(current_high=55000.0, current_low=54000.0, atr_pct=atr_pct)
+        expected_trail = 55000.0 * (1 - Config.ATR_TRAILING_MULT * atr_pct)
+        assert pos.trailing_stop == pytest.approx(expected_trail)
+
+    def test_atr_trailing_fallback_to_fixed_when_none(self):
+        """When atr_pct=None, trailing distance falls back to TRAILING_STOP_PCT."""
+        pos = self._make_pos(side="long", entry_price=50000.0, stop_loss=48000.0, take_profit=60000.0)
+        pos.update_trailing_stop(current_high=55000.0, current_low=54000.0, atr_pct=None)
+        expected_trail = 55000.0 * (1 - Config.TRAILING_STOP_PCT)
+        assert pos.trailing_stop == pytest.approx(expected_trail)
+
+    def test_atr_trailing_ratchet_still_applies(self):
+        """ATR-based trailing still ratchets up for longs — only moves higher."""
+        pos = self._make_pos(side="long", entry_price=50000.0, stop_loss=48000.0, take_profit=60000.0)
+        pos.update_trailing_stop(current_high=55000.0, current_low=54000.0, atr_pct=0.02)
+        trail_after_high = pos.trailing_stop
+
+        # Price drops — trail must not decrease
+        pos.update_trailing_stop(current_high=54000.0, current_low=53000.0, atr_pct=0.02)
+        assert pos.trailing_stop == trail_after_high
+
+    # --- Breakeven stop ---
+
+    def _make_pos_qty1(
+        self,
+        side="long",
+        entry_price=50000.0,
+        stop_loss=49000.0,
+        take_profit=52500.0,
+    ) -> "Position":
+        """Position with quantity=1.0 so unrealized_pnl is in same scale as price distance."""
+        return Position(
+            symbol="BTC/USDT",
+            side=side,
+            entry_price=entry_price,
+            quantity=1.0,
+            entry_time=datetime.now(),
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            entry_bar=0,
+        )
+
+    def test_breakeven_triggers_at_threshold(self):
+        """SL moves to entry + fee buffer when unrealized PnL >= BREAKEVEN_TRIGGER_PCT × tp_distance."""
+        # tp_distance = |52500 - 50000| = 2500; trigger = 0.6 × 2500 = 1500
+        # unrealized at 51600 = (51600 - 50000) × 1.0 = 1600 ≥ 1500 → triggers
+        pos = self._make_pos_qty1()
+        triggered = pos.check_breakeven(current_price=51600.0, fee_pct=Config.FEE_PCT)
+        assert triggered is True
+        assert pos.breakeven_triggered is True
+        expected_sl = pos.entry_price + pos.entry_price * Config.FEE_PCT
+        assert pos.stop_loss == pytest.approx(expected_sl)
+
+    def test_breakeven_not_triggered_below_threshold(self):
+        """SL stays unchanged when unrealized PnL is below the trigger threshold."""
+        # trigger = 1500; unrealized at 51400 = 1400 < 1500 → no trigger
+        pos = self._make_pos_qty1()
+        original_sl = pos.stop_loss
+        triggered = pos.check_breakeven(current_price=51400.0, fee_pct=Config.FEE_PCT)
+        assert triggered is False
+        assert pos.breakeven_triggered is False
+        assert pos.stop_loss == original_sl
+
+    def test_breakeven_one_shot(self):
+        """After first trigger, subsequent calls are no-ops even at higher prices."""
+        pos = self._make_pos_qty1()
+        pos.check_breakeven(current_price=51600.0, fee_pct=Config.FEE_PCT)
+        sl_after_first = pos.stop_loss
+
+        triggered_again = pos.check_breakeven(current_price=52000.0, fee_pct=Config.FEE_PCT)
+        assert triggered_again is False
+        assert pos.stop_loss == sl_after_first  # Unchanged
+
+    def test_breakeven_only_moves_sl_up_for_long(self):
+        """Breakeven never lowers SL for a long position."""
+        # Set stop_loss already very close to entry — new_sl must be > existing SL to apply
+        pos = self._make_pos_qty1(stop_loss=49999.0)  # SL already near entry
+        # Move SL manually above the computed breakeven level
+        pos.stop_loss = 50060.0  # higher than entry + fee_buffer (~50050)
+        triggered = pos.check_breakeven(current_price=51600.0, fee_pct=Config.FEE_PCT)
+        assert triggered is False  # new_sl (50050) < existing SL (50060) → no change
+
+    def test_breakeven_serialization_round_trip(self):
+        """breakeven_triggered=True survives to_dict → from_dict round-trip."""
+        pos = self._make_pos_qty1()
+        pos.check_breakeven(current_price=51600.0, fee_pct=Config.FEE_PCT)
+        assert pos.breakeven_triggered is True
+
+        rm = RiskManager()
+        rm.positions.append(pos)
+        data = rm.to_dict()
+
+        rm2 = RiskManager()
+        rm2.from_dict(data)
+        assert rm2.positions[0].breakeven_triggered is True
+
+    def test_breakeven_default_false_on_old_state(self):
+        """Old state dict without breakeven_triggered key loads with default False."""
+        from datetime import date
+
+        rm = RiskManager()
+        rm.from_dict(
+            {
+                "capital": 1000.0,
+                "total_pnl": 0.0,
+                "total_fees": 0.0,
+                "daily_pnl": 0.0,
+                "daily_pnl_date": str(date.today()),
+                "current_bar": 0,
+                "positions": [
+                    {
+                        "symbol": "BTC/USDT",
+                        "side": "long",
+                        "entry_price": 50000.0,
+                        "quantity": 0.01,
+                        "entry_time": datetime.now().isoformat(),
+                        "stop_loss": 49000.0,
+                        "take_profit": 52500.0,
+                        # Note: no "breakeven_triggered" key
+                    }
+                ],
+            }
+        )
+        assert rm.positions[0].breakeven_triggered is False
+
     # --- Unrealized PnL ---
 
     def test_unrealized_pnl_long_profit(self):

@@ -38,6 +38,8 @@ class Position:
     highest_price: float = 0.0  # Track high water mark (longs)
     lowest_price: float = 0.0  # Track low water mark (shorts)
     entry_bar: int = 0  # Bar count at entry (for max hold)
+    # v9.1: Breakeven stop — set True once SL has been moved to entry
+    breakeven_triggered: bool = False
 
     def __post_init__(self) -> None:
         if self.highest_price == 0.0:
@@ -57,10 +59,22 @@ class Position:
         return self.entry_price * self.quantity
 
     def update_trailing_stop(
-        self, current_high: float, current_low: float, trail_pct_override: float | None = None
+        self,
+        current_high: float,
+        current_low: float,
+        trail_pct_override: float | None = None,
+        atr_pct: float | None = None,
     ) -> None:
-        """Update trailing stop based on new price extremes."""
-        trail_pct = trail_pct_override or Config.TRAILING_STOP_PCT
+        """
+        Update trailing stop based on new price extremes.
+
+        When atr_pct is provided, trailing distance = ATR_TRAILING_MULT × atr_pct
+        (adaptive to current volatility). Falls back to TRAILING_STOP_PCT otherwise.
+        """
+        if atr_pct and atr_pct > 0:
+            trail_pct = Config.ATR_TRAILING_MULT * atr_pct
+        else:
+            trail_pct = trail_pct_override or Config.TRAILING_STOP_PCT
         if self.side == "long":
             if current_high > self.highest_price:
                 self.highest_price = current_high
@@ -71,6 +85,58 @@ class Position:
                 self.lowest_price = current_low
                 new_trail = self.lowest_price * (1 + trail_pct)
                 self.trailing_stop = min(self.trailing_stop, new_trail)
+
+    def check_breakeven(self, current_price: float, fee_pct: float) -> bool:
+        """
+        Move stop-loss to breakeven (entry + fee buffer) once unrealized PnL
+        exceeds BREAKEVEN_TRIGGER_PCT of the take-profit distance.
+
+        Only triggers once per position (breakeven_triggered flag prevents re-entry).
+
+        Args:
+            current_price: Latest market price.
+            fee_pct: Round-trip fee used as buffer above/below entry.
+
+        Returns:
+            True if the stop was newly moved to breakeven, False otherwise.
+        """
+        if self.breakeven_triggered:
+            return False
+
+        tp_distance = abs(self.take_profit - self.entry_price)
+        if tp_distance <= 0:
+            return False
+
+        trigger = Config.BREAKEVEN_TRIGGER_PCT * tp_distance
+        unrealized = self.unrealized_pnl(current_price)
+
+        if unrealized >= trigger:
+            buffer = self.entry_price * fee_pct
+            if self.side == "long":
+                new_sl = self.entry_price + buffer
+                if new_sl > self.stop_loss:
+                    self.stop_loss = new_sl
+                    self.breakeven_triggered = True
+                    _log.info(
+                        "[Risk] Breakeven stop triggered for %s %s: SL → %.4f",
+                        self.side.upper(),
+                        self.symbol,
+                        new_sl,
+                    )
+                    return True
+            else:
+                new_sl = self.entry_price - buffer
+                if new_sl < self.stop_loss:
+                    self.stop_loss = new_sl
+                    self.breakeven_triggered = True
+                    _log.info(
+                        "[Risk] Breakeven stop triggered for %s %s: SL → %.4f",
+                        self.side.upper(),
+                        self.symbol,
+                        new_sl,
+                    )
+                    return True
+        return False
 
     def check_exit(self, current_price: float, current_bar: int = 0) -> str | None:
         """Check all exit conditions. Returns reason or None."""
@@ -653,14 +719,17 @@ class RiskManager:
         current_high: float | None = None,
         current_low: float | None = None,
         symbol: str | None = None,
+        atr_pct: float | None = None,
     ) -> list[TradeRecord]:
         """
-        Check positions for exits: update trailing stops, then check exit conditions.
+        Check positions for exits: update trailing stops, check breakeven, then check exits.
         Accepts high/low for intra-bar trailing stop updates.
 
         Args:
             symbol: If provided, only check positions for this trading pair.
                     This prevents cross-pair price contamination in multi-pair mode.
+            atr_pct: ATR as % of price for this bar. When provided, trailing stop
+                     uses ATR_TRAILING_MULT × atr_pct instead of fixed TRAILING_STOP_PCT.
         """
         high = current_high or current_price
         low = current_low or current_price
@@ -669,8 +738,10 @@ class RiskManager:
         for pos in list(self.positions):
             if symbol and pos.symbol != symbol:
                 continue
-            # Update trailing stop first
-            pos.update_trailing_stop(high, low)
+            # ATR-adaptive trailing stop update (v9.1)
+            pos.update_trailing_stop(high, low, atr_pct=atr_pct)
+            # Breakeven stop check (v9.1)
+            pos.check_breakeven(current_price, Config.FEE_PCT)
 
             exit_reason = pos.check_exit(current_price, self.current_bar)
             if exit_reason:
@@ -720,6 +791,7 @@ class RiskManager:
                     "lowest_price": p.lowest_price,
                     "strategy_name": p.strategy_name,
                     "entry_bar": p.entry_bar,
+                    "breakeven_triggered": p.breakeven_triggered,
                 }
                 for p in self.positions
             ],
@@ -749,5 +821,6 @@ class RiskManager:
                 highest_price=p.get("highest_price", p["entry_price"]),
                 lowest_price=p.get("lowest_price", p["entry_price"]),
                 entry_bar=p.get("entry_bar", 0),
+                breakeven_triggered=p.get("breakeven_triggered", False),
             )
             self.positions.append(pos)

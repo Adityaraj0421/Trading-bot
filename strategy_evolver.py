@@ -88,6 +88,11 @@ PARAM_BOUNDS = {
         "composite_threshold": (0.1, 0.5, float),
         "confidence_base": (0.3, 0.7, float),
     },
+    # v9.1: Ichimoku Cloud
+    "Ichimoku": {
+        "adx_threshold": (15, 35, int),
+        "confidence_base": (0.4, 0.8, float),
+    },
 }
 
 # Default parameters (current v4 values)
@@ -129,6 +134,11 @@ DEFAULT_PARAMS = {
         "greed_threshold": 75,
         "composite_threshold": 0.3,
         "confidence_base": 0.5,
+    },
+    # v9.1: Ichimoku Cloud
+    "Ichimoku": {
+        "adx_threshold": 20,
+        "confidence_base": 0.6,
     },
 }
 

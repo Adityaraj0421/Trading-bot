@@ -760,6 +760,106 @@ class EMACrossoverStrategy(BaseStrategy):
         )
 
 
+class IchimokuStrategy(BaseStrategy):
+    """
+    Ichimoku Cloud Strategy.
+    Best in: TRENDING_UP, TRENDING_DOWN
+
+    Logic:
+    - BUY:  Tenkan/Kijun bullish cross (TK cross=1) + price above cloud + ADX >= threshold
+    - SELL: Tenkan/Kijun bearish cross (TK cross=-1) + price below cloud + ADX >= threshold
+    - Sustained alignment (no fresh cross): generates lower-confidence directional signal
+
+    Confidence builds from base (0.60) + volume bonus (0.10) + ADX strength (up to 0.15),
+    capped at 0.90. Stop-loss = 2× ATR, take-profit = 4× ATR.
+
+    Source: Goichi Hosoda (1969). Widely used in Japanese & Asian institutional trading.
+    """
+
+    name = "Ichimoku"
+    best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
+
+    def __init__(self, params: dict[str, float] | None = None) -> None:
+        p = params or {}
+        self.adx_threshold = float(p.get("adx_threshold", 20))
+        self.confidence_base = float(p.get("confidence_base", 0.6))
+
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Generate BUY/SELL/HOLD from Ichimoku TK-cross + cloud position + ADX filter."""
+        if len(df) < 3:
+            return StrategySignal(
+                signal="HOLD",
+                confidence=0.0,
+                strategy_name=self.name,
+                reason="Not enough data",
+            )
+
+        latest = df.iloc[-1]
+        tk_cross = latest.get("ichimoku_tk_cross", 0)
+        above_cloud = latest.get("ichimoku_above_cloud", 0)
+        below_cloud = latest.get("ichimoku_below_cloud", 0)
+        tenkan = latest.get("ichimoku_tenkan", 0.0)
+        kijun = latest.get("ichimoku_kijun", 0.0)
+        adx = latest.get("adx", 0.0)
+        vol_ratio = latest.get("volume_ratio", 1.0)
+        atr_pct = latest.get("atr_pct", 0.02)
+
+        trend_strong = adx >= self.adx_threshold
+
+        if tk_cross == 1 and above_cloud and trend_strong:
+            conf = self.confidence_base
+            conf += 0.1 if vol_ratio > 1.2 else 0.0
+            conf += min((adx - self.adx_threshold) / 30.0, 0.15)
+            return StrategySignal(
+                signal="BUY",
+                confidence=min(conf, 0.90),
+                strategy_name=self.name,
+                reason=f"Ichimoku TK bullish cross above cloud (ADX:{adx:.0f})",
+                suggested_sl_pct=atr_pct * 2.0,
+                suggested_tp_pct=atr_pct * 4.0,
+            )
+
+        if tk_cross == -1 and below_cloud and trend_strong:
+            conf = self.confidence_base
+            conf += 0.1 if vol_ratio > 1.2 else 0.0
+            conf += min((adx - self.adx_threshold) / 30.0, 0.15)
+            return StrategySignal(
+                signal="SELL",
+                confidence=min(conf, 0.90),
+                strategy_name=self.name,
+                reason=f"Ichimoku TK bearish cross below cloud (ADX:{adx:.0f})",
+                suggested_sl_pct=atr_pct * 2.0,
+                suggested_tp_pct=atr_pct * 4.0,
+            )
+
+        # Sustained trend alignment (no fresh cross — lower confidence)
+        if above_cloud and trend_strong and tenkan > kijun:
+            return StrategySignal(
+                signal="BUY",
+                confidence=0.45,
+                strategy_name=self.name,
+                reason=f"Ichimoku bullish alignment above cloud (ADX:{adx:.0f})",
+                suggested_sl_pct=atr_pct * 2.0,
+                suggested_tp_pct=atr_pct * 3.0,
+            )
+        if below_cloud and trend_strong and tenkan < kijun:
+            return StrategySignal(
+                signal="SELL",
+                confidence=0.45,
+                strategy_name=self.name,
+                reason=f"Ichimoku bearish alignment below cloud (ADX:{adx:.0f})",
+                suggested_sl_pct=atr_pct * 2.0,
+                suggested_tp_pct=atr_pct * 3.0,
+            )
+
+        return StrategySignal(
+            signal="HOLD",
+            confidence=0.3,
+            strategy_name=self.name,
+            reason="No Ichimoku signal",
+        )
+
+
 # ────────────────────────────────────────────────────────────
 #  STRATEGY ENGINE — Adaptive strategy selection
 # ────────────────────────────────────────────────────────────
@@ -775,13 +875,13 @@ class StrategyEngine:
     REGIME_STRATEGY_MAP = {
         MarketRegime.TRENDING_UP: {
             "primary": "Momentum",
-            "secondary": ["EMACrossover", "Sentiment", "VWAP"],
-            "weights": {"Momentum": 0.35, "EMACrossover": 0.25, "Sentiment": 0.2, "VWAP": 0.2},
+            "secondary": ["EMACrossover", "Ichimoku", "Sentiment", "VWAP"],
+            "weights": {"Momentum": 0.30, "EMACrossover": 0.20, "Ichimoku": 0.20, "Sentiment": 0.15, "VWAP": 0.15},
         },
         MarketRegime.TRENDING_DOWN: {
             "primary": "Momentum",
-            "secondary": ["EMACrossover", "OBVDivergence", "Sentiment"],
-            "weights": {"Momentum": 0.35, "EMACrossover": 0.2, "OBVDivergence": 0.25, "Sentiment": 0.2},
+            "secondary": ["EMACrossover", "Ichimoku", "OBVDivergence", "Sentiment"],
+            "weights": {"Momentum": 0.30, "EMACrossover": 0.18, "Ichimoku": 0.17, "OBVDivergence": 0.20, "Sentiment": 0.15},
         },
         MarketRegime.RANGING: {
             "primary": "MeanReversion",
@@ -812,6 +912,8 @@ class StrategyEngine:
             "VWAP": VWAPStrategy(params=ep.get("VWAP")),
             "OBVDivergence": OBVDivergenceStrategy(params=ep.get("OBVDivergence")),
             "EMACrossover": EMACrossoverStrategy(params=ep.get("EMACrossover")),
+            # v9.1: Ichimoku Cloud strategy
+            "Ichimoku": IchimokuStrategy(params=ep.get("Ichimoku")),
         }
         self.last_signals = {}
 
@@ -826,6 +928,7 @@ class StrategyEngine:
         "VWAP": VWAPStrategy,
         "OBVDivergence": OBVDivergenceStrategy,
         "EMACrossover": EMACrossoverStrategy,
+        "Ichimoku": IchimokuStrategy,
     }
 
     def apply_evolved_params(self, evolved_params: dict[str, dict[str, float]]) -> None:

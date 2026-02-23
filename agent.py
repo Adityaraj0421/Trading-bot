@@ -46,6 +46,7 @@ from logger import StructuredLogger
 from model import TradingModel
 from multi_timeframe import MultiTimeframeConfirmer
 from notifier import Notifier
+from pair_scorer import PairScorer
 from portfolio import PortfolioManager
 from regime_detector import MarketRegime, RegimeDetector
 from risk_manager import RiskManager
@@ -119,6 +120,10 @@ class TradingAgent:
         # v6.0: Multi-pair portfolio manager
         self.portfolio = PortfolioManager()
         self.multi_pair = len(Config.TRADING_PAIRS) > 1
+
+        # v9.1: Dynamic pair selector
+        self.pair_scorer = PairScorer()
+        self._active_pairs: list[str] = list(Config.TRADING_PAIRS)
 
         # v6.0: Intelligence aggregator (external signal sources)
         if Config.any_intelligence_enabled():
@@ -424,7 +429,23 @@ class TradingAgent:
         position_mult = instructions.get("position_multiplier", 1.0)
 
         # === Multi-pair loop ===
-        pairs = Config.TRADING_PAIRS if self.multi_pair else [Config.TRADING_PAIR]
+        # v9.1: Dynamic pair scoring — rescore every PAIR_SCORER_INTERVAL_CYCLES cycles
+        if (
+            self.multi_pair
+            and len(Config.PAIR_POOL) > len(Config.TRADING_PAIRS)
+            and self.cycle_count % Config.PAIR_SCORER_INTERVAL_CYCLES == 1
+        ):
+            pool_data: dict[str, Any] = {}
+            for candidate in Config.PAIR_POOL:
+                try:
+                    raw = self.fetcher.fetch_ohlcv(symbol=candidate)
+                    if not raw.empty:
+                        pool_data[candidate] = raw
+                except Exception as e:
+                    _log.debug("PairScorer fetch failed for %s: %s", candidate, e)
+            if pool_data:
+                self._active_pairs = self.pair_scorer.select_top_pairs(pool_data)
+        pairs = self._active_pairs if self.multi_pair else [Config.TRADING_PAIR]
         for pair in pairs:
             self._run_pair_cycle(
                 pair,
@@ -538,7 +559,9 @@ class TradingAgent:
                 self._last_data_hash = data_hash
 
         # 4. Check positions for THIS pair only (prevents cross-pair price contamination)
-        closed = self.risk.check_positions(current_price, current_high, current_low, symbol=pair)
+        # v9.1: Pass atr_pct for ATR-adaptive trailing stop
+        atr_pct_val = float(df_ind["atr_pct"].iloc[-1]) if "atr_pct" in df_ind.columns else None
+        closed = self.risk.check_positions(current_price, current_high, current_low, symbol=pair, atr_pct=atr_pct_val)
         pair_closed = closed  # Already filtered by symbol
         for trade in pair_closed:
             self.log.log_trade_close(

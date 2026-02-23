@@ -143,7 +143,44 @@ class TestFeatureColumns:
         assert isinstance(cols, list)
 
     def test_feature_columns_count(self):
-        # v9.0: expanded from 15 to 22 features
-        # (added obv_divergence, close_to_vwap, ema_cross, adx, plus_di, minus_di, rolling_vol_10)
+        # v9.1: expanded to 24 features (added williams_r, cci)
         cols = Indicators.get_feature_columns()
-        assert len(cols) == 22
+        assert len(cols) == 24
+
+    def test_williams_r_in_feature_columns(self):
+        assert "williams_r" in Indicators.get_feature_columns()
+
+    def test_cci_in_feature_columns(self):
+        assert "cci" in Indicators.get_feature_columns()
+
+    def test_williams_r_range(self, sample_ohlcv):
+        """Williams %R must always lie in [-100, 0]."""
+        result = Indicators.add_all(sample_ohlcv)
+        assert "williams_r" in result.columns
+        assert (result["williams_r"] >= -100).all()
+        assert (result["williams_r"] <= 0).all()
+
+    def test_cci_exists(self, sample_ohlcv):
+        """CCI column should be present after add_all()."""
+        result = Indicators.add_all(sample_ohlcv)
+        assert "cci" in result.columns
+
+    def test_ichimoku_columns_exist(self, sample_ohlcv):
+        """All 7 Ichimoku columns should be present after add_all()."""
+        result = Indicators.add_all(sample_ohlcv)
+        for col in [
+            "ichimoku_tenkan",
+            "ichimoku_kijun",
+            "ichimoku_span_a",
+            "ichimoku_span_b",
+            "ichimoku_above_cloud",
+            "ichimoku_below_cloud",
+            "ichimoku_tk_cross",
+        ]:
+            assert col in result.columns, f"Missing Ichimoku column: {col}"
+
+    def test_ichimoku_not_in_feature_columns(self):
+        """Ichimoku columns are directional flags — not ML numeric features."""
+        cols = Indicators.get_feature_columns()
+        for col in ["ichimoku_tenkan", "ichimoku_kijun", "ichimoku_above_cloud"]:
+            assert col not in cols, f"{col} should not be in FEATURE_COLUMNS"
