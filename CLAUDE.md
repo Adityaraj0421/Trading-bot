@@ -62,6 +62,8 @@ make help         # Show all available commands
 
 **Important**: The test client fixture in `test_api.py` automatically includes the API auth key when `API_AUTH_KEY` is set in .env. If you add new API tests, use the existing `client` fixture.
 
+**Known env-dependent failure**: `test_config.py::TestConfigDefaults::test_default_min_confidence` fails when `.env` has `MIN_CONFIDENCE` ≠ 0.35. Not a code bug — adjust `.env` or expect 889 passing locally.
+
 ## Key Patterns
 
 1. **DataStore bridge**: Agent thread writes to `api/data_store.py` (thread-safe with `threading.Lock`). API reads from it. Broadcast callback pushes to WebSocket clients.
@@ -106,4 +108,6 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - Telegram webhook URL changes with every ngrok restart — update `.env` accordingly
 - `venv/` must be activated or on PATH for `make` commands to find Python packages
 - **Stale agent state**: delete `data/agent_state.json`, `data/agent_state_model.pkl`, `data/agent_state_autonomous.json` to reset capital/PnL to `INITIAL_CAPITAL` from `.env`
-- **Orphaned open trades** after a crash: `sqlite3 data/trades.db "UPDATE trades SET status='abandoned', exit_reason='orphaned_on_restart' WHERE status='open';"` — `data/trades.db` is the source of truth for trade history; `DataStore._trade_log` is session-only
+- **Orphaned open trades** after a crash: handled automatically by `_reconcile_trade_db()` on startup (marks stale DB open trades as `abandoned`). Manual fallback: `sqlite3 data/trades.db "UPDATE trades SET status='abandoned', exit_reason='orphaned_on_restart' WHERE status='open';"` — `data/trades.db` is the source of truth; `DataStore._trade_log` is session-only
+- **`demo_data.py`**: exports `generate_ohlcv()` — the old name `generate_demo_ohlcv` was removed. `decision_engine.py` uses deferred imports inside method bodies (not top-level), so import errors there only surface when strategy evolution runs (hundreds of cycles in), not at startup
+- **Multi-pair PnL**: use `self._last_prices.get(symbol, fallback)` (per-pair dict, updated each cycle) not `self._last_price` (primary pair scalar only) for unrealized PnL calculations

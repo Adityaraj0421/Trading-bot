@@ -32,7 +32,7 @@ def create_router(store: DataStore) -> APIRouter:
         return autonomous
 
     @router.get("/events")
-    def autonomous_events(limit: int = Query(default=50, ge=1)) -> dict[str, Any]:
+    def autonomous_events(limit: int = Query(default=50, ge=1, le=1000)) -> dict[str, Any]:
         """Return recent autonomous-mode events."""
         events = store.get_events(limit=limit)
         return {"events": events, "count": len(events)}

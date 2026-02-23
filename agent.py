@@ -111,6 +111,7 @@ class TradingAgent:
         self._last_data_hash = None
         self._last_regime = None
         self._last_price = None
+        self._last_prices: dict[str, float] = {}
 
         # v6.0: Multi-pair portfolio manager
         self.portfolio = PortfolioManager()
@@ -155,6 +156,7 @@ class TradingAgent:
         self.notifier = Notifier()
         self.telegram_bot = None  # Set by api/server.py for interactive Telegram commands
         self.trade_db = TradeDB() if Config.ENABLE_TRADE_DB else None
+        self._reconcile_trade_db()
         self.rate_limiter = RateLimiter(
             max_requests_per_minute=Config.MAX_REQUESTS_PER_MINUTE,
             max_orders_per_minute=Config.MAX_ORDERS_PER_MINUTE,
@@ -451,11 +453,10 @@ class TradingAgent:
         # v7.0: Record equity snapshot to trade DB
         if self.trade_db and self.cycle_count % 5 == 0:
             try:
-                _prices = getattr(self, "_last_prices", {})
-                _fallback_price = self._last_price or 0
                 unrealized = sum(
-                    p.unrealized_pnl(_prices.get(p.symbol, _fallback_price))
+                    p.unrealized_pnl(self._last_prices[p.symbol])
                     for p in self.risk.positions
+                    if p.symbol in self._last_prices
                 )
                 equity = self.risk.capital + unrealized
                 self.trade_db.record_equity(
@@ -508,9 +509,6 @@ class TradingAgent:
         current_high = df["high"].iloc[-1]
         current_low = df["low"].iloc[-1]
         self._last_price = current_price
-        # v7.0: Track per-pair prices for heartbeat
-        if not hasattr(self, "_last_prices"):
-            self._last_prices = {}
         self._last_prices[pair] = current_price
 
         # Update portfolio price series for correlation tracking
@@ -1043,6 +1041,41 @@ class TradingAgent:
             f"Win: {summary['win_rate']:.0%}{fees_str}"
         )
 
+    def _reconcile_trade_db(self) -> None:
+        """Orphan DB open trades that have no matching in-memory position.
+
+        Called once on startup after state restore and TradeDB init. Prevents
+        stale 'open' records from accumulating in the DB across server restarts
+        (e.g. uvicorn --reload restarting the agent mid-session).
+        """
+        if self.trade_db is None:
+            return
+        try:
+            db_open = self.trade_db.get_open_trades()
+            if not db_open:
+                return
+            # Match by (symbol, side, entry_price) — more reliable than entry_time
+            # because entry_time is set by two separate datetime.now() calls and
+            # differs by microseconds between the DB INSERT and the in-memory open.
+            live_keys = {
+                (p.symbol, p.side, round(p.entry_price, 2))
+                for p in self.risk.positions
+            }
+            stale_ids = [
+                t["id"]
+                for t in db_open
+                if (t["symbol"], t["side"], round(t["entry_price"], 2)) not in live_keys
+            ]
+            if stale_ids:
+                self.trade_db.orphan_trades(stale_ids)
+                _log.info(
+                    "[TradeDB] Orphaned %d stale open trade(s) on startup: ids=%s",
+                    len(stale_ids),
+                    stale_ids,
+                )
+        except Exception as e:
+            _log.warning("[TradeDB] Reconcile failed: %s", e)
+
     def _push_to_data_store(self) -> None:
         """Push cycle snapshot to DataStore if available."""
         if _data_store is None:
@@ -1050,7 +1083,7 @@ class TradingAgent:
         try:
             summary = self.risk.get_summary()
             price = self._last_price or 0.0
-            prices = getattr(self, "_last_prices", {})
+            prices = self._last_prices
             regime = self._last_regime.value if self._last_regime else "unknown"
 
             _data_store.update_snapshot(

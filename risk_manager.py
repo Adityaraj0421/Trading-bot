@@ -307,7 +307,7 @@ class RiskManager:
         losses = [t for t in trades if t.pnl_net <= 0]
 
         if not wins or not losses:
-            return Config.MAX_POSITION_PCT
+            return min(0.01, Config.MAX_POSITION_PCT)
 
         win_rate = len(wins) / len(trades)
         avg_win = sum(t.pnl_net for t in wins) / len(wins)
@@ -495,9 +495,21 @@ class RiskManager:
         if side == "long":
             stop_loss = entry_price - sl_distance
             take_profit = entry_price + tp_distance
+            if stop_loss >= entry_price:
+                _log.warning("SL >= entry for long (SL=%.2f, entry=%.2f); using 2%% fallback", stop_loss, entry_price)
+                stop_loss = entry_price * 0.98
+            if take_profit <= entry_price:
+                _log.warning("TP <= entry for long (TP=%.2f, entry=%.2f); using 3%% fallback", take_profit, entry_price)
+                take_profit = entry_price * 1.03
         else:
             stop_loss = entry_price + sl_distance
             take_profit = entry_price - tp_distance
+            if stop_loss <= entry_price:
+                _log.warning("SL <= entry for short (SL=%.2f, entry=%.2f); using 2%% fallback", stop_loss, entry_price)
+                stop_loss = entry_price * 1.02
+            if take_profit >= entry_price:
+                _log.warning("TP >= entry for short (TP=%.2f, entry=%.2f); using 3%% fallback", take_profit, entry_price)
+                take_profit = entry_price * 0.97
 
         return round(stop_loss, 2), round(take_profit, 2)
 

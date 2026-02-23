@@ -12,7 +12,7 @@ import api from "@/lib/api";
 
 export default function EquityPage() {
   const { data, error, isLoading, mutate } = useSWR(
-    "/equity-full", () => api.getEquity(), { refreshInterval: 30000 }
+    "/equity", () => api.getEquity(), { refreshInterval: 30000 }
   );
 
   return (

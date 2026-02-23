@@ -20,7 +20,7 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/trades")
     def get_trades(
-        limit: int = Query(default=100, ge=0),
+        limit: int = Query(default=100, ge=0, le=10000),
         status: str = Query(default="all", pattern="^(all|open|closed)$"),
     ) -> dict[str, Any]:
         """Return trade history, preferring the persistent DB over the in-memory log.
@@ -65,7 +65,7 @@ def create_router(store: DataStore) -> APIRouter:
         return {"positions": positions, "count": len(positions)}
 
     @router.get("/equity")
-    def get_equity(limit: int = Query(default=0, ge=0)) -> dict[str, Any]:
+    def get_equity(limit: int = Query(default=0, ge=0, le=50000)) -> dict[str, Any]:
         """Return equity curve data, preferring the persistent DB over the in-memory log.
 
         Args:

@@ -13,7 +13,7 @@ import api from "@/lib/api";
 
 export default function TradesPage() {
   const { data: trades, error: tradesErr, isLoading, mutate: mutateTrades } = useSWR(
-    "/trades-full", () => api.getTrades(500), { refreshInterval: 30000 }
+    "/trades", () => api.getTrades(500), { refreshInterval: 30000 }
   );
   const { data: pnl, error: pnlErr, mutate: mutatePnl } = useSWR(
     "/pnl-summary", () => api.getPnlSummary(), { refreshInterval: 30000 }

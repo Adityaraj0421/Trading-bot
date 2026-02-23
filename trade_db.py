@@ -235,6 +235,18 @@ class TradeDB:
             rows = conn.execute("SELECT * FROM trades WHERE status='open' ORDER BY entry_time").fetchall()
             return [dict(r) for r in rows]
 
+    def orphan_trades(self, trade_ids: list[int]) -> None:
+        """Mark specific trades as abandoned (orphaned on restart)."""
+        if not trade_ids:
+            return
+        placeholders = ",".join("?" * len(trade_ids))
+        with self._conn() as conn:
+            conn.execute(
+                f"UPDATE trades SET status='abandoned', exit_reason='orphaned_on_restart'"  # noqa: S608
+                f" WHERE id IN ({placeholders})",
+                trade_ids,
+            )
+
     def get_trade_history(
         self, limit: int = 100, strategy: str | None = None, since: str | None = None
     ) -> list[dict[str, Any]]:

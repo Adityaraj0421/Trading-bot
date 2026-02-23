@@ -2,9 +2,11 @@
 Status routes — health check, agent status, configuration.
 """
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from api.data_store import DataStore
 from config import Config
@@ -15,13 +17,26 @@ def create_router(store: DataStore) -> APIRouter:
     router = APIRouter(tags=["status"])
 
     @router.get("/health")
-    def health() -> dict[str, Any]:
-        """Return health check with agent liveness."""
+    def health() -> Any:
+        """Return health check with agent liveness and staleness detection."""
         snapshot = store.get_snapshot()
+        last_update = snapshot.get("updated_at") if snapshot else None
+        # Detect stale agent: if no update for 5+ minutes, report degraded
+        if last_update:
+            try:
+                age = (datetime.now() - datetime.fromisoformat(last_update)).total_seconds()
+                if age > 300:
+                    return JSONResponse(
+                        status_code=503,
+                        content={"status": "degraded", "agent_running": True, "last_update": last_update,
+                                 "detail": f"Agent not updating (last update {age:.0f}s ago)"},
+                    )
+            except (ValueError, TypeError):
+                pass  # Malformed timestamp — treat as healthy
         return {
             "status": "healthy",
             "agent_running": bool(snapshot),
-            "last_update": snapshot.get("updated_at"),
+            "last_update": last_update,
         }
 
     @router.get("/status")

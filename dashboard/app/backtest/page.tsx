@@ -270,19 +270,21 @@ export default function BacktestPage() {
             <span>
               Best:{" "}
               <span className="text-green-400 font-mono">
-                {Math.max(
-                  ...allResults
-                    .filter((r: any) => r.metrics)
-                    .map((r: any) => r.metrics.total_return_pct ?? -Infinity)
-                ).toFixed(2)}%
+                {(() => {
+                  const vals = allResults
+                    .filter((r: any) => r.metrics?.total_return_pct != null)
+                    .map((r: any) => r.metrics.total_return_pct);
+                  return vals.length > 0 ? Math.max(...vals).toFixed(2) + "%" : "N/A";
+                })()}
               </span>
               {" | "}Worst:{" "}
               <span className="text-red-400 font-mono">
-                {Math.min(
-                  ...allResults
-                    .filter((r: any) => r.metrics)
-                    .map((r: any) => r.metrics.total_return_pct ?? Infinity)
-                ).toFixed(2)}%
+                {(() => {
+                  const vals = allResults
+                    .filter((r: any) => r.metrics?.total_return_pct != null)
+                    .map((r: any) => r.metrics.total_return_pct);
+                  return vals.length > 0 ? Math.min(...vals).toFixed(2) + "%" : "N/A";
+                })()}
               </span>
             </span>
           </div>

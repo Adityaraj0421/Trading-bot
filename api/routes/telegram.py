@@ -35,7 +35,10 @@ def create_router(telegram_bot: Any) -> APIRouter:
         raw = await request.body()
         if len(raw) > 1_048_576:  # 1 MB
             return JSONResponse(status_code=413, content={"detail": "Payload too large"})
-        body = json.loads(raw)
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid JSON"})
         # Handle in a non-blocking way — Telegram expects 200 quickly
         telegram_bot.handle_update(body)
         return {"ok": True}

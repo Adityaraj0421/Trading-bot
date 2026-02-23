@@ -10,6 +10,8 @@ This avoids leaking the API key in URL query parameters.
 
 import asyncio
 import json
+import logging
+import secrets
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -28,14 +30,26 @@ def create_router(ws_manager: WebSocketManager) -> APIRouter:
         try:
             # --- Auth phase (message-based, not query param) ---
             if Config.API_AUTH_KEY:
+                _ws_log = logging.getLogger(__name__)
                 try:
                     raw = await asyncio.wait_for(ws.receive_text(), timeout=5.0)
                     msg = json.loads(raw)
-                    if msg.get("type") != "auth" or msg.get("api_key") != Config.API_AUTH_KEY:
+                    if msg.get("type") != "auth" or not secrets.compare_digest(
+                        msg.get("api_key", ""), Config.API_AUTH_KEY
+                    ):
                         await ws.close(code=4001, reason="Invalid API key")
                         return
-                except (TimeoutError, json.JSONDecodeError, KeyError):
-                    await ws.close(code=4001, reason="Auth timeout or invalid format")
+                except TimeoutError:
+                    _ws_log.debug("WebSocket auth timed out (5s)")
+                    await ws.close(code=4001, reason="Auth timeout")
+                    return
+                except json.JSONDecodeError:
+                    _ws_log.debug("WebSocket auth message was not valid JSON")
+                    await ws.close(code=4001, reason="Invalid auth format")
+                    return
+                except KeyError:
+                    _ws_log.debug("WebSocket auth message missing required fields")
+                    await ws.close(code=4001, reason="Invalid auth format")
                     return
 
             # --- Keepalive loop ---

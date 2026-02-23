@@ -359,7 +359,8 @@ class DecisionEngine:
                         {"best_score": self.optimizer.best_result.score if self.optimizer.best_result else 0},
                     )
             except Exception as e:
-                self._log_event("optimization_error", str(e))
+                _log.exception("Optimization trial exception:")
+                self._log_event("optimization_error", f"{type(e).__name__}: {e}")
             self._last_optimization_cycle = cycle_count
 
         return actions
@@ -375,10 +376,10 @@ class DecisionEngine:
             Number of genomes scored.
         """
         from backtester import Backtester
-        from demo_data import generate_demo_ohlcv
+        from demo_data import generate_ohlcv
 
         scored = 0
-        df = generate_demo_ohlcv(periods=500)  # Longer series for reliable fitness
+        df = generate_ohlcv(periods=500)  # Longer series for reliable fitness
 
         for strat_name, population in self.evolver.populations.items():
             evaluated = 0
@@ -436,12 +437,12 @@ class DecisionEngine:
         """Run mini-backtest trials for hyperparameter optimization."""
         import config as cfg
         from backtester import Backtester
-        from demo_data import generate_demo_ohlcv
+        from demo_data import generate_ohlcv
 
         suggestions = self.optimizer.run_optimization_round(n_trials=n_trials)
         results = []
 
-        df = generate_demo_ohlcv(periods=500)
+        df = generate_ohlcv(periods=500)
 
         for params in suggestions:
             # Snapshot original config
