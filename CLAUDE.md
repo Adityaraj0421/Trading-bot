@@ -68,13 +68,19 @@ make help         # Show all available commands
 
 1. **DataStore bridge**: Agent thread writes to `api/data_store.py` (thread-safe with `threading.Lock`). API reads from it. Broadcast callback pushes to WebSocket clients.
 
-2. **SWR + WebSocket hybrid**: Dashboard uses SWR for initial load + 30s fallback polling. WebSocket injects real-time updates into SWR cache via `mutate()`.
+2. **SWR + WebSocket hybrid**: Dashboard uses SWR for initial load + 30s fallback polling. WebSocket injects real-time updates into SWR cache via `mutate()`. **Critical**: SWR cache keys in page components must exactly match the keys used in `useWebSocket.ts` mutations — e.g. trades page must use `"/trades"` (not `"/trades-full"`) or real-time updates are silently discarded.
 
 3. **Trade confirmation flow**: Agent thread calls `telegram_bot.request_confirmation()` → sends inline keyboard → blocks on `threading.Event.wait(60s)` → webhook callback sets decision.
 
-4. **Auth middleware**: `API_AUTH_KEY` in .env enables auth. Header: `X-API-Key`. Public paths: `/health`, `/docs`, `/telegram/webhook`. Tests auto-inject the key.
+4. **Auth middleware**: `API_AUTH_KEY` in .env enables auth. Header: `X-API-Key`. Public paths: `/health`, `/docs`, `/telegram/webhook`. Tests auto-inject the key. **Security**: All secret comparisons use `secrets.compare_digest()` — WebSocket auth, Telegram webhook secret. Never use plain `!=` for API key comparison.
 
 5. **Two-tier data system**: `DataStore` (in-memory, resets on restart) is the fast real-time bridge. `TradeDB` (SQLite, `data/trades.db`) is the persistent store. Routes prefer `TradeDB` via `store.get_trade_db()` when available, falling back to the in-memory log — so trade history survives restarts.
+
+6. **API query limits**: All `limit` query parameters have both lower and upper bounds (e.g. `Query(ge=1, le=1000)`). When adding new endpoints with pagination, always include `le=` to prevent memory exhaustion.
+
+7. **Health endpoint staleness**: `/health` returns 503 "degraded" if `updated_at` in the DataStore snapshot is >300s old. Monitoring and load balancers can use this to detect a hung agent.
+
+8. **Backtest concurrency guard**: `api/routes/backtest.py` uses `_state_lock = threading.Lock()` around the check-then-create of the background thread. Any new concurrent-singleton patterns should follow the same lock-protected check-and-set approach.
 
 ## Environment
 
@@ -110,4 +116,7 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - **Stale agent state**: delete `data/agent_state.json`, `data/agent_state_model.pkl`, `data/agent_state_autonomous.json` to reset capital/PnL to `INITIAL_CAPITAL` from `.env`
 - **Orphaned open trades** after a crash: handled automatically by `_reconcile_trade_db()` on startup (marks stale DB open trades as `abandoned`). Manual fallback: `sqlite3 data/trades.db "UPDATE trades SET status='abandoned', exit_reason='orphaned_on_restart' WHERE status='open';"` — `data/trades.db` is the source of truth; `DataStore._trade_log` is session-only
 - **`demo_data.py`**: exports `generate_ohlcv()` — the old name `generate_demo_ohlcv` was removed. `decision_engine.py` uses deferred imports inside method bodies (not top-level), so import errors there only surface when strategy evolution runs (hundreds of cycles in), not at startup
-- **Multi-pair PnL**: use `self._last_prices.get(symbol, fallback)` (per-pair dict, updated each cycle) not `self._last_price` (primary pair scalar only) for unrealized PnL calculations
+- **Multi-pair PnL**: `self._last_prices` (dict, per-pair, initialized in `__init__`) is the correct source — skip positions whose symbol isn't yet in the dict rather than falling back to `self._last_price` (scalar, whichever pair ran last). Equity snapshot code in `agent.py` uses `if p.symbol in self._last_prices` guard.
+- **Orphan reconciliation float precision**: `_reconcile_trade_db()` rounds `entry_price` to 2 decimal places before matching in-memory positions against DB records — prevents false-positive orphan marking from float imprecision between the DB INSERT and the Position object.
+- **SL/TP validation**: `risk_manager.py:calculate_stop_take()` validates that stop-loss is strictly below entry (long) or above entry (short) after regime-adaptive multipliers. Falls back to 2%/3% defaults and logs a warning — doesn't silently produce self-triggering levels.
+- **Kelly fraction edge case**: `_kelly_fraction()` returns `min(0.01, MAX_POSITION_PCT)` (not `MAX_POSITION_PCT`) when a strategy has no losing trades — avoids aggressive sizing from incomplete win/loss data.
