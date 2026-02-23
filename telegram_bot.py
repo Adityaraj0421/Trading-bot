@@ -10,6 +10,7 @@ Uses raw requests.post for sending (works from the sync agent thread).
 Receives updates via FastAPI webhook endpoint (api/routes/telegram.py).
 """
 
+import contextlib
 import logging
 import threading
 import time
@@ -236,6 +237,7 @@ class TelegramBot:
         if not snap:
             self._send("Agent not running yet.")
             return
+        snap = self._enrich_with_trade_db(snap)
 
         auto = snap.get("autonomous", {})
         state = auto.get("state", "unknown")
@@ -268,6 +270,7 @@ class TelegramBot:
         if not snap:
             self._send("Agent not running yet.")
             return
+        snap = self._enrich_with_trade_db(snap)
 
         capital = snap.get("capital", 0)
         pnl = snap.get("total_pnl", 0)
@@ -321,26 +324,36 @@ class TelegramBot:
         self._send(msg, parse_mode="Markdown")
 
     def _cmd_trades(self) -> None:
-        """Send the last 5 closed trades."""
+        """Send the last 5 closed trades (persistent TradeDB preferred)."""
         if not self._data_store:
             self._send("Agent not running yet.")
             return
 
-        trades = self._data_store.get_trade_log()[-5:]
+        # Prefer TradeDB (persistent) over in-memory log (session-only)
+        trades: list[dict] = []
+        db = self._data_store.get_trade_db()
+        if db is not None:
+            with contextlib.suppress(Exception):
+                trades = db.get_trade_history(limit=5)
+        if not trades:
+            trades = self._data_store.get_trade_log()[-5:]
+
         if not trades:
             self._send("No closed trades yet.")
             return
 
         msg = f"*Recent Trades ({len(trades)})*\n"
         for t in trades:
-            pnl = t.get("pnl", 0)
+            # TradeDB uses pnl_net/strategy_name; in-memory uses pnl/strategy
+            pnl = t.get("pnl_net") or t.get("pnl", 0)
             pnl_emoji = "+" if pnl >= 0 else ""
             result = "WIN" if pnl >= 0 else "LOSS"
+            strategy = t.get("strategy_name") or t.get("strategy", "?")
             msg += (
                 f"\n{'✅' if pnl >= 0 else '❌'} *{t.get('symbol', '?')}* {t.get('side', '?').upper()}\n"
                 f"  {result}: {pnl_emoji}${pnl:,.2f}\n"
                 f"  Entry: ${t.get('entry_price', 0):,.2f} -> Exit: ${t.get('exit_price', 0):,.2f}\n"
-                f"  Strategy: {t.get('strategy', '?')}"
+                f"  Strategy: {strategy}"
             )
 
         self._send(msg, parse_mode="Markdown")
@@ -526,6 +539,25 @@ class TelegramBot:
         if not self._data_store:
             return {}
         return self._data_store.get_snapshot()
+
+    def _enrich_with_trade_db(self, snap: dict[str, Any]) -> dict[str, Any]:
+        """Merge persistent TradeDB stats into snapshot when session data is incomplete."""
+        if not self._data_store:
+            return snap
+        db = self._data_store.get_trade_db()
+        if db is None:
+            return snap
+        try:
+            db_stats = db.get_total_stats()
+            if db_stats and db_stats.get("total_trades", 0) > snap.get("total_trades", 0):
+                snap = snap.copy()
+                snap["total_pnl"] = round(db_stats.get("total_pnl") or 0, 2)
+                snap["total_trades"] = db_stats["total_trades"]
+                # DB returns win_rate as percentage; snapshot uses 0-1 fraction
+                snap["win_rate"] = round((db_stats.get("win_rate") or 0) / 100, 4)
+        except Exception:
+            pass
+        return snap
 
     def _cleanup_loop(self) -> None:
         """Remove expired pending confirmations every 30 seconds."""

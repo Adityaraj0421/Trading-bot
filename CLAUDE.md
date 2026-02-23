@@ -74,13 +74,17 @@ make help         # Show all available commands
 
 4. **Auth middleware**: `API_AUTH_KEY` in .env enables auth. Header: `X-API-Key`. Public paths: `/health`, `/docs`, `/telegram/webhook`. Tests auto-inject the key. **Security**: All secret comparisons use `secrets.compare_digest()` — WebSocket auth, Telegram webhook secret. Never use plain `!=` for API key comparison.
 
-5. **Two-tier data system**: `DataStore` (in-memory, resets on restart) is the fast real-time bridge. `TradeDB` (SQLite, `data/trades.db`) is the persistent store. Routes prefer `TradeDB` via `store.get_trade_db()` when available, falling back to the in-memory log — so trade history survives restarts.
+5. **Two-tier data system**: `DataStore` (in-memory, resets on restart) is the fast real-time bridge. `TradeDB` (SQLite, `data/trades.db`) is the persistent store. Routes prefer `TradeDB` via `store.get_trade_db()` when available, falling back to the in-memory log — so trade history survives restarts. The `/status` endpoint and Telegram bot commands enrich session-only snapshots with TradeDB cumulative stats (total_pnl, total_trades, win_rate). **Important**: `TradeDB.get_total_stats()` returns `win_rate` as a percentage (e.g. 62.5); the snapshot and dashboard use a 0-1 fraction (e.g. 0.625) — always divide by 100 when merging. TradeDB uses field names `pnl_net`/`strategy_name` while the in-memory trade log uses `pnl`/`strategy`.
 
 6. **API query limits**: All `limit` query parameters have both lower and upper bounds (e.g. `Query(ge=1, le=1000)`). When adding new endpoints with pagination, always include `le=` to prevent memory exhaustion.
 
 7. **Health endpoint staleness**: `/health` returns 503 "degraded" if `updated_at` in the DataStore snapshot is >300s old. Monitoring and load balancers can use this to detect a hung agent.
 
 8. **Backtest concurrency guard**: `api/routes/backtest.py` uses `_state_lock = threading.Lock()` around the check-then-create of the background thread. Any new concurrent-singleton patterns should follow the same lock-protected check-and-set approach.
+
+9. **Notification logging**: `notifier.py:_send_all()` is the single funnel for all alert channels. It pushes to `DataStore.append_notification()` for the `/notifications` API endpoint. The DataStore reference is wired via `notifier.set_data_store()` called from `agent.py:set_data_store()`.
+
+10. **Autonomous event push**: `agent.py` uses a high-water mark (`_event_hwm`) to push only NEW events from `decision.event_log` to DataStore each cycle. The event_log deque is session-only (not persisted to SQLite), so events reset on restart — only the `total_autonomous_decisions` counter survives via agent state.
 
 ## Environment
 
@@ -120,3 +124,5 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - **Orphan reconciliation float precision**: `_reconcile_trade_db()` rounds `entry_price` to 2 decimal places before matching in-memory positions against DB records — prevents false-positive orphan marking from float imprecision between the DB INSERT and the Position object.
 - **SL/TP validation**: `risk_manager.py:calculate_stop_take()` validates that stop-loss is strictly below entry (long) or above entry (short) after regime-adaptive multipliers. Falls back to 2%/3% defaults and logs a warning — doesn't silently produce self-triggering levels.
 - **Kelly fraction edge case**: `_kelly_fraction()` returns `min(0.01, MAX_POSITION_PCT)` (not `MAX_POSITION_PCT`) when a strategy has no losing trades — avoids aggressive sizing from incomplete win/loss data.
+- **Uvicorn `--reload` breaks DataStore wiring**: Hot-reload creates a new DataStore but the agent thread keeps its old reference. `set_data_store()` only runs during initial lifespan startup. After code changes, do a full `make stop && make dev` restart — don't rely on uvicorn auto-reload for changes that affect agent↔API wiring.
+- **Dashboard rendering nested API data**: Intelligence signals contain nested dicts/arrays (imbalances, bid_walls, top_headlines). Always use type checks (`typeof val === "object"`, `Array.isArray(val)`) before rendering — `String(obj)` produces `[object Object]`.

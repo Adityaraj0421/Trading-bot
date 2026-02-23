@@ -130,16 +130,29 @@ export default function IntelligencePage() {
                       )}
                       {dataKeys.length > 0 && (
                         <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                          {dataKeys.slice(0, 8).map((key) => (
-                            <div key={key} className="bg-gray-900 rounded px-2 py-1">
-                              <span className="text-gray-500">{key}: </span>
-                              <span className="text-gray-300 font-mono">
-                                {typeof sig.data[key] === "number"
-                                  ? sig.data[key].toLocaleString(undefined, { maximumFractionDigits: 4 })
-                                  : String(sig.data[key]).slice(0, 30)}
-                              </span>
-                            </div>
-                          ))}
+                          {dataKeys.slice(0, 8).map((key) => {
+                            const val = sig.data[key];
+                            let display: string;
+                            if (val == null) {
+                              display = "\u2014";
+                            } else if (typeof val === "number") {
+                              display = val.toLocaleString(undefined, { maximumFractionDigits: 4 });
+                            } else if (typeof val === "boolean") {
+                              display = val ? "true" : "false";
+                            } else if (Array.isArray(val)) {
+                              display = `[${val.length} items]`;
+                            } else if (typeof val === "object") {
+                              display = JSON.stringify(val).slice(0, 40);
+                            } else {
+                              display = String(val).slice(0, 30);
+                            }
+                            return (
+                              <div key={key} className="bg-gray-900 rounded px-2 py-1">
+                                <span className="text-gray-500">{key}: </span>
+                                <span className="text-gray-300 font-mono">{display}</span>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

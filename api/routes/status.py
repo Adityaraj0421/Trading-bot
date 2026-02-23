@@ -41,10 +41,30 @@ def create_router(store: DataStore) -> APIRouter:
 
     @router.get("/status")
     def status() -> dict[str, Any]:
-        """Return current agent snapshot (cycle data, positions, PnL)."""
+        """Return current agent snapshot, enriched with persistent TradeDB stats."""
         snapshot = store.get_snapshot()
         if not snapshot:
             return {"status": "waiting"}
+
+        # Merge persistent stats from TradeDB when session data is incomplete
+        db = store.get_trade_db()
+        if db is not None:
+            try:
+                db_stats = db.get_total_stats()
+                if db_stats and db_stats.get("total_trades", 0) > 0:
+                    session_trades = snapshot.get("total_trades", 0)
+                    # Use TradeDB values if they exceed session-only counts
+                    if db_stats["total_trades"] > session_trades:
+                        snapshot["total_pnl"] = round(db_stats.get("total_pnl") or 0, 2)
+                        snapshot["total_trades"] = db_stats["total_trades"]
+                        # DB returns win_rate as percentage; snapshot uses 0-1 fraction
+                        snapshot["win_rate"] = round(
+                            (db_stats.get("win_rate") or 0) / 100, 4
+                        )
+                        snapshot["total_fees"] = round(db_stats.get("total_fees") or 0, 2)
+            except Exception:
+                pass  # Fallback to session data on any DB error
+
         return snapshot
 
     @router.get("/config")

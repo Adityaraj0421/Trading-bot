@@ -73,6 +73,9 @@ def set_data_store(store: Any, agent: Any = None) -> None:
     # Wire TradeDB so API routes can serve persistent trade history
     if agent is not None and getattr(agent, "trade_db", None) is not None:
         store.set_trade_db(agent.trade_db)
+    # Wire DataStore to Notifier for /notifications API
+    if agent is not None and hasattr(agent, "notifier"):
+        agent.notifier.set_data_store(store)
 
 
 class TradingAgent:
@@ -137,6 +140,9 @@ class TradingAgent:
 
         # v8.0: RL Ensemble (lightweight Q-learning agents)
         self.rl_ensemble = RLEnsemble()
+
+        # High-water mark for event push deduplication
+        self._event_hwm: int = 0
 
         # Track signal sources for meta-learner
         self._last_strategy_signal = None
@@ -1169,9 +1175,11 @@ class TradingAgent:
                         }
                     )
 
-            # Push recent autonomous events
-            for event in list(self.decision.event_log)[-5:]:
+            # Push only NEW autonomous events (deduplicated via high-water mark)
+            all_events = list(self.decision.event_log)
+            for event in all_events[self._event_hwm:]:
                 _data_store.append_event(event.to_dict())
+            self._event_hwm = len(all_events)
 
             # Push intelligence signals
             if self._last_intelligence:
@@ -1307,10 +1315,19 @@ class TradingAgent:
                 if count > 0 and count % heartbeat_interval == 0:
                     try:
                         summary = self.risk.get_summary()
+                        total_pnl = summary["total_pnl"]
+                        # Prefer TradeDB cumulative PnL over session-only counter
+                        if self.trade_db is not None:
+                            try:
+                                db_stats = self.trade_db.get_total_stats()
+                                if db_stats and (db_stats.get("total_pnl") or 0) != 0:
+                                    total_pnl = round(db_stats["total_pnl"], 2)
+                            except Exception:
+                                pass
                         self.notifier.notify_heartbeat(
                             cycle=self.cycle_count,
                             capital=summary["capital"],
-                            total_pnl=summary["total_pnl"],
+                            total_pnl=total_pnl,
                             open_positions=summary["open_positions"],
                             pairs=Config.TRADING_PAIRS if self.multi_pair else [Config.TRADING_PAIR],
                             prices=getattr(self, "_last_prices", {}),

@@ -11,6 +11,7 @@ Sends alerts via Telegram, Discord, and email for:
 All channels are optional — configure via .env.
 """
 
+import contextlib
 import logging
 import smtplib
 import threading
@@ -18,6 +19,7 @@ from collections import deque
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from typing import Any
 
 import requests
 
@@ -57,6 +59,13 @@ class Notifier:
         # Rate limiting
         self._last_send: dict[str, float] = {}  # channel -> timestamp
         self._min_interval: int = 2  # Min seconds between messages per channel
+
+        # Optional DataStore for /notifications API
+        self._data_store: Any = None
+
+    def set_data_store(self, store: Any) -> None:
+        """Attach DataStore so sent notifications appear on the /notifications API."""
+        self._data_store = store
 
     @property
     def telegram_enabled(self) -> bool:
@@ -224,13 +233,23 @@ class Notifier:
 
     def _send_all(self, message: str, level: str) -> None:
         """Send to all enabled channels (async, non-blocking)."""
+        ts = datetime.now().isoformat()
         self._history.append(
             {
-                "ts": datetime.now().isoformat(),
+                "ts": ts,
                 "level": level,
                 "message": message[:200],
             }
         )
+
+        # Push to DataStore for the /notifications API endpoint
+        if self._data_store is not None:
+            with contextlib.suppress(Exception):
+                self._data_store.append_notification({
+                    "timestamp": ts,
+                    "level": level,
+                    "message": message[:200],
+                })
 
         # Send in background threads to avoid blocking
         if self.telegram_enabled:
