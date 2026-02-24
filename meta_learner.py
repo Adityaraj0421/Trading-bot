@@ -225,6 +225,10 @@ class ABTestEngine:
             control_config: Current proven config
             treatment_config: Proposed new config from learning
             description: Human-readable description of changes
+
+        Returns:
+            The newly created ``ABExperiment`` instance with status
+            ``RUNNING``, registered as the active experiment.
         """
         if self._active_experiment is not None:
             _log.warning("Experiment already running, concluding previous")
@@ -301,19 +305,39 @@ class ABTestEngine:
 
         During experiments, returns control config (safe default).
         The caller applies treatment allocation separately.
+
+        Returns:
+            Tuple of (config, allocation) where config is the control
+            ``MetaConfig`` during an active experiment (or ``None`` when
+            no experiment is running) and allocation is the control's
+            capital fraction (e.g. 0.70) or 1.0 when idle.
         """
         if self._active_experiment:
             return (self._active_experiment.control_config, self._active_experiment.control_allocation)
         return None, 1.0
 
     def get_treatment_config(self) -> tuple[MetaConfig | None, float]:
-        """Get treatment config and its allocation, if experiment active."""
+        """Get treatment config and its allocation, if experiment active.
+
+        Returns:
+            Tuple of (config, allocation) where config is the treatment
+            ``MetaConfig`` during an active experiment (or ``None`` when
+            no experiment is running) and allocation is the treatment's
+            capital fraction (e.g. 0.30) or 0.0 when idle.
+        """
         if self._active_experiment:
             return (self._active_experiment.treatment_config, self._active_experiment.treatment_allocation)
         return None, 0.0
 
     def get_status(self) -> dict[str, Any]:
-        """Dashboard status."""
+        """Dashboard status.
+
+        Returns:
+            Dictionary with keys ``"active_experiment"`` (dict or
+            ``None``), ``"total_experiments"`` (int), ``"adopted"``
+            (int), ``"rejected"`` (int), ``"inconclusive"`` (int), and
+            ``"history"`` (list of up to 5 recent experiment dicts).
+        """
         return {
             "active_experiment": self._active_experiment.to_dict() if self._active_experiment else None,
             "total_experiments": self._experiment_counter,
@@ -650,6 +674,14 @@ class MetaLearner:
 
         Instead of immediately modifying config, creates an experiment
         comparing old config vs proposed config.
+
+        Returns:
+            Dictionary with key ``"status"`` (one of
+            ``"insufficient_data"``, ``"experiment_in_progress"``,
+            ``"no_changes_proposed"``, or ``"experiment_started"``)
+            and additional keys depending on status: ``"observations"``
+            (int), ``"experiment"`` (dict), ``"round"`` (int),
+            ``"changes"`` (dict), or ``"experiment_id"`` (int).
         """
         if len(self.observations) < 10:
             return {"status": "insufficient_data", "observations": len(self.observations)}
@@ -972,11 +1004,22 @@ class MetaLearner:
         self._drift_events.append({"timestamp": datetime.now()})
 
     def get_config(self) -> MetaConfig:
-        """Get current learned configuration."""
+        """Get current learned configuration.
+
+        Returns:
+            The current live ``MetaConfig`` instance used by the agent.
+        """
         return self.config
 
     def get_signal_weights(self, regime: str | None = None) -> tuple[float, float]:
-        """Get strategy/ML weights, optionally regime-adjusted."""
+        """Get strategy/ML weights, optionally regime-adjusted.
+
+        Returns:
+            Tuple of (strategy_weight, ml_weight) as floats in [0.0, 1.0]
+            that sum to 1.0, with a +0.05 bias applied to whichever
+            source performed better in ``regime`` (when provided and
+            present in regime adjustments).
+        """
         sw = self.config.strategy_weight
         mw = self.config.ml_weight
 
@@ -994,11 +1037,27 @@ class MetaLearner:
     # ── v2.0: Enhanced Status ─────────────────────────────────────────
 
     def get_ab_status(self) -> dict[str, Any]:
-        """A/B testing specific status."""
+        """A/B testing specific status.
+
+        Returns:
+            Dictionary from :meth:`ABTestEngine.get_status` with keys
+            ``"active_experiment"``, ``"total_experiments"``,
+            ``"adopted"``, ``"rejected"``, ``"inconclusive"``, and
+            ``"history"``.
+        """
         return self._ab_engine.get_status()
 
     def get_status(self) -> dict[str, Any]:
-        """Full meta-learner status with A/B testing info."""
+        """Full meta-learner status with A/B testing info.
+
+        Returns:
+            Dictionary with keys ``"config"`` (dict), ``"observations"``
+            (int), ``"learning_rounds"`` (int), ``"last_learn"`` (ISO
+            str or ``None``), ``"drift_events"`` (int),
+            ``"regime_data"`` (dict[str, int]), ``"ab_testing"`` (dict),
+            ``"learning_rate"`` (float), ``"consecutive_rejections"``
+            (int), and ``"adoption_history"`` (list of up to 5 dicts).
+        """
         return {
             "config": self.config.to_dict(),
             "observations": len(self.observations),
@@ -1016,7 +1075,15 @@ class MetaLearner:
     # ── Serialization ─────────────────────────────────────────────────
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for state persistence."""
+        """Serialize for state persistence.
+
+        Returns:
+            Dictionary with keys ``"config"`` (dict), ``"learning_count"``
+            (int), ``"observations"`` (list of up to 50 serialized
+            ``TradeObservation`` dicts), ``"learning_rate"`` (float),
+            ``"consecutive_rejections"`` (int), and
+            ``"adoption_history"`` (list of dicts).
+        """
         return {
             "config": self.config.to_dict(),
             "learning_count": self.learning_count,

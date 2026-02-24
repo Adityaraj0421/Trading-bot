@@ -184,6 +184,16 @@ class DriftDetector:
         """
         Backward-compatible: Check for model drift.
         Returns dict with original fields + new v2.0 fields.
+
+        Returns:
+            Dictionary with keys ``"drift_detected"`` (bool),
+            ``"current_accuracy"`` (float), ``"accuracy_drop"`` (float),
+            ``"confidence_decay"`` (float), ``"reason"`` (str),
+            ``"resolved_samples"`` (int), ``"drift_count"`` (int),
+            ``"predictive_drift_score"`` (float, 0–100),
+            ``"confidence_slope"`` (float), ``"feature_drift_pct"``
+            (float), ``"regime_mismatch"`` (bool), ``"blend_weight"``
+            (float), and ``"feature_alerts"`` (list of dicts).
         """
         report = self.check_drift_predictive()
         return {
@@ -282,6 +292,17 @@ class DriftDetector:
         - Confidence decay rate (early warning, 25 points)
         - Feature distribution shift (predictive, 30 points)
         - Regime mismatch (predictive, 20 points)
+
+        Returns:
+            A populated ``DriftReport`` dataclass with fields
+            ``drift_detected`` (bool), ``predictive_drift_score``
+            (float, 0–100), ``current_accuracy`` (float),
+            ``accuracy_drop`` (float), ``confidence_decay`` (float),
+            ``confidence_slope`` (float), ``feature_drift_pct``
+            (float), ``regime_mismatch`` (bool), ``reason`` (str),
+            ``resolved_samples`` (int), ``drift_count`` (int),
+            ``blend_weight`` (float), and ``feature_alerts``
+            (list of dicts).
         """
         # ── Component 1: Accuracy (reactive) ─────────────────────
         resolved = [(p, a) for p, a in zip(self.predictions, self.actuals) if a is not None]

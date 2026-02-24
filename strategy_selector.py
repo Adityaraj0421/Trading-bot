@@ -251,7 +251,13 @@ class StrategyMetaSelector:
                 self._train_step_dqn()
 
     def get_strategy_performance(self) -> dict[str, Any]:
-        """Return per-strategy performance stats."""
+        """Return per-strategy performance stats.
+
+        Returns:
+            Dictionary keyed by strategy name, each value being a dict
+            with ``"trades"`` (int), ``"win_rate"`` (float, 0–1),
+            ``"avg_pnl"`` (float), and ``"total_pnl"`` (float).
+        """
         stats = {}
         for name in self.strategy_names:
             pnl_list = list(self._strategy_pnl[name])
@@ -265,7 +271,15 @@ class StrategyMetaSelector:
         return stats
 
     def get_status(self) -> dict[str, Any]:
-        """Dashboard-friendly status."""
+        """Dashboard-friendly status.
+
+        Returns:
+            Dictionary with keys ``"mode"`` (``"dqn"`` or
+            ``"static_fallback"``), ``"epsilon"`` (float),
+            ``"buffer_size"`` (int), ``"total_selections"`` (int),
+            ``"train_steps"`` (int), and ``"strategy_performance"``
+            (dict, from :meth:`get_strategy_performance`).
+        """
         return {
             "mode": "dqn"
             if (self._has_dqn and len(self._replay_buffer) >= self.MIN_EXPERIENCES)
@@ -404,7 +418,16 @@ class StrategyMetaSelector:
     # ── Serialization ─────────────────────────────────────────────
 
     def save_state(self) -> dict[str, Any]:
-        """Serialize selector state for persistence."""
+        """Serialize selector state for persistence.
+
+        Returns:
+            Dictionary with keys ``"strategy_names"`` (list[str]),
+            ``"epsilon"`` (float), ``"total_selections"`` (int),
+            ``"train_step"`` (int), ``"strategy_pnl"`` (dict of lists),
+            ``"strategy_win_rates"`` (dict), and optionally
+            ``"q_net_state"`` (dict of weight tensors as lists) when
+            PyTorch is available.
+        """
         state = {
             "strategy_names": self.strategy_names,
             "epsilon": self._epsilon,

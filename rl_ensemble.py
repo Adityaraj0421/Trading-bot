@@ -100,7 +100,12 @@ class ReplayBuffer:
         self.buffer.append((state, action_idx, reward, next_state, done))
 
     def sample(self, batch_size: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Sample a random batch of transitions for training."""
+        """Sample a random batch of transitions for training.
+
+        Returns:
+            Tuple of five float32/int64 arrays (states, actions, rewards,
+            next_states, dones), each of length ``batch_size``.
+        """
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         batch = [self.buffer[i] for i in indices]
         states, actions, rewards, next_states, dones = zip(*batch)
@@ -214,7 +219,13 @@ if HAS_TORCH:
             return np.array(vals, dtype=np.float32)
 
         def predict(self, features: dict[str, float]) -> tuple[str, float]:
-            """Select action via epsilon-greedy policy. Returns (action, confidence)."""
+            """Select action via epsilon-greedy policy.
+
+            Returns:
+                Tuple of (action, confidence) where action is one of
+                ``"BUY"``, ``"SELL"``, or ``"HOLD"`` and confidence is
+                the softmax probability for the chosen action in [0.0, 1.0].
+            """
             state = self._extract_state(features)
             if np.random.random() < self.epsilon:
                 return ACTIONS[np.random.randint(NUM_ACTIONS)], 0.4
@@ -275,7 +286,13 @@ if HAS_TORCH:
             self.train_steps += 1
 
         def get_sharpe(self) -> float:
-            """Compute Sharpe ratio from recent trade rewards."""
+            """Compute Sharpe ratio from recent trade rewards.
+
+            Returns:
+                Sharpe ratio as mean reward divided by reward standard
+                deviation, or 0.0 when fewer than 10 trades have been
+                recorded or reward variance is near zero.
+            """
             if len(self.trade_history) < 10:
                 return 0.0
             returns = np.array(self.trade_history)
@@ -359,7 +376,14 @@ if HAS_TORCH:
             self.train_steps = 0
 
         def predict(self, features: dict[str, float]) -> tuple[str, float]:
-            """Sample action from policy with epsilon-greedy exploration."""
+            """Sample action from policy with epsilon-greedy exploration.
+
+            Returns:
+                Tuple of (action, confidence) where action is one of
+                ``"BUY"``, ``"SELL"``, or ``"HOLD"`` and confidence is
+                the actor's softmax probability for the sampled action
+                in [0.0, 1.0].
+            """
             state = np.array([features.get(f, 0.0) for f in FEATURE_NAMES], dtype=np.float32)
             if np.random.random() < self.epsilon:
                 return ACTIONS[np.random.randint(NUM_ACTIONS)], 0.4
@@ -448,7 +472,13 @@ if HAS_TORCH:
             self.train_steps += 1
 
         def get_sharpe(self) -> float:
-            """Compute Sharpe ratio from recent trade rewards."""
+            """Compute Sharpe ratio from recent trade rewards.
+
+            Returns:
+                Sharpe ratio as mean reward divided by reward standard
+                deviation, or 0.0 when fewer than 10 trades have been
+                recorded or reward variance is near zero.
+            """
             if len(self.trade_history) < 10:
                 return 0.0
             returns = np.array(self.trade_history)
@@ -510,7 +540,14 @@ class QLearnerAgent:
         return self.q_table[state_key]
 
     def predict(self, features: dict[str, float]) -> tuple[str, float]:
-        """Select action via epsilon-greedy over Q-table. Returns (action, confidence)."""
+        """Select action via epsilon-greedy over Q-table.
+
+        Returns:
+            Tuple of (action, confidence) where action is one of
+            ``"BUY"``, ``"SELL"``, or ``"HOLD"`` and confidence is the
+            softmax probability for the chosen action in [0.0, 1.0], or
+            0.34 when Q-values are too close to discriminate.
+        """
         state_key = self._discretize(features)
         q_vals = self._get_q(state_key)
         if np.random.random() < self.epsilon:
@@ -542,7 +579,13 @@ class QLearnerAgent:
         self.epsilon = max(0.05, self.epsilon * 0.999)
 
     def get_sharpe(self) -> float:
-        """Compute Sharpe ratio from recent trade rewards."""
+        """Compute Sharpe ratio from recent trade rewards.
+
+        Returns:
+            Sharpe ratio as mean reward divided by reward standard
+            deviation, or 0.0 when fewer than 10 trades have been
+            recorded or reward variance is near zero.
+        """
         if len(self.trade_history) < 10:
             return 0.0
         returns = np.array(self.trade_history)
@@ -704,7 +747,14 @@ class RLEnsemble:
         }
 
     def predict(self, df_ind: Any, regime: str = "") -> tuple[str, float]:
-        """Get ensemble vote from all RL agents. Returns (signal, confidence)."""
+        """Get ensemble vote from all RL agents.
+
+        Returns:
+            Tuple of (signal, confidence) where signal is one of
+            ``"BUY"``, ``"SELL"``, or ``"HOLD"`` and confidence is
+            the Sharpe-weighted vote fraction for the winning action,
+            capped at 0.85.
+        """
         features = self._extract_features(df_ind, regime)
 
         votes = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
@@ -749,7 +799,16 @@ class RLEnsemble:
             agent.update(self._last_features, action, reward, next_features)
 
     def get_stats(self) -> dict[str, Any]:
-        """Return per-agent statistics for dashboard display."""
+        """Return per-agent statistics for dashboard display.
+
+        Returns:
+            Dictionary with key ``"engine"`` (``"deep_rl"`` or
+            ``"tabular_q"``) and one nested dict per agent keyed as
+            ``"agent_<id>"``, each containing ``"total_trades"``
+            (int), ``"sharpe"`` (float), and optionally ``"epsilon"``
+            (float), ``"train_steps"`` (int), ``"replay_size"`` (int),
+            and ``"q_table_size"`` (int).
+        """
         stats = {"engine": "deep_rl" if self._use_deep else "tabular_q"}
         for agent in self.agents:
             name = f"agent_{agent.agent_id}"
@@ -769,7 +828,14 @@ class RLEnsemble:
         return stats
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize ensemble state (network weights + histories) for persistence."""
+        """Serialize ensemble state (network weights + histories) for persistence.
+
+        Returns:
+            Dictionary with keys ``"version"`` (str), ``"engine"`` (str),
+            and one nested dict per agent keyed as ``"agent_<id>"``
+            containing trade history, epsilon, and network state-dicts
+            (deep RL) or Q-tables (tabular fallback).
+        """
         data = {"version": "2.0", "engine": "deep_rl" if self._use_deep else "tabular_q"}
 
         if self._use_deep:
