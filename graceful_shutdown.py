@@ -18,9 +18,9 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+import types
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -29,6 +29,12 @@ class GracefulShutdown:
     """Manages clean shutdown of all agent components."""
 
     def __init__(self) -> None:
+        """Initialise the shutdown handler and register OS signal handlers.
+
+        Signal registration is skipped silently when called from a non-main
+        thread (e.g. inside FastAPI's daemon thread), where
+        :func:`signal.signal` raises :exc:`ValueError`.
+        """
         self._shutdown_requested = False
         self._callbacks: list[tuple[str, Callable[[], None]]] = []
         self._lock = threading.Lock()
@@ -61,7 +67,7 @@ class GracefulShutdown:
         self._callbacks.append((name, callback))
         _log.debug("Registered shutdown callback: %s", name)
 
-    def _signal_handler(self, signum: int, frame: Any) -> None:
+    def _signal_handler(self, signum: int, frame: types.FrameType | None) -> None:
         """Handle OS signals by initiating a graceful shutdown.
 
         Args:
@@ -117,6 +123,14 @@ class RateLimiter:
     """
 
     def __init__(self, max_requests_per_minute: int = 1200, max_orders_per_minute: int = 10) -> None:
+        """Initialise a sliding-window rate limiter.
+
+        Args:
+            max_requests_per_minute: Maximum general API calls allowed per
+                60-second window. Defaults to 1200 (matches Config.MAX_REQUESTS_PER_MINUTE).
+            max_orders_per_minute: Maximum order placements allowed per
+                60-second window. Defaults to 10 (matches Config.MAX_ORDERS_PER_MINUTE).
+        """
         self._max_rpm = max_requests_per_minute
         self._max_opm = max_orders_per_minute
         self._request_times: list[float] = []

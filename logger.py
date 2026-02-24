@@ -25,6 +25,12 @@ class StructuredLogger:
     """
 
     def __init__(self, name: str = "trading_agent") -> None:
+        """Initialise the structured logger with console and rotating file handlers.
+
+        Args:
+            name: Logger namespace prefix used for the console and file
+                sub-loggers.  Defaults to ``"trading_agent"``.
+        """
         self.name = name
         self._setup_console_logger()
         self._setup_file_logger()

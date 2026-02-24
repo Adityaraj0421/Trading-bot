@@ -201,6 +201,10 @@ class Config:
         Raises:
             ValueError: If any hard constraint is violated (e.g. missing API
                 keys in live mode, invalid risk parameters).
+
+        Note:
+            Prints a human-readable configuration summary to stdout after all
+            checks pass.
         """
         cls._resolve_paths()
 

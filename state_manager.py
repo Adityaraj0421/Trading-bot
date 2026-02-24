@@ -29,6 +29,13 @@ class StateManager:
     """
 
     def __init__(self, state_file: str | None = None) -> None:
+        """Initialise the state manager with paths for the three persistence files.
+
+        Args:
+            state_file: Path to the primary JSON state file.  Defaults to
+                ``Config.STATE_FILE`` when not provided.  The model pickle and
+                autonomous JSON paths are derived from this value automatically.
+        """
         self.state_file = state_file or Config.STATE_FILE
         self.model_file = self.state_file.replace(".json", "_model.pkl")
         self.autonomous_file = self.state_file.replace(".json", "_autonomous.json")

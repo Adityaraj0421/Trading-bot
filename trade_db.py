@@ -31,6 +31,12 @@ class TradeDB:
     """SQLite-backed trade and performance database."""
 
     def __init__(self, db_path: str | None = None) -> None:
+        """Initialise the trade database, creating tables if they do not exist.
+
+        Args:
+            db_path: Absolute path to the SQLite database file.  Defaults to
+                ``<Config.DATA_DIR>/trades.db`` when not provided.
+        """
         self.db_path = db_path or os.path.join(getattr(Config, "DATA_DIR", "."), "trades.db")
         self._init_db()
 
@@ -45,7 +51,8 @@ class TradeDB:
             :class:`sqlite3.Row` for dict-like row access.
 
         Raises:
-            sqlite3.Error: Propagated after rollback on any database error.
+            Exception: Any exception raised inside the with block is rolled
+                back and re-raised unchanged.
         """
         conn = sqlite3.connect(self.db_path, timeout=10)
         conn.row_factory = sqlite3.Row
@@ -457,8 +464,11 @@ class TradeDB:
             Dictionary with summary keys: ``date``, ``total_pnl``,
             ``trade_count``, ``win_count``, ``loss_count``, ``best_trade``,
             ``worst_trade``, ``total_fees``, ``strategies_used``, and
-            ``regimes_seen``.  Returns ``{"date": date, "trade_count": 0}``
-            when no trades were closed on that date.
+            ``regimes_seen``.  When a cached row already exists in the
+            database, ``starting_capital`` and ``ending_capital`` keys are
+            also included (as stored at insert time).  Returns
+            ``{"date": date, "trade_count": 0}`` when no trades were closed
+            on that date.
         """
         date = date or datetime.now().strftime("%Y-%m-%d")
 
