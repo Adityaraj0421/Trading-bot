@@ -20,6 +20,8 @@ Carried from v5.0/v6.0:
   - State persistence, per-strategy attribution, structured logging
 """
 
+from __future__ import annotations
+
 import contextlib
 import json
 import logging
@@ -65,7 +67,19 @@ _data_store = None
 
 
 def set_data_store(store: Any, agent: Any = None) -> None:
-    """Allow the API server to inject a DataStore instance."""
+    """Wire a ``DataStore`` instance into the module so the agent can push data.
+
+    Called by ``api/server.py`` during the FastAPI lifespan startup. Also
+    injects the ``DecisionEngine`` reference (for kill-switch / alerts),
+    ``TradeDB`` (for persistent trade history), and ``Notifier`` (for the
+    ``/notifications`` endpoint).
+
+    Args:
+        store: ``DataStore`` instance from ``api/data_store.py``.
+        agent: ``TradingAgent`` instance. When provided, the function wires
+            ``store`` to the agent's ``decision``, ``trade_db``, and
+            ``notifier`` attributes.
+    """
     global _data_store
     _data_store = store
     # Wire DecisionEngine reference for kill switch / alerts
@@ -86,6 +100,17 @@ class TradingAgent:
     _DRIFT_BASELINE_CONFIDENCE = 0.7
 
     def __init__(self, restore_state: bool = True) -> None:
+        """Initialize all agent subsystems and optionally restore persisted state.
+
+        Instantiates every component (fetcher, model, risk, strategies, ML,
+        RL, autonomous engine, WebSocket streamer, Notifier, TradeDB, etc.),
+        registers shutdown callbacks and self-healing recovery actions, and
+        calls ``_reconcile_trade_db()`` to orphan any stale open DB records.
+
+        Args:
+            restore_state: When ``True`` (default), load agent state from
+                ``Config.STATE_FILE`` if it exists.
+        """
         self._print_banner()
         Config.validate()
         print()
@@ -190,6 +215,7 @@ class TradingAgent:
         self._register_shutdown_callbacks()
 
     def _print_banner(self) -> None:
+        """Print the agent startup banner to stdout."""
         print("=" * 60)
         print("  ADAPTIVE CRYPTO TRADING AGENT v7.0 (FULLY AUTONOMOUS)")
         print("  Self-Healing | Evolving | Meta-Learning | Auto-Optimizing")
@@ -197,7 +223,12 @@ class TradingAgent:
         print("=" * 60)
 
     def _register_shutdown_callbacks(self) -> None:
-        """Register cleanup callbacks for graceful shutdown."""
+        """Register cleanup callbacks with the graceful-shutdown handler.
+
+        Callbacks are invoked in registration order when the agent receives a
+        shutdown signal. Registered in order: WebSocket streamer stop, state
+        save, trade DB close, and shutdown notification.
+        """
         # Stop WebSocket streamer
         if self.ws_streamer:
             self.shutdown_handler.register_callback(
@@ -229,7 +260,13 @@ class TradingAgent:
         )
 
     def _register_recovery_actions(self) -> None:
-        """Register auto-recovery actions for each component."""
+        """Register auto-recovery actions with the self-healer for each component.
+
+        Each registered lambda resets or reinitializes the named component
+        when the self-healer decides the component is unhealthy. Registered
+        components: ``data_fetcher``, ``model``, ``executor``,
+        ``intelligence``, ``arbitrage``.
+        """
         healer = self.decision.healer
 
         # Data fetcher recovery: reset exchange connection
@@ -273,7 +310,21 @@ class TradingAgent:
         healer.register_recovery_action("arbitrage", recover_arbitrage)
 
     def train_model(self, df_ind: Any = None) -> bool:
-        """Train ML model with drift baseline."""
+        """Train the ML model and reset the drift detector baseline.
+
+        Fetches fresh OHLCV data and computes indicators when ``df_ind`` is
+        not provided. Updates ``last_train_time``, sets the drift baseline
+        from cross-validated accuracy, and records the event with the
+        self-healer and structured logger.
+
+        Args:
+            df_ind: Pre-computed indicator DataFrame. When ``None``, the
+                method fetches data and computes indicators internally.
+
+        Returns:
+            ``True`` if training succeeded (no ``"error"`` key in metrics),
+            ``False`` on data fetch failure or training exception.
+        """
         print("\n[Agent] Training ML model...")
         if df_ind is None:
             df = self.fetcher.fetch_ohlcv(limit=Config.LOOKBACK_BARS)
@@ -299,7 +350,19 @@ class TradingAgent:
             return False
 
     def _should_retrain(self, data_hash: tuple[int, float]) -> bool:
-        """Return True if the ML model should be retrained (time elapsed or drift)."""
+        """Determine whether the ML model needs retraining this cycle.
+
+        Retrains on first call, when data has not changed since last check
+        (same hash → skip), when drift is detected, or when the adaptive
+        retrain interval set by the meta-learner has elapsed.
+
+        Args:
+            data_hash: Tuple ``(row_count, last_close_price)`` fingerprinting
+                the current OHLCV dataset.
+
+        Returns:
+            ``True`` if the model should be retrained, ``False`` otherwise.
+        """
         if self.last_train_time is None:
             return True
         if data_hash == self._last_data_hash:
@@ -318,7 +381,18 @@ class TradingAgent:
         return hours >= retrain_hours
 
     def _fetch_intelligence(self) -> dict[str, Any] | None:
-        """Fetch intelligence signals if enabled, with rate limiting."""
+        """Fetch external intelligence signals, respecting the poll interval.
+
+        Returns cached results when called within ``Config.INTELLIGENCE_INTERVAL_SECONDS``
+        of the last successful fetch. Records success/failure with the
+        self-healer.
+
+        Returns:
+            Intelligence signal dict from ``IntelligenceAggregator.get_signals()``
+            (keys: ``bias``, ``adjustment_factor``, ``net_score``, ``signals``),
+            the last cached result on transient failure, or ``None`` when
+            intelligence is disabled.
+        """
         if self.intelligence is None:
             return None
 
@@ -340,7 +414,17 @@ class TradingAgent:
             return self._last_intelligence
 
     def _scan_arbitrage(self) -> dict[str, Any] | None:
-        """Scan for arbitrage opportunities if enabled, with rate limiting."""
+        """Scan for arbitrage opportunities and execute any profitable ones.
+
+        Respects ``Config.ARBITRAGE_INTERVAL_SECONDS`` between scans and
+        allocates ``Config.ARBITRAGE_CAPITAL_PCT`` of current capital to the
+        executor. Returns cached results between scan intervals.
+
+        Returns:
+            Status dict from ``ArbitrageDetector.get_status()`` with an
+            additional ``"execution"`` key, the last cached result on transient
+            failure, or ``None`` when arbitrage is disabled.
+        """
         if self.arb_detector is None:
             return None
 
@@ -370,7 +454,22 @@ class TradingAgent:
             return self._last_arb_scan
 
     def run_cycle(self) -> None:
-        """Execute one full trading cycle: orchestrate, fetch, analyze, and trade."""
+        """Execute one complete trading cycle.
+
+        Sequence:
+        1. Orchestrate autonomous systems (safety, meta-learning, evolution).
+        2. Apply evolved strategy params and optimized config if available.
+        3. Handle force-close instructions from the kill switch.
+        4. Fetch shared intelligence and arbitrage signals.
+        5. Rescore trading pairs via ``PairScorer`` when due.
+        6. Run ``_run_pair_cycle`` for each active pair.
+        7. Rebalance portfolio weights every 20 cycles.
+        8. Print portfolio-level risk summary.
+        9. Record equity snapshot to TradeDB every 5 cycles.
+        10. Auto-save agent state every 10 cycles.
+        11. Push snapshot to the API DataStore.
+        12. Raise ``KeyboardInterrupt`` if graceful shutdown was requested.
+        """
         self.cycle_count += 1
         self.risk.set_bar(self.cycle_count)
         now = datetime.now().strftime("%H:%M:%S")
@@ -516,7 +615,33 @@ class TradingAgent:
         intel_bias: str = "neutral",
         arb_result: dict[str, Any] | None = None,
     ) -> None:
-        """Run the full analysis + execution pipeline for a single trading pair."""
+        """Run the full analysis and execution pipeline for a single trading pair.
+
+        Steps per pair:
+        1. Fetch OHLCV data with self-healing on failure.
+        2. Compute technical indicators.
+        3. Retrain the ML model if needed (primary pair only).
+        4. Check open positions for exits (symbol-filtered to prevent
+           cross-pair price contamination).
+        5. Skip to portfolio print if at max positions with no new closes.
+        6. Detect market regime and sentiment.
+        7. Run strategy ensemble and ML model.
+        8. Combine signals (strategy + ML + RL + intelligence).
+        9. Apply multi-timeframe confirmation and decision-engine override.
+        10. Execute trade if signal is BUY or SELL.
+        11. Print portfolio summary.
+
+        Args:
+            pair: Trading pair symbol to process, e.g. ``"BTC/USDT"``.
+            position_mult: Scalar applied to position sizes from the decision
+                engine (1.0 = normal, <1.0 = cautious/defensive).
+            intel_result: Latest intelligence signal dict or ``None``.
+            intel_adjustment: Confidence adjustment factor from intelligence
+                (default ``1.0`` = neutral).
+            intel_bias: Intelligence directional bias — ``"bullish"``,
+                ``"bearish"``, or ``"neutral"``.
+            arb_result: Latest arbitrage scan result dict or ``None``.
+        """
         if self.multi_pair:
             print(f"\n  --- {pair} ---")
 
@@ -776,10 +901,32 @@ class TradingAgent:
         rl_signal: str = "HOLD",
         rl_confidence: float = 0.0,
     ) -> tuple[str, float]:
-        """Combine strategy + ML + RL signals using learned weights + intelligence.
+        """Combine strategy, ML, RL, and intelligence signals into a final signal.
+
+        Uses adaptive weights from the meta-learner. Agreement between signal
+        sources boosts confidence; disagreement dampens it. Intelligence bias
+        provides a further ±boost, and the RL ensemble contributes 15% weight.
 
         v8.0: Added RL ensemble vote with 15% weight allocation.
         v7.0: Rebalanced confidence math so the bot actually trades.
+
+        Args:
+            strat_sig: ``StrategySignal`` object from the strategy ensemble.
+            ml_signal: Signal from the ML model (``"BUY"``, ``"SELL"``, or
+                ``"HOLD"``).
+            ml_conf: ML model confidence in ``[0, 1]``.
+            regime: Current market regime string for meta-learner weight
+                lookup.
+            intel_adjustment: Intelligence confidence adjustment factor
+                (``>1.0`` = bullish, ``<1.0`` = bearish).
+            intel_bias: Intelligence directional bias string.
+            rl_signal: RL ensemble signal (``"BUY"``, ``"SELL"``, or
+                ``"HOLD"``).
+            rl_confidence: RL ensemble confidence in ``[0, 1]``.
+
+        Returns:
+            Tuple ``(final_signal, final_confidence)`` where
+            ``final_confidence`` is capped at ``0.95``.
         """
         strat_signal = strat_sig.signal
         strat_conf = strat_sig.confidence
@@ -846,7 +993,28 @@ class TradingAgent:
         intel_adjustment: float = 1.0,
         pair: str | None = None,
     ) -> None:
-        """Size, confirm, and place a trade for the given signal."""
+        """Size, optionally confirm via Telegram, and place a trade.
+
+        Applies portfolio-aware sizing (Kelly + autonomous multiplier +
+        portfolio allocation + intelligence scaling), computes regime-adaptive
+        stop-loss and take-profit, enforces the rate limiter, optionally
+        requests Telegram trade confirmation (blocking up to
+        ``Config.TELEGRAM_CONFIRMATION_TIMEOUT`` seconds), and finally places
+        the order and records it in ``RiskManager``, TradeDB, and Notifier.
+
+        Args:
+            signal: Trading signal — ``"BUY"`` or ``"SELL"``.
+            confidence: Final signal confidence in ``[0, 1]``.
+            price: Current market price to trade at.
+            df_ind: Indicator DataFrame for ATR extraction.
+            strat_sig: ``StrategySignal`` from the strategy ensemble (used
+                for suggested SL/TP percentages and strategy name).
+            position_mult: Autonomous position size multiplier (default
+                ``1.0``).
+            intel_adjustment: Intelligence confidence factor used to scale
+                position size (default ``1.0``).
+            pair: Trading pair symbol. Falls back to ``Config.TRADING_PAIR``.
+        """
         pair = pair or Config.TRADING_PAIR
         allowed, reason = self.risk.can_open_position(signal, confidence, symbol=pair)
         if not allowed:
@@ -998,6 +1166,32 @@ class TradingAgent:
         arb_result: dict[str, Any] | None = None,
         pair: str | None = None,
     ) -> None:
+        """Print the per-cycle analysis status block to stdout.
+
+        Displays price, regime, sentiment, strategy signal, ML signal,
+        learned signal weights, intelligence bias, arbitrage summary,
+        RL ensemble stats, HTF bias, MTF adjustment, and the final signal.
+
+        Args:
+            price: Current market price.
+            regime_state: ``RegimeState`` object (fields: ``regime``,
+                ``confidence``, ``volatility``, ``regime_duration``).
+            sentiment_state: ``SentimentState`` object (fields:
+                ``fear_greed_index``, ``fear_greed_label``,
+                ``composite_score``).
+            strat_sig: ``StrategySignal`` from the strategy ensemble.
+            ml_signal: ML model signal string.
+            ml_conf: ML model confidence.
+            final_signal: Final signal after all overrides.
+            final_conf: Final confidence after all overrides.
+            htf_bias: Higher-timeframe bias dict (keys: ``bias``,
+                ``strength``).
+            pre_mtf_signal: Signal before MTF confirmation.
+            pre_mtf_conf: Confidence before MTF confirmation.
+            intel_result: Intelligence signal dict or ``None``.
+            arb_result: Arbitrage result dict or ``None``.
+            pair: Trading pair label for the header line.
+        """
         r = regime_state
         s = sentiment_state
         regime_icons = {
@@ -1061,6 +1255,13 @@ class TradingAgent:
             print(f"  [!] DRIFT: {drift['reason']}")
 
     def _print_portfolio(self, summary: dict[str, Any], current_price: float) -> None:
+        """Print a compact portfolio summary line to stdout.
+
+        Args:
+            summary: Risk summary dict from ``RiskManager.get_summary()``.
+            current_price: Current market price (not displayed but kept for
+                future extension).
+        """
         fees_str = f" | Fees: ${summary.get('total_fees', 0):,.2f}" if summary.get("total_fees", 0) > 0 else ""
         print(
             f"\n  Capital: ${summary['capital']:,.2f} | "
@@ -1106,7 +1307,15 @@ class TradingAgent:
             _log.warning("[TradeDB] Reconcile failed: %s", e)
 
     def _push_to_data_store(self) -> None:
-        """Push cycle snapshot to DataStore if available."""
+        """Push the current cycle snapshot to the API DataStore.
+
+        Publishes a full status snapshot (prices, capital, PnL, positions,
+        autonomous state, intelligence, arbitrage), appends the equity point,
+        syncs new closed trades, pushes new autonomous events (deduplicated
+        via ``_event_hwm``), and updates intelligence and arbitrage caches.
+        No-ops when ``_data_store`` is ``None`` (API not running). Catches
+        and logs all exceptions to avoid crashing the trading loop.
+        """
         if _data_store is None:
             return
         try:
@@ -1216,8 +1425,17 @@ class TradingAgent:
             _log.debug("DataStore push failed: %s", e)
 
     def preflight_check(self) -> bool:
-        """v7.0: Quick self-test before committing to an overnight run.
-        Fetches one candle from each trading pair to verify exchange connectivity."""
+        """Run a quick self-test before committing to an overnight run (v7.0).
+
+        Fetches a small OHLCV slice from each configured trading pair to
+        verify exchange connectivity, then checks intelligence providers and
+        notification channels.
+
+        Returns:
+            ``True`` if all pairs returned data, ``False`` if any pair
+            produced an error or empty response (agent will continue with
+            demo-data fallbacks in either case).
+        """
         pairs = Config.TRADING_PAIRS if self.multi_pair else [Config.TRADING_PAIR]
         print("\n" + "=" * 50)
         print("  PREFLIGHT CHECK")
@@ -1369,6 +1587,14 @@ class TradingAgent:
             self._print_final_report()
 
     def _print_final_report(self) -> None:
+        """Print the final performance report to stdout and write trade_log.json.
+
+        Displays cycle count, trade statistics, PnL, multi-pair portfolio
+        breakdown, autonomous system summary, intelligence and arbitrage
+        summaries, production module status, regime history, top ML features,
+        and per-strategy attribution. Also serializes trade history to
+        ``trade_log.json`` in the working directory.
+        """
         summary = self.risk.get_summary()
         print("\n" + "=" * 60)
         print("  FINAL PERFORMANCE REPORT v7.0 (FULLY AUTONOMOUS)")
@@ -1521,7 +1747,13 @@ class TradingAgent:
 
 
 def main() -> None:
-    """CLI entry point: create an agent and run it."""
+    """CLI entry point — create a ``TradingAgent`` and start the main loop.
+
+    Reads an optional positional integer argument from ``sys.argv[1]`` to
+    limit the number of cycles (useful for smoke tests). Defaults to
+    infinite when no argument is given or when the argument is not a valid
+    integer.
+    """
     agent = TradingAgent()
     cycles = None
     if len(sys.argv) > 1:

@@ -3,6 +3,8 @@ Trade execution module.
 Handles paper trading simulation and live order placement via CCXT.
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from typing import Any
@@ -21,7 +23,18 @@ class PaperExecutor:
         self.orders: list[dict[str, Any]] = []
 
     def place_order(self, symbol: str, side: str, quantity: float, price: float) -> dict[str, Any]:
-        """Simulate placing an order. Fills instantly at current price."""
+        """Simulate placing an order. Fills instantly at current price.
+
+        Args:
+            symbol: Trading pair symbol, e.g. ``"BTC/USDT"``.
+            side: Order direction — ``"long"`` (buy) or ``"short"`` (sell).
+            quantity: Asset quantity to trade.
+            price: Simulated fill price.
+
+        Returns:
+            Order dict with keys ``id``, ``symbol``, ``side``, ``quantity``,
+            ``price``, ``status``, ``timestamp``, and ``mode``.
+        """
         order = {
             "id": f"paper_{len(self.orders) + 1}",
             "symbol": symbol,
@@ -37,7 +50,14 @@ class PaperExecutor:
         return order
 
     def cancel_order(self, order_id: str) -> bool:
-        """Cancel a paper order (always succeeds)."""
+        """Cancel a paper order (always succeeds).
+
+        Args:
+            order_id: Identifier of the order to cancel.
+
+        Returns:
+            Always ``True`` for paper trading.
+        """
         return True
 
 
@@ -48,7 +68,23 @@ class LiveExecutor:
         self.exchange = exchange
 
     def place_order(self, symbol: str, side: str, quantity: float, price: float) -> dict[str, Any]:
-        """Place a limit order on the exchange."""
+        """Place a limit order on the exchange.
+
+        Args:
+            symbol: Trading pair symbol, e.g. ``"BTC/USDT"``.
+            side: Order direction — ``"long"`` (buy) or ``"short"`` (sell).
+            quantity: Asset quantity to trade.
+            price: Limit price for the order.
+
+        Returns:
+            CCXT order dict on success, or a dict with an ``"error"`` key on
+            ``InsufficientFunds`` / ``ExchangeError``.
+
+        Raises:
+            ValueError: If ``side`` is not ``"long"`` or ``"short"``.
+            ExecutionError: Propagated only for unexpected CCXT errors not
+                caught by the inner ``except`` clauses.
+        """
         if side not in ("long", "short"):
             raise ValueError(f"Invalid side '{side}': must be 'long' or 'short'")
         try:
@@ -76,8 +112,14 @@ class LiveExecutor:
     def cancel_order(self, order_id: str, symbol: str | None = None) -> bool:
         """Cancel an open order on the exchange.
 
+        Args:
+            order_id: Exchange-assigned order identifier.
+            symbol: Trading pair symbol required by some exchanges. Falls back
+                to ``Config.TRADING_PAIR`` when ``None`` and logs a warning.
+
         Returns:
-            True if the order was cancelled, False on failure.
+            ``True`` if the order was cancelled successfully, ``False`` on any
+            exchange or network error.
         """
         effective_symbol = symbol or Config.TRADING_PAIR
         if symbol is None:

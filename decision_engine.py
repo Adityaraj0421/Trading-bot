@@ -6,6 +6,8 @@ meta-learning, and hyperparameter optimization. Enforces safety limits
 and manages the system's operational state.
 """
 
+from __future__ import annotations
+
 import logging
 from collections import deque
 from dataclasses import dataclass, field
@@ -55,7 +57,12 @@ class AutonomousEvent:
     data: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the event to a JSON-compatible dict."""
+        """Serialize the event to a JSON-compatible dict.
+
+        Returns:
+            Dict with keys ``type``, ``description``, ``timestamp`` (ISO-8601
+            string), and ``data``.
+        """
         return {
             "type": self.event_type,
             "description": self.description,
@@ -101,7 +108,14 @@ class DecisionEngine:
     # --- Production safeguards (kill switch, manual override) ---
 
     def emergency_halt(self, reason: str = "Manual kill switch") -> None:
-        """Immediately halt all trading. Called via API kill switch."""
+        """Immediately halt all trading. Called via API kill switch.
+
+        Sets ``_manual_halt`` and transitions state to ``HALTED``. The halt
+        persists until ``emergency_resume()`` is called.
+
+        Args:
+            reason: Human-readable description of why trading was halted.
+        """
         self._manual_halt = True
         self._halt_reason = reason
         self.state = DecisionState.HALTED
@@ -110,7 +124,11 @@ class DecisionEngine:
         print(f"\n  [KILL SWITCH] Trading HALTED: {reason}")
 
     def emergency_resume(self) -> None:
-        """Resume trading after manual halt."""
+        """Resume trading after a manual halt.
+
+        Clears ``_manual_halt`` and resets state to ``NORMAL``. Safety
+        thresholds are re-evaluated on the next ``orchestrate()`` call.
+        """
         self._manual_halt = False
         self._halt_reason = ""
         self.state = DecisionState.NORMAL
@@ -118,13 +136,22 @@ class DecisionEngine:
         print("\n  [RESUME] Trading resumed")
 
     def force_close_all_positions(self) -> None:
-        """Signal agent to close all open positions immediately."""
+        """Signal the agent to close all open positions immediately.
+
+        Sets the ``_force_close_all`` flag which is consumed (and reset) by
+        ``orchestrate()`` on the next cycle.
+        """
         self._force_close_all = True
         self._log_event("force_close", "Force close all positions triggered")
         self._add_alert("warning", "Force closing all positions")
 
     def _add_alert(self, severity: str, message: str) -> None:
-        """Add an alert to the alert queue."""
+        """Add an alert to the internal alert queue (capped at 100 entries).
+
+        Args:
+            severity: Alert severity level, e.g. ``"critical"`` or ``"warning"``.
+            message: Human-readable alert description.
+        """
         alert = {
             "severity": severity,
             "message": message,
@@ -137,20 +164,53 @@ class DecisionEngine:
             self._alerts = self._alerts[-100:]
 
     def get_alerts(self, unacknowledged_only: bool = False) -> list[dict[str, Any]]:
-        """Get alerts, optionally filtering to unacknowledged only."""
+        """Return the alert queue, optionally filtered to unacknowledged entries.
+
+        Args:
+            unacknowledged_only: When ``True``, only alerts whose
+                ``acknowledged`` field is ``False`` are returned.
+
+        Returns:
+            A shallow copy of the matching alert dicts.
+        """
         if unacknowledged_only:
             return [a for a in self._alerts if not a["acknowledged"]]
         return self._alerts.copy()
 
     def acknowledge_alerts(self) -> None:
-        """Mark all alerts as acknowledged."""
+        """Mark all alerts in the queue as acknowledged."""
         for a in self._alerts:
             a["acknowledged"] = True
 
     def orchestrate(self, cycle_count: int, current_capital: float, current_pnl: float = 0) -> dict[str, Any]:
-        """
-        Main orchestration method — called at the start of each cycle.
-        Returns dict with instructions for the agent.
+        """Main orchestration method — called at the start of each agent cycle.
+
+        Evaluates safety state, applies autonomous system scheduling
+        (health check, meta-learning, strategy evolution, optimization), and
+        returns a set of instructions for the agent to act on.
+
+        Args:
+            cycle_count: Current agent cycle number (monotonically increasing).
+            current_capital: Agent's current available capital in USD.
+            current_pnl: Cumulative PnL for the current session.
+
+        Returns:
+            Instruction dict with the following keys:
+
+            - ``should_trade`` (bool): Whether the agent may open new positions.
+            - ``position_multiplier`` (float): Scalar to apply to position sizes.
+            - ``signal_weights`` (dict | None): Overridden signal weights, or
+              ``None`` to use defaults.
+            - ``skip_reason`` (str | None): Human-readable reason trading is
+              suspended, or ``None``.
+            - ``autonomous_actions`` (list[str]): Descriptions of autonomous
+              tasks that ran this cycle.
+            - ``force_close_all`` (bool): When ``True`` the agent must close
+              all open positions immediately.
+            - ``evolved_params`` (dict, optional): Best evolved strategy
+              parameters for hot-reload into ``StrategyEngine``.
+            - ``optimized_config`` (dict, optional): Best hyperparameter values
+              to apply to ``Config``.
         """
         instructions = {
             "should_trade": True,
@@ -225,7 +285,21 @@ class DecisionEngine:
         return instructions
 
     def _check_safety(self, current_capital: float, recent_pnl: float) -> tuple[DecisionState, str]:
-        """Check safety limits and determine system state."""
+        """Check safety limits and determine the appropriate operational state.
+
+        Evaluates capital floor, daily loss limit, and consecutive-loss streak.
+        Also handles auto-recovery from CAUTIOUS/DEFENSIVE after 30 minutes.
+
+        Args:
+            current_capital: Agent's current available capital in USD.
+            recent_pnl: Session PnL used for daily-loss calculation (unused
+                directly here — daily PnL is tracked separately via
+                ``record_trade_result``).
+
+        Returns:
+            Tuple of ``(DecisionState, reason_string)`` where ``reason_string``
+            is a human-readable explanation of why the state was chosen.
+        """
         now = datetime.now()
 
         # Reset daily PnL tracking at midnight
@@ -269,7 +343,23 @@ class DecisionEngine:
         ml_confidence: float,
         regime: str,
     ) -> None:
-        """Record a trade result — updates all subsystems."""
+        """Record a completed trade result and update all autonomous subsystems.
+
+        Updates daily PnL, consecutive-loss counter, and feeds the outcome to
+        the meta-learner. Also raises alerts for large losses and losing streaks.
+
+        Args:
+            pnl: Net PnL of the closed trade (after fees).
+            strategy_signal: Signal produced by the strategy ensemble
+                (``"BUY"``, ``"SELL"``, or ``"HOLD"``).
+            ml_signal: Signal produced by the ML model.
+            final_signal: Actual signal that drove the trade.
+            strategy_confidence: Confidence score from the strategy ensemble
+                in the range ``[0, 1]``.
+            ml_confidence: Confidence score from the ML model in ``[0, 1]``.
+            regime: Market regime string at trade open, e.g.
+                ``"trending_up"``.
+        """
         # Track daily PnL
         self._daily_pnl += pnl
 
@@ -302,12 +392,28 @@ class DecisionEngine:
         self._total_autonomous_decisions += 1
 
     def record_drift_event(self) -> None:
-        """Record a model drift event."""
+        """Record a model drift detection event.
+
+        Delegates to ``MetaLearner.record_drift_event()`` and appends an
+        autonomous event to the log.
+        """
         self.meta.record_drift_event()
         self._log_event("drift_detected", "Model drift detected, retraining triggered")
 
     def _run_scheduled_tasks(self, cycle_count: int) -> list[str]:
-        """Run autonomous tasks on schedule."""
+        """Run autonomous tasks on their configured schedules.
+
+        Executes meta-learning, strategy evolution, and hyperparameter
+        optimization at their respective intervals.
+
+        Args:
+            cycle_count: Current agent cycle number used to determine which
+                tasks are due.
+
+        Returns:
+            List of human-readable strings describing tasks that executed
+            this cycle (empty list if no tasks ran).
+        """
         actions = []
 
         # Meta-learning (every 100 cycles)
@@ -366,14 +472,19 @@ class DecisionEngine:
         return actions
 
     def _evaluate_population_fitness(self, max_per_strategy: int = 5) -> int:
-        """Backtest unscored genomes in all strategy populations.
+        """Backtest unscored genomes across all strategy populations.
 
-        This bridges the strategy_evolver with the backtester so that
-        evolution is driven by actual backtest performance rather than
-        random fitness values.
+        Bridges ``StrategyEvolver`` with ``Backtester`` so evolution fitness
+        is driven by actual backtest performance rather than random values.
+        Config is temporarily patched with each genome's parameters and
+        restored in a ``finally`` block.
+
+        Args:
+            max_per_strategy: Maximum number of genomes to evaluate per
+                strategy population in a single call.
 
         Returns:
-            Number of genomes scored.
+            Total number of genomes scored across all strategy populations.
         """
         from backtester import Backtester
         from demo_data import generate_ohlcv
@@ -434,7 +545,18 @@ class DecisionEngine:
         return scored
 
     def _run_optimization_trials(self, n_trials: int = 5) -> list[dict[str, Any]]:
-        """Run mini-backtest trials for hyperparameter optimization."""
+        """Run mini-backtest trials for hyperparameter optimization.
+
+        Generates parameter suggestions from ``AutoOptimizer``, runs each
+        through ``Backtester``, records results, and restores ``Config`` values.
+
+        Args:
+            n_trials: Number of parameter combinations to evaluate.
+
+        Returns:
+            List of dicts, each with ``"params"`` and ``"metrics"`` keys for
+            successfully completed trials. Failed trials are skipped silently.
+        """
         import config as cfg
         from backtester import Backtester
         from demo_data import generate_ohlcv
@@ -482,12 +604,20 @@ class DecisionEngine:
         return results
 
     def should_override_signal(self, signal: str, confidence: float) -> tuple[str, float]:
-        """
-        Override or dampen signals based on system state.
+        """Override or dampen a trading signal based on the current safety state.
 
-        v7.0: Relaxed thresholds so bot trades in NORMAL state.
-        Safety states (DEFENSIVE/CAUTIOUS) still reduce sizing but don't
-        kill signals as aggressively.
+        v7.0: Relaxed thresholds so the bot trades in NORMAL state. Safety
+        states (DEFENSIVE/CAUTIOUS) reduce confidence but no longer suppress
+        signals as aggressively as earlier versions.
+
+        Args:
+            signal: Proposed trading signal — ``"BUY"``, ``"SELL"``, or
+                ``"HOLD"``.
+            confidence: Confidence score for the signal in ``[0, 1]``.
+
+        Returns:
+            Tuple of ``(final_signal, final_confidence)`` after applying state-
+            based dampening. Returns ``("HOLD", 0.0)`` when state is HALTED.
         """
         if self.state == DecisionState.HALTED:
             return "HOLD", 0.0
@@ -509,7 +639,14 @@ class DecisionEngine:
         return signal, confidence
 
     def _log_event(self, event_type: str, description: str, data: dict[str, Any] | None = None) -> None:
-        """Log an autonomous event."""
+        """Append an autonomous event to the rolling event log.
+
+        Args:
+            event_type: Short machine-readable category, e.g.
+                ``"state_change"``, ``"evolution"``, ``"emergency_halt"``.
+            description: Human-readable description of the event.
+            data: Optional arbitrary metadata dict attached to the event.
+        """
         event = AutonomousEvent(
             event_type=event_type,
             description=description,
@@ -518,7 +655,13 @@ class DecisionEngine:
         self.event_log.append(event)
 
     def get_autonomous_status(self) -> dict[str, Any]:
-        """Comprehensive status report of all autonomous subsystems."""
+        """Return a comprehensive status report of all autonomous subsystems.
+
+        Returns:
+            Dict with keys: ``state``, ``daily_pnl``, ``consecutive_losses``,
+            ``total_autonomous_decisions``, ``healer``, ``evolver``,
+            ``meta_learner``, ``optimizer``, and ``recent_events`` (last 10).
+        """
         return {
             "state": self.state.value,
             "daily_pnl": round(self._daily_pnl, 2),
@@ -532,7 +675,11 @@ class DecisionEngine:
         }
 
     def print_autonomous_summary(self) -> None:
-        """Print concise autonomous system status."""
+        """Print a concise autonomous-system status block to stdout.
+
+        Outputs current state, daily PnL, loss streak, signal weights,
+        evolution generation, component health, and recent events.
+        """
         state_icons = {
             DecisionState.NORMAL: "[OK]",
             DecisionState.CAUTIOUS: "[!!]",
@@ -576,7 +723,13 @@ class DecisionEngine:
             print(f"  Recent: {', '.join(e.event_type for e in recent)}")
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for state persistence."""
+        """Serialize engine state for persistence.
+
+        Returns:
+            Dict suitable for JSON serialization, containing engine scalars
+            and nested dicts from all subsystems (healer, evolver, meta,
+            optimizer).
+        """
         return {
             "state": self.state.value,
             "daily_pnl": self._daily_pnl,
@@ -597,7 +750,12 @@ class DecisionEngine:
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
-        """Restore from state."""
+        """Restore engine state from a previously serialized dict.
+
+        Args:
+            data: Dict as produced by ``to_dict()``. Missing keys fall back to
+                safe defaults so partial state snapshots are tolerated.
+        """
         state_str = data.get("state", "normal")
         self.state = DecisionState(state_str)
         self._daily_pnl = data.get("daily_pnl", 0)
