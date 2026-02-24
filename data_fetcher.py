@@ -23,7 +23,13 @@ class DataFetcher:
     """Fetch OHLCV, ticker, and order book data from a crypto exchange via CCXT."""
 
     def __init__(self) -> None:
-        """Initialize DataFetcher and establish the exchange connection."""
+        """Initialize DataFetcher and establish the exchange connection.
+
+        Attributes:
+            using_demo (bool): Set to ``True`` when the exchange connection
+                fails and demo data is used as a fallback; ``False``
+                otherwise.
+        """
         self.exchange = self._init_exchange()
         self.using_demo = False
 
@@ -198,7 +204,8 @@ class DataFetcher:
         Returns:
             Dictionary with keys ``bid``, ``ask``, ``spread``,
             ``bid_volume``, and ``ask_volume``. Returns an empty dict on
-            failure.
+            failure. ``bid``, ``ask``, and ``spread`` may be ``None`` when
+            the respective order book side is empty.
         """
         symbol = symbol or Config.TRADING_PAIR
         try:

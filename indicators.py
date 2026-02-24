@@ -100,7 +100,9 @@ class Indicators:
 
         Returns:
             Copy of ``df`` with all indicator columns appended. Rows with
-            NaN values (warm-up period) are dropped.
+            NaN values (warm-up period) are dropped. Cached results are
+            returned by reference; callers must not mutate the returned
+            DataFrame.
         """
         key = (len(df), float(df["close"].iloc[-1]), str(df.index[-1]))
         if cls._cache_key == key and cls._cache_result is not None:

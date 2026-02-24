@@ -174,6 +174,9 @@ class PortfolioManager:
               higher values indicate more concentrated exposure.
             - ``pair_exposure`` (dict): Notional value keyed by pair symbol.
             - ``corr_risk`` (str): ``"low"``, ``"medium"``, or ``"high"``.
+
+            Note: the ``pair_exposure`` key is absent when ``positions`` is
+            empty or total exposure is zero.
         """
         if not positions:
             return {"total_exposure": 0, "concentration": 0, "corr_risk": "low"}

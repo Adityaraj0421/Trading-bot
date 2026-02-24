@@ -192,8 +192,8 @@ class SentimentAnalyzer:
             df: Raw OHLCV DataFrame. Needs at least 50 rows when ``df_ind``
                 is not provided.
             df_ind: Optional pre-computed indicators DataFrame. When
-                provided, ``returns_5`` and ``returns_10`` columns are
-                reused.
+                provided, ``returns_5`` and ``returns_10`` are reused;
+                ``df`` is still required for 20- and 50-bar returns.
 
         Returns:
             Float in ``[-1, 1]`` representing normalised price momentum

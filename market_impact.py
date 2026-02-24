@@ -47,7 +47,28 @@ class ExecutionResult:
     is_partial_fill: bool
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize execution result to a rounded dictionary for logging."""
+        """Serialize execution result to a rounded dictionary for logging.
+
+        Returns:
+            Dictionary with the following keys:
+
+            - ``filled_qty`` (float): Filled quantity rounded to 6 decimal
+              places.
+            - ``fill_rate`` (float): Fill rate (0–1) rounded to 4 decimal
+              places.
+            - ``avg_fill_price`` (float): Average fill price rounded to 2
+              decimal places.
+            - ``slippage_pct`` (float): Slippage expressed as a percentage
+              (e.g. ``0.05`` = 0.05 %).
+            - ``spread_cost_pct`` (float): Spread cost expressed as a
+              percentage.
+            - ``impact_pct`` (float): Market-impact cost expressed as a
+              percentage.
+            - ``total_cost_pct`` (float): Total execution cost expressed as
+              a percentage (slippage + spread + impact + fees).
+            - ``partial_fill`` (bool): ``True`` when the order was not
+              completely filled.
+        """
         return {
             "filled_qty": round(self.filled_quantity, 6),
             "fill_rate": round(self.fill_rate, 4),
@@ -135,8 +156,7 @@ class MarketImpactModel:
         avg_volume: float = 1000.0,
         bar_volume: float = 100.0,
     ) -> ExecutionResult:
-        """
-        Simulate realistic order execution.
+        """Simulate realistic order execution.
 
         Args:
             price: Current market price.
