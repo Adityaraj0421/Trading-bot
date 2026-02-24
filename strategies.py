@@ -14,7 +14,7 @@ Strategies:
   5. ScalpingStrategy       — Hammer/shooting-star reversal candles (any regime)
   6. SentimentDrivenStrategy — Contrarian + momentum on Fear/Greed extremes (all regimes)
   7. VWAPStrategy           — VWAP deviation reversion (RANGING, TRENDING_UP/DOWN)
-  8. OBVDivergenceStrategy  — Price/OBV divergence leading reversals (TRENDING_UP/DOWN)
+  8. OBVDivergenceStrategy  — Price/OBV divergence leading reversals (TRENDING_UP/DOWN, RANGING)
   9. EMACrossoverStrategy   — EMA 9/21 golden/death cross with ADX filter (TRENDING_UP/DOWN)
  10. IchimokuStrategy       — TK-cross + cloud position + ADX filter (TRENDING_UP/DOWN)
 
@@ -74,7 +74,7 @@ class MomentumStrategy(BaseStrategy):
     """Trend-following / momentum strategy for trending markets.
 
     Generates BUY signals when price > SMA20 > SMA50, MACD is bullish, RSI is in
-    the healthy trend range (40–70), and volume confirms. Generates SELL signals on
+    the healthy trend range (rsi_oversold–rsi_overbought, default 30–70), and volume confirms. Generates SELL signals on
     the mirror-image bearish alignment. Stop-loss and take-profit are ATR-adaptive
     (2× ATR and 3× ATR respectively).
 
@@ -859,7 +859,7 @@ class EMACrossoverStrategy(BaseStrategy):
             sentiment: Ignored by this strategy.
 
         Returns:
-            StrategySignal with BUY/SELL/HOLD. Cross-event confidence ranges 0.55–0.9;
+            StrategySignal with BUY/SELL/HOLD. Cross-event confidence ranges 0.55–0.85;
             alignment-only confidence is fixed at 0.45. HOLD confidence is 0.3.
         """
         latest = df.iloc[-1]
@@ -934,7 +934,7 @@ class IchimokuStrategy(BaseStrategy):
     fewer than 3 bars are available (data-guard).
 
     Confidence builds from ``confidence_base`` (0.60) + volume bonus (0.10) + ADX
-    bonus (up to 0.15), capped at 0.90. SL = 2× ATR, TP = 4× ATR.
+    bonus (up to 0.15), capped at 0.90 (actual max 0.85 with current bonus structure). SL = 2× ATR, TP = 4× ATR (fresh-cross) or 3× ATR (alignment-only).
 
     Best regimes: TRENDING_UP, TRENDING_DOWN.
 
@@ -967,7 +967,7 @@ class IchimokuStrategy(BaseStrategy):
 
         Returns:
             StrategySignal with BUY/SELL/HOLD. Fresh-cross signals have confidence
-            0.60–0.90; alignment-only signals are fixed at 0.45.
+            0.60–0.85; alignment-only signals are fixed at 0.45.
             HOLD confidence is 0.3 (normal) or 0.0 (data-guard: < 3 bars).
         """
         if len(df) < 3:
