@@ -15,6 +15,8 @@ Signal logic:
   - Positive funding + falling OI = distribution → bearish
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from collections import deque
@@ -38,9 +40,22 @@ _MARK_PRICE_URL = "https://fapi.binance.com/fapi/v1/premiumIndex"
 
 
 class FundingOIAnalyzer:
-    """Intelligence provider: Binance perpetual futures funding rate + open interest."""
+    """Intelligence provider: Binance perpetual futures funding rate + open interest.
+
+    Aggregates funding rate and open interest signals across multiple symbols
+    and returns a composite bullish/bearish/neutral signal.  Results are
+    cached for ``_cache_ttl`` seconds.
+    """
 
     def __init__(self, symbols: list[str] | None = None) -> None:
+        """Initialise the analyzer for a set of Binance futures symbols.
+
+        Args:
+            symbols: List of Binance futures symbol strings
+                (e.g. ``['BTCUSDT', 'ETHUSDT', 'SOLUSDT']``).
+                Defaults to ``['BTCUSDT', 'ETHUSDT', 'SOLUSDT']`` when
+                ``None``.
+        """
         self.symbols = symbols or ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
         self._cache: dict = {}
         self._cache_ts: float = 0
@@ -50,11 +65,30 @@ class FundingOIAnalyzer:
 
     @staticmethod
     def _pair_to_binance(pair: str) -> str:
-        """Convert 'BTC/USDT' to 'BTCUSDT'."""
+        """Convert 'BTC/USDT' to 'BTCUSDT'.
+
+        Args:
+            pair: Trading pair string with separator, e.g. ``'BTC/USDT'``
+                or ``'BTC-USDT'``.
+
+        Returns:
+            Binance-format symbol string with separator removed.
+        """
         return pair.replace("/", "").replace("-", "")
 
     def get_signal(self) -> dict[str, Any]:
-        """Return aggregated funding/OI signal across all tracked symbols."""
+        """Return aggregated funding/OI signal across all tracked symbols.
+
+        Computes per-symbol bullish and bearish scores, averages them, and
+        returns a composite signal.  Results are cached for ``_cache_ttl``
+        seconds.
+
+        Returns:
+            Dictionary with keys: ``source`` (``'funding_oi'``), ``signal``
+            (``'bullish'``, ``'bearish'``, or ``'neutral'``), ``strength``
+            (0.0–1.0), ``data`` containing ``bullish_score``,
+            ``bearish_score``, ``net_score``, and ``per_symbol`` details.
+        """
         now = time.time()
         if self._cache and now - self._cache_ts < self._cache_ttl:
             return self._cache
@@ -115,7 +149,16 @@ class FundingOIAnalyzer:
         return result
 
     def _analyze_symbol(self, symbol: str) -> dict[str, Any]:
-        """Analyze funding rate + OI for a single symbol."""
+        """Analyze funding rate + OI for a single symbol.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Dictionary with keys: ``funding_rate``, ``open_interest``,
+            ``mark_price``, ``bullish_score``, ``bearish_score``,
+            ``signals`` (list of human-readable signal descriptions).
+        """
         funding = self._fetch_funding(symbol)
         oi = self._fetch_open_interest(symbol)
         mark = self._fetch_mark_price(symbol)
@@ -199,7 +242,15 @@ class FundingOIAnalyzer:
         }
 
     def _fetch_funding(self, symbol: str) -> float | None:
-        """Fetch latest funding rate from Binance."""
+        """Fetch latest funding rate from Binance.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Latest funding rate as a float, or ``None`` on failure or
+            rate-limiting.
+        """
         try:
             resp = requests.get(
                 _FUNDING_URL,
@@ -220,7 +271,15 @@ class FundingOIAnalyzer:
         return None
 
     def _fetch_open_interest(self, symbol: str) -> float | None:
-        """Fetch current open interest from Binance."""
+        """Fetch current open interest from Binance.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Current open interest as a float (in base asset units), or
+            ``None`` on failure or rate-limiting.
+        """
         try:
             resp = requests.get(
                 _OI_URL,
@@ -239,7 +298,14 @@ class FundingOIAnalyzer:
         return None
 
     def _fetch_mark_price(self, symbol: str) -> float | None:
-        """Fetch mark price + funding info from premiumIndex."""
+        """Fetch mark price + funding info from premiumIndex.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Current mark price as a float, or ``None`` on failure.
+        """
         try:
             resp = requests.get(
                 _MARK_PRICE_URL,

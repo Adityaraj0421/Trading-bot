@@ -11,6 +11,8 @@ v2.0 enhancements:
   - All original features preserved (multi-level imbalance, walls, VWMP)
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from collections import deque
@@ -51,10 +53,12 @@ class WallSnapshot:
 
     @property
     def age_seconds(self) -> float:
+        """Age of this wall observation in seconds."""
         return self.last_seen - self.first_seen
 
     @property
     def is_persistent(self) -> bool:
+        """Whether this wall has been seen enough times to be considered persistent."""
         return self.times_seen >= 3 and self.age_seconds >= 60
 
 
@@ -62,9 +66,20 @@ class WallSnapshot:
 
 
 class OrderBookAnalyzer:
-    """
-    Advanced order flow intelligence with VPIN, CVD, spoofing detection,
+    """Advanced order flow intelligence with VPIN, CVD, spoofing detection,
     and absorption analysis layered on top of traditional depth signals.
+
+    Uses CCXT ``fetch_order_book()`` for market data.  When no exchange
+    connection is provided (``exchange=None``) or
+    ``Config.ENABLE_ORDERBOOK`` is ``False``, all methods return neutral
+    results immediately.
+
+    Order book data format: bids and asks are ``list[list[float]]`` where
+    each inner list is a ``[price, size]`` pair.
+
+    A "wall" is an order whose size is at least ``threshold_mult`` (default
+    5×) the average size of nearby orders within ``price_range_pct``% of
+    the mid-price.
     """
 
     CACHE_TTL = 30  # 30s cache
@@ -88,6 +103,13 @@ class OrderBookAnalyzer:
     ABSORPTION_PRICE_MOVE = 0.05  # Price moves < 0.05% despite absorption
 
     def __init__(self, exchange: Any = None) -> None:
+        """Initialise the analyzer with optional exchange connection.
+
+        Args:
+            exchange: A CCXT exchange instance that supports
+                ``fetch_order_book()``.  When ``None``, ``get_signal()``
+                returns a neutral result immediately.
+        """
         self.exchange = exchange
         self._cache: dict = {}
         self._cache_ts: float = 0
@@ -113,7 +135,24 @@ class OrderBookAnalyzer:
     # ── Public Interface ──────────────────────────────────────────
 
     def get_signal(self) -> dict[str, Any]:
-        """Analyze order book with advanced flow intelligence."""
+        """Analyze order book with advanced flow intelligence.
+
+        Returns:
+            Dictionary with keys: ``source`` (``'orderbook'``), ``signal``
+            (``'bullish'``, ``'bearish'``, or ``'neutral'``), ``strength``
+            (0.0–0.6), ``data`` containing ``mid_price``, ``spread_pct``,
+            ``vwmp``, ``vwmp_skew_pct``, ``imbalances``, ``bid_walls``
+            (up to 3), ``ask_walls`` (up to 3), ``composite_score``,
+            ``vpin``, ``vpin_toxic``, ``cvd``, ``cvd_divergence``,
+            ``spoof_alerts``, and ``absorption_events``.
+
+        Note:
+            Returns neutral immediately when ``Config.ENABLE_ORDERBOOK``
+            is ``False`` or ``exchange`` is ``None``.
+            ``bid_walls`` / ``ask_walls`` are lists of dicts each with
+            ``price``, ``volume``, ``distance_pct``, ``multiple_of_avg``,
+            and ``side`` keys.
+        """
         if not Config.ENABLE_ORDERBOOK or self.exchange is None:
             return {"source": "orderbook", "signal": "neutral", "strength": 0.0, "data": {}}
 
@@ -130,11 +169,25 @@ class OrderBookAnalyzer:
             return {"source": "orderbook", "signal": "neutral", "strength": 0.0, "data": {"error": str(e)}}
 
     def get_vpin(self) -> float:
-        """Return current VPIN value (0.0 to 1.0)."""
+        """Return current VPIN value (0.0 to 1.0).
+
+        Returns:
+            Current Volume-Synchronized Probability of Informed Trading
+            in [0.0, 1.0].  Values above ``VPIN_TOXIC_THRESHOLD`` (0.7)
+            indicate informed one-sided order flow.
+        """
         return self._compute_vpin()
 
     def get_cvd(self) -> dict[str, Any]:
-        """Return CVD state and divergence info."""
+        """Return CVD state and divergence info.
+
+        Returns:
+            Dictionary with keys: ``cumulative_delta`` (float),
+            ``divergence`` (str — one of ``'bullish_divergence'``,
+            ``'bearish_divergence'``, ``'bullish_confirmation'``,
+            ``'bearish_confirmation'``, or ``'none'``), and
+            ``history_length`` (int).
+        """
         return {
             "cumulative_delta": round(self._cumulative_delta, 4),
             "divergence": self._detect_cvd_divergence(),
@@ -142,17 +195,37 @@ class OrderBookAnalyzer:
         }
 
     def get_spoofing_alerts(self) -> list[dict]:
-        """Return detected spoofing/fake wall events."""
+        """Return detected spoofing/fake wall events.
+
+        Returns:
+            List of spoof alert dicts, each containing ``type``
+            (``'spoof_detected'``), ``side`` (``'bid'`` or ``'ask'``),
+            ``price``, ``peak_volume``, ``times_seen``, ``age_seconds``,
+            and ``vanished_seconds_ago``.
+        """
         return self._detect_spoofing()
 
     def get_absorption_events(self) -> list[dict]:
-        """Return recent absorption events."""
+        """Return recent absorption events.
+
+        Returns:
+            List of absorption event dicts from the rolling buffer,
+            each containing ``type`` (``'absorption'``), ``side``,
+            ``price``, ``volume``, ``multiple_of_avg``,
+            ``price_stability_pct``, ``timestamp``, and
+            ``interpretation`` (``'accumulation'`` or ``'distribution'``).
+        """
         return list(self._absorbed_levels)
 
     # ── Core Analysis ─────────────────────────────────────────────
 
     def _analyze_book(self) -> dict[str, Any]:
-        """Full order book analysis with flow intelligence."""
+        """Full order book analysis with flow intelligence.
+
+        Returns:
+            Combined analysis dict with all computed metrics.  Cached for
+            ``CACHE_TTL`` seconds.
+        """
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache:
             return self._cache
@@ -284,8 +357,21 @@ class OrderBookAnalyzer:
 
     # ── Multi-Level Imbalance ─────────────────────────────────────
 
-    def _multi_level_imbalance(self, bids: list, asks: list) -> dict:
-        """Compute bid/ask imbalance at multiple depth levels."""
+    def _multi_level_imbalance(self, bids: list[list[float]], asks: list[list[float]]) -> dict[str, Any]:
+        """Compute bid/ask imbalance at multiple depth levels.
+
+        Args:
+            bids: List of ``[price, size]`` pairs for the bid side,
+                sorted descending by price.
+            asks: List of ``[price, size]`` pairs for the ask side,
+                sorted ascending by price.
+
+        Returns:
+            Dictionary keyed by ``'top_N'`` (N in [5, 10, 20, 50]),
+            each mapping to a sub-dict with ``bid_volume``,
+            ``ask_volume``, and ``imbalance``
+            (``(bid_vol - ask_vol) / total``).
+        """
         levels = [5, 10, 20, 50]
         imbalances = {}
         for n in levels:
@@ -302,8 +388,21 @@ class OrderBookAnalyzer:
 
     # ── VWMP ──────────────────────────────────────────────────────
 
-    def _compute_vwmp(self, bids: list, asks: list, mid_price: float) -> tuple[float, float]:
-        """Compute volume-weighted mid price and its skew."""
+    def _compute_vwmp(
+        self, bids: list[list[float]], asks: list[list[float]], mid_price: float
+    ) -> tuple[float, float]:
+        """Compute volume-weighted mid price and its skew.
+
+        Args:
+            bids: List of ``[price, size]`` bid pairs.
+            asks: List of ``[price, size]`` ask pairs.
+            mid_price: Simple arithmetic mid-price used as skew baseline.
+
+        Returns:
+            A tuple ``(vwmp, skew_pct)`` where ``vwmp`` is the volume-
+            weighted mid price and ``skew_pct`` is the percentage deviation
+            from ``mid_price`` (positive = above mid = bullish).
+        """
         bid_vw = sum(b[0] * b[1] for b in bids[:20])
         bid_vol = sum(b[1] for b in bids[:20])
         ask_vw = sum(a[0] * a[1] for a in asks[:20])
@@ -317,9 +416,34 @@ class OrderBookAnalyzer:
     # ── Wall Detection ────────────────────────────────────────────
 
     def _detect_walls(
-        self, orders: list, mid_price: float, side: str, threshold_mult: float = 5.0, price_range_pct: float = 2.0
+        self,
+        orders: list[list[float]],
+        mid_price: float,
+        side: str,
+        threshold_mult: float = 5.0,
+        price_range_pct: float = 2.0,
     ) -> list[dict]:
-        """Detect large order walls near mid price."""
+        """Detect large order walls near mid price.
+
+        A wall is any order whose size is at least ``threshold_mult``
+        times the average size of all nearby orders within
+        ``price_range_pct``% of the mid-price.
+
+        Args:
+            orders: List of ``[price, size]`` pairs for one side of the
+                book (bids or asks).
+            mid_price: Current arithmetic mid-price.
+            side: ``'bid'`` or ``'ask'`` — recorded in the returned dicts.
+            threshold_mult: Minimum size multiple required to qualify as
+                a wall (default 5.0×).
+            price_range_pct: Price range around mid-price to consider
+                (default 2.0%).
+
+        Returns:
+            List of up to 5 wall dicts (sorted by volume descending), each
+            containing ``price``, ``volume``, ``distance_pct``,
+            ``multiple_of_avg``, and ``side``.
+        """
         if len(orders) < 10:
             return []
 
@@ -349,8 +473,18 @@ class OrderBookAnalyzer:
         walls.sort(key=lambda w: w["volume"], reverse=True)
         return walls[:5]
 
-    def _wall_score(self, bid_walls: list, ask_walls: list) -> float:
-        """Compute directional score from wall analysis."""
+    def _wall_score(self, bid_walls: list[dict], ask_walls: list[dict]) -> float:
+        """Compute directional score from wall analysis.
+
+        Args:
+            bid_walls: List of bid wall dicts from ``_detect_walls()``.
+            ask_walls: List of ask wall dicts from ``_detect_walls()``.
+
+        Returns:
+            Float in [−1, 1]: +1.0 = only bid walls (strong support),
+            −1.0 = only ask walls (strong resistance), ±0.5 = one side
+            dominates by >1.5× volume, 0.0 = balanced or no walls.
+        """
         if bid_walls and not ask_walls:
             return 1.0
         elif ask_walls and not bid_walls:
@@ -368,13 +502,20 @@ class OrderBookAnalyzer:
     # NEW v2.0: VPIN (Volume-Synchronized Probability of Informed Trading)
     # ══════════════════════════════════════════════════════════════
 
-    def _update_volume_bars(self, bids: list, asks: list, mid_price: float, now: float) -> None:
-        """
-        Update VPIN volume bars from order book snapshot.
+    def _update_volume_bars(
+        self, bids: list[list[float]], asks: list[list[float]], mid_price: float, now: float
+    ) -> None:
+        """Update VPIN volume bars from order book snapshot.
 
         VPIN uses volume-synchronized bars rather than time bars.
         We estimate buy/sell volume from order book pressure since
         we don't have actual trade-by-trade data via REST API.
+
+        Args:
+            bids: List of ``[price, size]`` bid pairs.
+            asks: List of ``[price, size]`` ask pairs.
+            mid_price: Current mid-price.
+            now: Current Unix timestamp in seconds.
         """
         if not bids or not asks:
             return
@@ -411,13 +552,16 @@ class OrderBookAnalyzer:
             self._current_bar = VolumeBar()
 
     def _compute_vpin(self) -> float:
-        """
-        Compute VPIN from volume bars.
+        """Compute VPIN from volume bars.
 
         VPIN = (1/n) × Σ |V_buy - V_sell| / (V_buy + V_sell)
 
         Higher VPIN means more order flow imbalance, suggesting
         informed traders are active (one-sided flow).
+
+        Returns:
+            VPIN value in [0.0, 1.0].  Returns 0.0 when fewer than 5
+            volume bars are available.
         """
         bars = list(self._volume_bars)
         if len(bars) < 5:
@@ -441,13 +585,21 @@ class OrderBookAnalyzer:
     # NEW v2.0: Cumulative Volume Delta (CVD)
     # ══════════════════════════════════════════════════════════════
 
-    def _update_cvd(self, bids: list, asks: list, mid_price: float, now: float) -> None:
-        """
-        Update cumulative volume delta.
+    def _update_cvd(
+        self, bids: list[list[float]], asks: list[list[float]], mid_price: float, now: float
+    ) -> None:
+        """Update cumulative volume delta.
 
         CVD = running sum of (aggressive_buy_volume - aggressive_sell_volume)
         Rising CVD = net buying pressure
         Falling CVD = net selling pressure
+
+        Args:
+            bids: List of ``[price, size]`` bid pairs.
+            asks: List of ``[price, size]`` ask pairs.
+            mid_price: Current mid-price.
+            now: Current Unix timestamp in seconds (unused; kept for
+                signature consistency).
         """
         if not bids or not asks:
             return
@@ -473,11 +625,15 @@ class OrderBookAnalyzer:
         self._price_history.append(mid_price)
 
     def _detect_cvd_divergence(self) -> str:
-        """
-        Detect divergence between CVD and price.
+        """Detect divergence between CVD and price.
 
         Bullish divergence: Price falling but CVD rising (hidden accumulation)
         Bearish divergence: Price rising but CVD falling (hidden distribution)
+
+        Returns:
+            One of: ``'bullish_divergence'``, ``'bearish_divergence'``,
+            ``'bullish_confirmation'``, ``'bearish_confirmation'``, or
+            ``'none'``.
         """
         if len(self._cvd_history) < self.CVD_DIVERGENCE_BARS:
             return "none"
@@ -514,15 +670,23 @@ class OrderBookAnalyzer:
     # NEW v2.0: Spoofing / Fake Wall Detection
     # ══════════════════════════════════════════════════════════════
 
-    def _update_wall_tracking(self, bid_walls: list, ask_walls: list, mid_price: float, now: float) -> None:
-        """
-        Track wall persistence across snapshots.
+    def _update_wall_tracking(
+        self, bid_walls: list[dict], ask_walls: list[dict], mid_price: float, now: float
+    ) -> None:
+        """Track wall persistence across snapshots.
 
         Spoofing signature:
         1. Large wall appears at level L
         2. Wall persists for several snapshots (building trust)
         3. Price approaches wall
         4. Wall vanishes before being filled
+
+        Args:
+            bid_walls: Detected bid wall dicts from ``_detect_walls()``.
+            ask_walls: Detected ask wall dicts from ``_detect_walls()``.
+            mid_price: Current mid-price (unused directly; stored for
+                later spoofing checks).
+            now: Current Unix timestamp in seconds.
         """
         # Cleanup old tracked walls
         if now - self._last_wall_cleanup > 60:
@@ -560,13 +724,17 @@ class OrderBookAnalyzer:
                 )
 
     def _detect_spoofing(self) -> list[dict]:
-        """
-        Detect potential spoofing events.
+        """Detect potential spoofing events.
 
         A spoof is flagged when:
         - Wall was seen >= SPOOF_THRESHOLD times (established itself)
         - Wall has now disappeared
         - Price was approaching the wall level
+
+        Returns:
+            List of spoof alert dicts with keys: ``type``
+            (``'spoof_detected'``), ``side``, ``price``, ``peak_volume``,
+            ``times_seen``, ``age_seconds``, ``vanished_seconds_ago``.
         """
         now = time.time()
         alerts = []
@@ -604,9 +772,10 @@ class OrderBookAnalyzer:
     # NEW v2.0: Absorption Detection
     # ══════════════════════════════════════════════════════════════
 
-    def _detect_absorption(self, bids: list, asks: list, mid_price: float, now: float) -> list[dict]:
-        """
-        Detect absorption events.
+    def _detect_absorption(
+        self, bids: list[list[float]], asks: list[list[float]], mid_price: float, now: float
+    ) -> list[dict]:
+        """Detect absorption events.
 
         Absorption = large volume traded at a price level without
         the price moving through that level. This means a major player
@@ -616,6 +785,18 @@ class OrderBookAnalyzer:
         - A wall-sized order sits at a level
         - Volume at that level is >> average (orders being filled into it)
         - Price stays at or near that level (wall absorbs the flow)
+
+        Args:
+            bids: List of ``[price, size]`` bid pairs.
+            asks: List of ``[price, size]`` ask pairs.
+            mid_price: Current mid-price.
+            now: Current Unix timestamp in seconds.
+
+        Returns:
+            List of absorption event dicts with keys: ``type``
+            (``'absorption'``), ``side``, ``price``, ``volume``,
+            ``multiple_of_avg``, ``price_stability_pct``, ``timestamp``,
+            ``interpretation`` (``'accumulation'`` or ``'distribution'``).
         """
         events = []
 

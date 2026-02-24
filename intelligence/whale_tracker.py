@@ -13,6 +13,8 @@ Signal logic:
   - General high whale activity = slightly bearish (uncertainty)
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from collections import deque
@@ -43,7 +45,23 @@ KNOWN_EXCHANGE_ADDRESSES = {
 
 
 class WhaleTracker:
-    """Monitors large Bitcoin transactions with exchange flow detection."""
+    """Monitors large Bitcoin transactions with exchange flow detection.
+
+    A "whale" transaction is any on-chain BTC transaction whose total
+    output value exceeds ``THRESHOLD_BTC`` (default 100 BTC).  Exchange
+    flow direction is determined by matching input/output addresses
+    against ``KNOWN_EXCHANGE_ADDRESSES``.
+
+    Signal direction key:
+    - Exchange outflows > inflows: bullish (coins leaving exchanges =
+      accumulation / self-custody).
+    - Exchange inflows > outflows: bearish (coins moving to exchanges =
+      preparing to sell).
+    - High general activity with no clear flow direction: slightly
+      bearish (uncertainty).
+
+    Results are cached for ``CACHE_TTL`` seconds.
+    """
 
     THRESHOLD_BTC = 100  # Transactions > 100 BTC
     MEMPOOL_API = "https://mempool.space/api"
@@ -59,12 +77,31 @@ class WhaleTracker:
     }
 
     def __init__(self) -> None:
+        """Initialise the tracker with an empty cache and activity history."""
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._history: deque = deque(maxlen=100)  # Track whale activity over time
 
     def get_signal(self) -> dict[str, Any]:
-        """Check for recent whale activity and produce signal."""
+        """Check for recent whale activity and produce signal.
+
+        Detects large BTC transactions from the mempool and recent
+        confirmed blocks, then classifies exchange flow direction to
+        generate a bullish/bearish/neutral signal.
+
+        Returns:
+            Dictionary with keys: ``source`` (``'whale_tracker'``),
+            ``signal`` (``'bullish'``, ``'bearish'``, or ``'neutral'``),
+            ``strength`` (0.0–0.4), ``data`` containing
+            ``whale_tx_count``, ``total_whale_btc``,
+            ``exchange_inflows_btc``, ``exchange_outflows_btc``,
+            ``large_transactions`` (up to 10 dicts), and
+            ``threshold_btc``.
+
+        Note:
+            Returns neutral immediately when
+            ``Config.ENABLE_WHALE_TRACKING`` is ``False``.
+        """
         if not Config.ENABLE_WHALE_TRACKING:
             return {"source": "whale_tracker", "signal": "neutral", "strength": 0.0, "data": {}}
 
@@ -93,7 +130,21 @@ class WhaleTracker:
             return {"source": "whale_tracker", "signal": "neutral", "strength": 0.0, "data": {"error": str(e)}}
 
     def _detect_whales(self) -> dict[str, Any]:
-        """Detect large transactions from multiple sources."""
+        """Detect large transactions from multiple sources.
+
+        Fetches unconfirmed transactions from the Blockchain.com API and
+        confirmed transactions from the 3 most recent blocks via
+        Mempool.space.  For confirmed blocks a higher threshold
+        (5× ``THRESHOLD_BTC``) is applied.
+
+        Results are cached for ``CACHE_TTL`` seconds.
+
+        Returns:
+            Dictionary with keys: ``whale_tx_count``, ``total_whale_btc``,
+            ``exchange_inflows_btc``, ``exchange_outflows_btc``,
+            ``large_transactions`` (up to 10 items), and
+            ``threshold_btc``.
+        """
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache:
             return self._cache
@@ -194,6 +245,14 @@ class WhaleTracker:
           - Exchange inflows > outflows = bearish (selling pressure)
           - Exchange outflows > inflows = bullish (accumulation)
           - Very high general whale activity = slightly bearish (uncertainty)
+
+        Args:
+            data: Whale detection dict from ``_detect_whales()``.
+
+        Returns:
+            A tuple of ``(signal, strength)`` where ``signal`` is
+            ``'bullish'``, ``'bearish'``, or ``'neutral'`` and
+            ``strength`` is in [0.0, 0.4].
         """
         whale_count = data.get("whale_tx_count", 0)
         inflows = data.get("exchange_inflows_btc", 0)

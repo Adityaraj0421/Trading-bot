@@ -16,6 +16,8 @@ Signal format (same as other intelligence providers):
    "strength": 0.0-1.0, "data": {...}}
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import time
@@ -95,9 +97,12 @@ _BEARISH_PATTERNS = {
 
 
 class LLMSentimentProvider:
-    """
-    LLM-powered real-time sentiment analysis for crypto markets.
+    """LLM-powered real-time sentiment analysis for crypto markets.
+
     Contextually scores headlines instead of naive keyword matching.
+    Uses the Anthropic (Claude) or OpenAI (GPT) API when a key is
+    configured, and falls back to enhanced keyword scoring otherwise.
+    Results are cached for ``CACHE_TTL`` seconds.
     """
 
     CACHE_TTL = 300  # 5 min cache for API calls
@@ -113,6 +118,12 @@ class LLMSentimentProvider:
     }
 
     def __init__(self) -> None:
+        """Initialise the provider and select the LLM backend.
+
+        Checks ``Config.ANTHROPIC_API_KEY`` first, then
+        ``Config.OPENAI_API_KEY``.  Falls back to keyword scoring when
+        neither key is present or neither client library is installed.
+        """
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._sentiment_history: deque = deque(maxlen=200)
@@ -131,9 +142,25 @@ class LLMSentimentProvider:
         _log.info(f"LLM Sentiment: backend={self._llm_backend}")
 
     def get_signal(self) -> dict[str, Any]:
-        """
-        Standard intelligence provider interface.
-        Returns sentiment signal for the aggregator.
+        """Standard intelligence provider interface.
+
+        Fetches recent headlines, scores them via LLM or keyword fallback,
+        and returns a sentiment signal.  Uses a cache to avoid re-fetching
+        within ``CACHE_TTL`` seconds.
+
+        Returns:
+            Dictionary with keys: ``source`` (``'LLMSentiment'``), ``signal``
+            (``'bullish'``, ``'bearish'``, or ``'neutral'``), ``strength``
+            (0.0–1.0), ``data`` containing ``ew_sentiment``,
+            ``n_headlines``, ``avg_confidence``, ``volume_spike``,
+            ``urgent_headlines``, ``llm_backend``, ``top_bullish``, and
+            ``top_bearish``.
+
+        Note:
+            When no LLM API key is configured, scoring falls back to
+            enhanced keyword matching.  The ``data.llm_backend`` field
+            indicates which backend was used (``'anthropic'``, ``'openai'``,
+            or ``'none'``).
         """
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._last_signal:
@@ -182,7 +209,16 @@ class LLMSentimentProvider:
             return self._neutral_signal(f"error: {str(e)[:50]}")
 
     def _fetch_headlines(self) -> list[dict]:
-        """Fetch recent crypto headlines from multiple free sources."""
+        """Fetch recent crypto headlines from multiple free sources.
+
+        Sources: Reddit r/cryptocurrency, Reddit r/bitcoin, and optionally
+        CryptoPanic when ``Config.CRYPTOPANIC_API_KEY`` is set.
+
+        Returns:
+            List of headline dicts, each containing ``title``, ``source``,
+            ``score``, ``created``, and ``comments``.  Capped at 50 items
+            and filtered to the last 6 hours.
+        """
         headlines = []
 
         # Reddit r/cryptocurrency
@@ -259,7 +295,16 @@ class LLMSentimentProvider:
         return headlines[:50]  # Cap at 50
 
     def _score_headlines(self, headlines: list[dict]) -> list[dict]:
-        """Score headlines using LLM or keyword fallback."""
+        """Score headlines using LLM or keyword fallback.
+
+        Args:
+            headlines: List of headline dicts from ``_fetch_headlines()``.
+
+        Returns:
+            List of score dicts, each containing ``polarity`` (−1.0 to
+            +1.0), ``confidence`` (0.0–1.0), and ``urgency``
+            (``'low'``, ``'medium'``, or ``'high'``).
+        """
         titles = [h["title"] for h in headlines if h.get("title")]
         if not titles:
             return []
@@ -270,7 +315,19 @@ class LLMSentimentProvider:
         return self._score_with_keywords(titles)
 
     def _score_with_llm(self, titles: list[str]) -> list[dict]:
-        """Score headlines using LLM for contextual understanding."""
+        """Score headlines using LLM for contextual understanding.
+
+        Batches titles into groups of ``LLM_BATCH_SIZE`` and sends each
+        batch to the configured LLM backend.  Falls back to keyword scoring
+        for any batch where the LLM call fails.
+
+        Args:
+            titles: List of headline title strings to score.
+
+        Returns:
+            List of score dicts with ``polarity``, ``confidence``, and
+            ``urgency`` keys.
+        """
         # Batch titles into groups
         results = []
         for i in range(0, len(titles), self.LLM_BATCH_SIZE):
@@ -305,7 +362,20 @@ class LLMSentimentProvider:
         return results
 
     def _call_anthropic(self, prompt: str) -> list[dict]:
-        """Call Claude API for headline scoring."""
+        """Call Claude API for headline scoring.
+
+        Args:
+            prompt: The full scoring prompt including all headlines.
+
+        Returns:
+            Parsed list of score dicts, or an empty list if the response
+            cannot be parsed.
+
+        Note:
+            Requires ``_HAS_ANTHROPIC`` to be ``True`` and a valid
+            ``ANTHROPIC_API_KEY`` in config.  Raises exceptions from the
+            ``anthropic`` client on API errors; callers should handle these.
+        """
         client = anthropic.Anthropic(api_key=self._llm_api_key)
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -316,7 +386,20 @@ class LLMSentimentProvider:
         return self._parse_llm_response(text)
 
     def _call_openai(self, prompt: str) -> list[dict]:
-        """Call OpenAI API for headline scoring."""
+        """Call OpenAI API for headline scoring.
+
+        Args:
+            prompt: The full scoring prompt including all headlines.
+
+        Returns:
+            Parsed list of score dicts, or an empty list if the response
+            cannot be parsed.
+
+        Note:
+            Requires ``_HAS_OPENAI`` to be ``True`` and a valid
+            ``OPENAI_API_KEY`` in config.  Raises exceptions from the
+            ``openai`` client on API errors; callers should handle these.
+        """
         client = openai.OpenAI(api_key=self._openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -327,7 +410,16 @@ class LLMSentimentProvider:
         return self._parse_llm_response(text)
 
     def _parse_llm_response(self, text: str) -> list[dict]:
-        """Parse JSON array from LLM response."""
+        """Parse JSON array from LLM response.
+
+        Args:
+            text: Raw text response from the LLM.
+
+        Returns:
+            List of normalised score dicts with ``polarity``,
+            ``confidence``, and ``urgency`` keys.  Returns an empty list
+            when no valid JSON array is found.
+        """
         # Find JSON array in response
         start = text.find("[")
         end = text.rfind("]") + 1
@@ -350,7 +442,16 @@ class LLMSentimentProvider:
             return []
 
     def _score_with_keywords(self, titles: list[str]) -> list[dict]:
-        """Enhanced keyword-based scoring as fallback."""
+        """Enhanced keyword-based scoring as fallback.
+
+        Args:
+            titles: List of headline title strings to score.
+
+        Returns:
+            List of score dicts with ``polarity``, ``confidence``, and
+            ``urgency`` keys derived from weighted keyword matching against
+            ``_BULLISH_PATTERNS`` and ``_BEARISH_PATTERNS``.
+        """
         results = []
         for title in titles:
             lower = title.lower()
@@ -374,9 +475,15 @@ class LLMSentimentProvider:
         return results
 
     def _compute_ew_sentiment(self) -> float:
-        """
-        Compute exponentially-weighted sentiment score.
-        Recent headlines weighted more (half-life = 2 hours).
+        """Compute exponentially-weighted sentiment score.
+
+        Recent headlines are weighted more heavily.  The weighting uses an
+        exponential decay with a half-life of ``SENTIMENT_HALF_LIFE``
+        seconds (default 2 hours).
+
+        Returns:
+            Weighted average polarity in [−1.0, 1.0].  Returns 0.0 when
+            no history is available.
         """
         if not self._sentiment_history:
             return 0.0
@@ -394,10 +501,16 @@ class LLMSentimentProvider:
 
         return weighted_sum / weight_sum if weight_sum > 0 else 0.0
 
-    def _detect_volume_spike(self) -> dict:
-        """
-        Detect sudden surge in social mention volume.
-        A spike = incoming volatility regardless of direction.
+    def _detect_volume_spike(self) -> dict[str, Any]:
+        """Detect sudden surge in social mention volume.
+
+        A spike indicates incoming volatility regardless of direction.
+        Compares the mean of the 3 most recent volume readings against
+        the mean of all earlier readings.
+
+        Returns:
+            Dictionary with keys: ``is_spike`` (bool), ``ratio`` (float),
+            ``avg_recent`` (float), ``avg_baseline`` (float).
         """
         if len(self._volume_history) < 5:
             return {"is_spike": False, "ratio": 1.0}
@@ -422,7 +535,19 @@ class LLMSentimentProvider:
         }
 
     def _to_signal(self, ew_sentiment: float, volume_spike: dict, scores: list[dict]) -> dict[str, Any]:
-        """Convert analysis to standard intelligence signal format."""
+        """Convert analysis to standard intelligence signal format.
+
+        Args:
+            ew_sentiment: Exponentially-weighted sentiment value in
+                [−1.0, 1.0].
+            volume_spike: Volume spike detection dict from
+                ``_detect_volume_spike()``.
+            scores: List of score dicts from headline scoring.
+
+        Returns:
+            Standard intelligence provider signal dict with keys:
+            ``source``, ``signal``, ``strength``, ``data``.
+        """
         # Determine signal direction
         if ew_sentiment > 0.15:
             signal = "bullish"
@@ -459,7 +584,17 @@ class LLMSentimentProvider:
         }
 
     def _neutral_signal(self, reason: str = "") -> dict[str, Any]:
-        """Return a neutral signal with an optional reason."""
+        """Return a neutral signal with an optional reason.
+
+        Args:
+            reason: Human-readable explanation for the neutral result,
+                included in ``data.reason``.
+
+        Returns:
+            Standard intelligence provider signal dict with
+            ``signal='neutral'``, ``strength=0.0``, and the provided
+            reason in ``data``.
+        """
         return {
             "source": "LLMSentiment",
             "signal": "neutral",

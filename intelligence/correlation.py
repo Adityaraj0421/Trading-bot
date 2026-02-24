@@ -5,7 +5,15 @@ Sources:
   - Fallback: CCXT BTC/USDT data + requests-based SPY fetch from Yahoo
 
 v7.0: Added CCXT fallback so correlation works even when yfinance proxy is blocked.
+
+Note:
+    yfinance is an optional soft dependency; correlation analysis degrades
+    gracefully to the Yahoo Finance CSV fallback (pure ``requests``) if
+    yfinance is not installed.  If both methods fail the provider returns a
+    neutral signal with ``data.error = 'all_sources_failed'``.
 """
+
+from __future__ import annotations
 
 import logging
 import time
@@ -28,15 +36,42 @@ _HEADERS = {
 
 
 class CorrelationAnalyzer:
-    """Tracks correlation between crypto and traditional markets."""
+    """Tracks correlation between crypto and traditional markets.
+
+    Computes the rolling Pearson correlation between BTC daily returns
+    and SPY (S&P 500 ETF) daily returns over the past ~30 days, then
+    maps that correlation to a bullish/bearish/neutral signal.
+
+    Uses yfinance as the primary data source and falls back to direct
+    Yahoo Finance CSV fetching when yfinance is unavailable or blocked.
+    """
 
     def __init__(self) -> None:
+        """Initialise the analyzer with an empty result cache."""
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._cache_ttl: int = 600  # 10 min — correlation doesn't change fast
 
     def get_signal(self) -> dict[str, Any]:
-        """Compute rolling correlation between BTC and stock indices."""
+        """Compute rolling correlation between BTC and stock indices.
+
+        Attempts yfinance first, then falls back to Yahoo Finance CSV,
+        then returns a neutral signal if both fail.  Results are cached
+        for ``_cache_ttl`` seconds.
+
+        Returns:
+            Dictionary with keys: ``source`` (``'correlation'``),
+            ``signal`` (``'bullish'``, ``'bearish'``, or ``'neutral'``),
+            ``strength`` (0.0–0.3), ``data`` containing
+            ``btc_spy_correlation``, ``spy_trend``, ``window_days``,
+            and ``method``.
+
+        Note:
+            Requires ``Config.ENABLE_CORRELATION`` to be ``True``; returns
+            a neutral signal immediately when the feature is disabled.
+            Equity correlations require yfinance to be installed.
+            If yfinance is absent, only the CSV fallback is used.
+        """
         if not Config.ENABLE_CORRELATION:
             return {"source": "correlation", "signal": "neutral", "strength": 0.0, "data": {}}
 
@@ -61,8 +96,22 @@ class CorrelationAnalyzer:
         self._cache_ts = now
         return result
 
-    def _try_yfinance(self) -> dict | None:
-        """Primary method: use yfinance library."""
+    def _try_yfinance(self) -> dict[str, Any] | None:
+        """Primary method: use yfinance library.
+
+        Downloads BTC-USD and SPY daily OHLCV for the past month,
+        computes daily returns, and calls ``_compute_signal()``.
+
+        Returns:
+            Correlation signal dict on success, or ``None`` if yfinance
+            is not installed, returns insufficient data, or raises any
+            exception.
+
+        Note:
+            yfinance is an optional dependency.  If it is not installed
+            this method returns ``None`` immediately and the caller falls
+            back to ``_try_yahoo_csv_fallback()``.
+        """
         try:
             import yfinance as yf
 
@@ -99,8 +148,16 @@ class CorrelationAnalyzer:
             _log.debug("yfinance failed: %s", e)
             return None
 
-    def _try_yahoo_csv_fallback(self) -> dict | None:
-        """Fallback: fetch Yahoo Finance CSV directly via requests."""
+    def _try_yahoo_csv_fallback(self) -> dict[str, Any] | None:
+        """Fallback: fetch Yahoo Finance CSV directly via requests.
+
+        Downloads ~35 days of daily close prices for BTC-USD and SPY
+        using the Yahoo Finance v7 download endpoint, computes daily
+        returns from the parsed CSV, and calls ``_compute_signal()``.
+
+        Returns:
+            Correlation signal dict on success, or ``None`` on failure.
+        """
         try:
             now = int(time.time())
             period1 = now - 35 * 86400  # ~35 days ago
@@ -141,8 +198,20 @@ class CorrelationAnalyzer:
             _log.debug("Yahoo CSV fallback failed: %s", e)
             return None
 
-    def _fetch_yahoo_csv(self, ticker: str, period1: int, period2: int) -> dict | None:
-        """Fetch daily close prices from Yahoo Finance CSV endpoint."""
+    def _fetch_yahoo_csv(self, ticker: str, period1: int, period2: int) -> dict[str, float] | None:
+        """Fetch daily close prices from Yahoo Finance CSV endpoint.
+
+        Args:
+            ticker: Yahoo Finance ticker symbol, e.g. ``'BTC-USD'`` or
+                ``'SPY'``.
+            period1: Start of the date range as a Unix timestamp (seconds).
+            period2: End of the date range as a Unix timestamp (seconds).
+
+        Returns:
+            Dictionary mapping date strings (``'YYYY-MM-DD'``) to adjusted
+            close prices, or ``None`` if the request fails or returns fewer
+            than 5 data points.
+        """
         url = (
             f"https://query1.finance.yahoo.com/v7/finance/download/{ticker}"
             f"?period1={period1}&period2={period2}&interval=1d&events=history"
@@ -171,7 +240,23 @@ class CorrelationAnalyzer:
     def _compute_signal(
         self, btc_returns: np.ndarray, spy_returns: np.ndarray, window: int, source_method: str
     ) -> dict[str, Any]:
-        """Common correlation computation."""
+        """Common correlation computation shared by both data-fetch methods.
+
+        Args:
+            btc_returns: Array of BTC daily return values.
+            spy_returns: Array of SPY daily return values aligned to the
+                same dates as ``btc_returns``.
+            window: Number of overlapping data points used (reported in
+                ``data.window_days``).
+            source_method: Label for the data source used
+                (``'yfinance'`` or ``'yahoo_csv'``).
+
+        Returns:
+            Standard intelligence provider signal dict with keys:
+            ``source``, ``signal``, ``strength``, ``data``.  The ``data``
+            sub-dict contains ``btc_spy_correlation``, ``spy_trend``,
+            ``window_days``, and ``method``.
+        """
         corr = np.corrcoef(btc_returns, spy_returns)[0, 1]
         spy_trend = "up" if spy_returns.mean() > 0 else "down"
 

@@ -14,6 +14,8 @@ Signal logic:
   - Recent mass liquidation event → trend continuation after flush
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from collections import deque
@@ -36,9 +38,23 @@ _TAKER_BUY_SELL_URL = "https://fapi.binance.com/futures/data/takerlongshortRatio
 
 
 class LiquidationAnalyzer:
-    """Intelligence provider: liquidation cluster estimation."""
+    """Intelligence provider: liquidation cluster estimation.
+
+    Estimates liquidation risk across multiple futures symbols using
+    long/short ratios, top-trader positioning, and taker buy/sell volume
+    from the Binance public API.  Results are cached for ``_cache_ttl``
+    seconds.
+    """
 
     def __init__(self, symbols: list[str] | None = None) -> None:
+        """Initialise the analyzer for a set of Binance futures symbols.
+
+        Args:
+            symbols: List of Binance futures symbol strings
+                (e.g. ``['BTCUSDT', 'ETHUSDT', 'SOLUSDT']``).
+                Defaults to ``['BTCUSDT', 'ETHUSDT', 'SOLUSDT']`` when
+                ``None``.
+        """
         self.symbols = symbols or ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
         self._cache: dict = {}
         self._cache_ts: float = 0
@@ -46,7 +62,19 @@ class LiquidationAnalyzer:
         self._ls_history: dict[str, deque] = {s: deque(maxlen=24) for s in self.symbols}
 
     def get_signal(self) -> dict[str, Any]:
-        """Return aggregated liquidation risk signal."""
+        """Return aggregated liquidation risk signal.
+
+        Analyses long/short ratios, top-trader positioning, and taker
+        volume for each tracked symbol, then averages the per-symbol
+        scores into a composite signal.  Results are cached for
+        ``_cache_ttl`` seconds.
+
+        Returns:
+            Dictionary with keys: ``source`` (``'liquidation'``), ``signal``
+            (``'bullish'``, ``'bearish'``, or ``'neutral'``), ``strength``
+            (0.0–1.0), ``data`` containing ``bullish_score``,
+            ``bearish_score``, ``net_score``, and ``per_symbol`` details.
+        """
         now = time.time()
         if self._cache and now - self._cache_ts < self._cache_ttl:
             return self._cache
@@ -105,7 +133,16 @@ class LiquidationAnalyzer:
         return result
 
     def _analyze_symbol(self, symbol: str) -> dict[str, Any]:
-        """Analyze liquidation risk for a single symbol."""
+        """Analyze liquidation risk for a single symbol.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Dictionary with keys: ``long_short_ratio``, ``top_trader_ls``,
+            ``taker_ratio``, ``bullish_score``, ``bearish_score``,
+            ``signals`` (list of human-readable signal descriptions).
+        """
         bull = 0.0
         bear = 0.0
         signals = []
@@ -182,7 +219,14 @@ class LiquidationAnalyzer:
         }
 
     def _fetch_long_short_ratio(self, symbol: str) -> float | None:
-        """Fetch global long/short account ratio."""
+        """Fetch global long/short account ratio.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Latest long/short ratio as a float, or ``None`` on failure.
+        """
         try:
             resp = requests.get(
                 _LONG_SHORT_URL,
@@ -200,7 +244,14 @@ class LiquidationAnalyzer:
         return None
 
     def _fetch_top_trader_ls(self, symbol: str) -> float | None:
-        """Fetch top trader long/short ratio."""
+        """Fetch top trader long/short ratio.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Top-trader long/short ratio as a float, or ``None`` on failure.
+        """
         try:
             resp = requests.get(
                 _TOP_LONG_SHORT_URL,
@@ -218,7 +269,14 @@ class LiquidationAnalyzer:
         return None
 
     def _fetch_taker_buy_sell(self, symbol: str) -> float | None:
-        """Fetch taker buy/sell volume ratio."""
+        """Fetch taker buy/sell volume ratio.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Latest taker buy/sell ratio as a float, or ``None`` on failure.
+        """
         try:
             resp = requests.get(
                 _TAKER_BUY_SELL_URL,

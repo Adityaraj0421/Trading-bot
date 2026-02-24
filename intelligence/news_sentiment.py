@@ -9,6 +9,8 @@ Sources:
 Uses keyword matching with weighted scoring and recency bias.
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from collections import deque
@@ -88,7 +90,12 @@ BEARISH_KEYWORDS = [
 
 
 class NewsSentimentAnalyzer:
-    """Analyzes crypto news headlines for sentiment from multiple sources."""
+    """Analyzes crypto news headlines for sentiment from multiple sources.
+
+    Fetches posts from Reddit, CoinGecko trending, and optionally
+    CryptoPanic, then applies weighted keyword scoring with engagement
+    multipliers to produce a bullish/bearish/neutral signal.
+    """
 
     CACHE_TTL = 180  # 3 min cache
     REDDIT_HEADERS = {
@@ -100,12 +107,30 @@ class NewsSentimentAnalyzer:
     CRYPTOPANIC_API = "https://cryptopanic.com/api/v1"
 
     def __init__(self) -> None:
+        """Initialise the analyzer with an empty cache and history."""
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._history: deque = deque(maxlen=50)  # Track sentiment over time
 
     def get_signal(self) -> dict[str, Any]:
-        """Analyze news sentiment from all sources."""
+        """Analyze news sentiment from all sources.
+
+        Fetches headlines from all configured sources, applies weighted
+        keyword sentiment analysis, and applies a trend multiplier based
+        on recent signal history.
+
+        Returns:
+            Dictionary with keys: ``source`` (``'news_sentiment'``),
+            ``signal`` (``'bullish'``, ``'bearish'``, or ``'neutral'``),
+            ``strength`` (0.0–0.5), ``data`` containing ``signal``,
+            ``strength``, ``headline_count``, ``matched_count``,
+            ``bullish_score``, ``bearish_score``, ``sentiment_ratio``, and
+            ``top_headlines``.
+
+        Note:
+            Returns a neutral signal immediately when
+            ``Config.ENABLE_NEWS_NLP`` is ``False``.
+        """
         if not Config.ENABLE_NEWS_NLP:
             return {"source": "news_sentiment", "signal": "neutral", "strength": 0.0, "data": {}}
 
@@ -146,7 +171,14 @@ class NewsSentimentAnalyzer:
             return {"source": "news_sentiment", "signal": "neutral", "strength": 0.0, "data": {"error": str(e)}}
 
     def _fetch_all_headlines(self) -> list[dict]:
-        """Fetch headlines from all sources."""
+        """Fetch headlines from all sources.
+
+        Uses a ``CACHE_TTL`` second cache to avoid redundant requests.
+
+        Returns:
+            Combined list of headline dicts from Reddit, CoinGecko, and
+            optionally CryptoPanic.
+        """
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache.get("headlines"):
             return self._cache["headlines"]
@@ -176,7 +208,20 @@ class NewsSentimentAnalyzer:
         return headlines
 
     def _fetch_reddit(self, subreddit: str, limit: int = 25) -> list[dict]:
-        """Fetch top posts from a subreddit. Tries www, then old.reddit as fallback."""
+        """Fetch top posts from a subreddit.
+
+        Tries www.reddit.com first, then old.reddit.com as fallback.
+
+        Args:
+            subreddit: Subreddit name without the ``r/`` prefix, e.g.
+                ``'cryptocurrency'``.
+            limit: Maximum number of posts to fetch (default 25).
+
+        Returns:
+            List of post dicts with ``title``, ``score``, ``source``,
+            ``upvote_ratio``, and ``num_comments`` keys.  Returns an empty
+            list when all URL attempts fail.
+        """
         urls = [
             f"https://www.reddit.com/r/{subreddit}/hot.json?limit={limit}",
             f"https://old.reddit.com/r/{subreddit}/hot.json?limit={limit}",
@@ -208,7 +253,14 @@ class NewsSentimentAnalyzer:
         return []
 
     def _fetch_coingecko_trending(self) -> list[dict]:
-        """Fetch trending coins from CoinGecko as sentiment proxy."""
+        """Fetch trending coins from CoinGecko as sentiment proxy.
+
+        Returns:
+            List of pseudo-headline dicts generated from the top 7
+            trending coins, each containing ``title``, ``score``,
+            ``source``, ``upvote_ratio``, and ``num_comments`` keys.
+            Returns an empty list on failure.
+        """
         try:
             resp = requests.get(
                 "https://api.coingecko.com/api/v3/search/trending",
@@ -248,7 +300,16 @@ class NewsSentimentAnalyzer:
             return []
 
     def _fetch_cryptopanic(self, api_key: str) -> list[dict]:
-        """Fetch from CryptoPanic API (free tier: 5 req/min)."""
+        """Fetch from CryptoPanic API (free tier: 5 req/min).
+
+        Args:
+            api_key: CryptoPanic API authentication token.
+
+        Returns:
+            List of headline dicts from CryptoPanic with ``title``,
+            ``score``, ``source``, ``upvote_ratio``, ``num_comments``, and
+            ``votes`` keys.  Returns an empty list on failure.
+        """
         try:
             resp = requests.get(
                 f"{self.CRYPTOPANIC_API}/posts/?auth_token={api_key}&currencies=BTC,ETH&filter=hot",
@@ -280,6 +341,15 @@ class NewsSentimentAnalyzer:
           1. Keyword matches with weights
           2. Reddit score (popular = more weight)
           3. Engagement (comments = conviction)
+
+        Args:
+            headlines: List of headline dicts from ``_fetch_all_headlines()``.
+
+        Returns:
+            Dictionary with keys: ``signal``, ``strength``,
+            ``headline_count``, ``matched_count``, ``bullish_score``,
+            ``bearish_score``, ``sentiment_ratio``, and ``top_headlines``
+            (up to 5 most polarised matched headlines).
         """
         bullish_score = 0.0
         bearish_score = 0.0
@@ -363,7 +433,15 @@ class NewsSentimentAnalyzer:
         }
 
     def _compute_trend_multiplier(self) -> float:
-        """If sentiment has been consistently directional, amplify the signal."""
+        """Compute trend multiplier from recent signal history.
+
+        If sentiment has been consistently directional over the last 5
+        readings, amplify the signal strength.
+
+        Returns:
+            Multiplier float: 1.3 (strong trend, 4+ same-direction),
+            1.15 (moderate trend, 3+ same-direction), or 1.0 (no trend).
+        """
         if len(self._history) < 3:
             return 1.0
 

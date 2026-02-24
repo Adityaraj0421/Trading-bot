@@ -17,6 +17,8 @@ v2.0 enhancements:
 Produces bullish/bearish/neutral signal with strength 0.0 - 0.5.
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from collections import deque
@@ -48,7 +50,12 @@ class OnChainFeatures:
     mempool_clearing_rate: float = 0.5  # How fast mempool clears
 
     def to_array(self) -> np.ndarray:
-        """Convert to numpy array for ML model input."""
+        """Convert to numpy array for ML model input.
+
+        Returns:
+            1-D ``np.ndarray`` of shape ``(8,)`` with dtype ``float64``
+            containing the feature values in field declaration order.
+        """
         return np.array(
             [
                 self.hash_rate_trend,
@@ -65,7 +72,12 @@ class OnChainFeatures:
 
     @staticmethod
     def feature_names() -> list[str]:
-        """Return ordered feature names for model registration."""
+        """Return ordered feature names for model registration.
+
+        Returns:
+            List of 8 feature name strings with ``'onchain_'`` prefix,
+            matching the field order of ``to_array()``.
+        """
         return [
             "onchain_hash_rate_trend",
             "onchain_mempool_pressure",
@@ -82,9 +94,11 @@ class OnChainFeatures:
 
 
 class OnChainAnalyzer:
-    """
+    """Fetch Bitcoin on-chain metrics for signal generation and ML features.
+
     v2.0: Fetches Bitcoin on-chain metrics for both signal generation
-    and ML feature extraction.
+    and ML feature extraction.  All data sources are free and require no
+    API keys.  Results are cached for ``CACHE_TTL`` seconds.
     """
 
     BLOCKCHAIN_API = "https://api.blockchain.info"
@@ -95,6 +109,7 @@ class OnChainAnalyzer:
     MAX_HISTORY = 50  # ~4 hours of 5-min readings
 
     def __init__(self) -> None:
+        """Initialise the analyzer with empty history and feature state."""
         self._cache: dict = {}
         self._cache_ts: float = 0
         self._prev_metrics: dict = {}
@@ -109,7 +124,21 @@ class OnChainAnalyzer:
     # ── Public Interface ──────────────────────────────────────────
 
     def get_signal(self) -> dict[str, Any]:
-        """Original signal generation interface."""
+        """Original signal generation interface.
+
+        Fetches all on-chain metrics, analyses them, updates ML features,
+        and returns a standard intelligence provider signal dict.
+
+        Returns:
+            Dictionary with keys: ``source`` (``'onchain'``), ``signal``
+            (``'bullish'``, ``'bearish'``, or ``'neutral'``), ``strength``
+            (0.0–0.4), ``data`` containing all raw metrics and an
+            ``analysis`` sub-dict with per-metric commentary.
+
+        Note:
+            Returns a neutral signal immediately when
+            ``Config.ENABLE_ONCHAIN`` is ``False``.
+        """
         if not Config.ENABLE_ONCHAIN:
             return {"source": "onchain", "signal": "neutral", "strength": 0.0, "data": {}}
 
@@ -132,26 +161,44 @@ class OnChainAnalyzer:
             return {"source": "onchain", "signal": "neutral", "strength": 0.0, "data": {"error": str(e)}}
 
     def get_ml_features(self) -> OnChainFeatures:
-        """
-        v2.0: Return normalized on-chain features for ML model.
+        """Return normalized on-chain features for ML model.
 
-        Features are updated each time get_signal() is called.
+        Features are updated each time ``get_signal()`` is called.
         Safe to call without network fetch — returns last computed features.
+
+        Returns:
+            The most recently computed ``OnChainFeatures`` dataclass
+            instance.  Returns default (0.5-initialised) features until
+            the first successful ``get_signal()`` call.
         """
         return self._last_features
 
     def get_feature_array(self) -> np.ndarray:
-        """v2.0: Return features as numpy array for model input."""
+        """Return features as numpy array for model input.
+
+        Returns:
+            1-D ``np.ndarray`` of shape ``(8,)`` from the last computed
+            ``OnChainFeatures``.
+        """
         return self._last_features.to_array()
 
     def get_feature_names(self) -> list[str]:
-        """v2.0: Return feature names for model registration."""
+        """Return feature names for model registration.
+
+        Returns:
+            List of 8 feature name strings matching the order of
+            ``get_feature_array()``.
+        """
         return OnChainFeatures.feature_names()
 
     # ── v2.0: ML Feature Extraction ───────────────────────────────
 
     def _update_features(self, metrics: dict) -> None:
-        """Compute normalized ML features from raw metrics."""
+        """Compute normalized ML features from raw metrics.
+
+        Args:
+            metrics: Raw metric dict returned by ``_fetch_all_metrics()``.
+        """
 
         # 1. Hash Rate Trend (-1 to +1)
         hr = metrics.get("hash_rate", 0)
@@ -228,9 +275,16 @@ class OnChainAnalyzer:
         )
 
     def _compute_momentum(self, history: deque, short: int = 5, long: int = 20) -> float:
-        """
-        Compute momentum as (short MA - long MA) / long MA.
-        Returns value in [-1, 1].
+        """Compute momentum as (short MA - long MA) / long MA.
+
+        Args:
+            history: Deque of historical metric values.
+            short: Window size for the short moving average (default 5).
+            long: Window size for the long moving average (default 20).
+
+        Returns:
+            Momentum value clamped to [−1, 1].  Returns 0.0 when fewer
+            than 3 data points are available.
         """
         data = list(history)
         if len(data) < 3:
@@ -249,7 +303,19 @@ class OnChainAnalyzer:
         return max(-1.0, min(1.0, momentum * 10))  # Scale and clamp
 
     def _compute_volatility(self, history: deque) -> float:
-        """Compute normalized volatility of a metric."""
+        """Compute normalized volatility of a metric.
+
+        Uses the coefficient of variation (std / mean) of the most recent
+        10 observations.
+
+        Args:
+            history: Deque of historical metric values.
+
+        Returns:
+            Coefficient of variation clamped to [0, 1].  Returns 0.0
+            when fewer than 5 data points are available or the mean is
+            zero.
+        """
         data = list(history)
         if len(data) < 5:
             return 0.0
@@ -269,7 +335,15 @@ class OnChainAnalyzer:
     # ── Original Analysis (preserved) ─────────────────────────────
 
     def _fetch_all_metrics(self) -> dict[str, Any]:
-        """Fetch all on-chain metrics, using cache if fresh."""
+        """Fetch all on-chain metrics, using cache if fresh.
+
+        Returns:
+            Dictionary of raw metric values keyed by metric name
+            (``hash_rate``, ``difficulty``, ``tx_count_24h``,
+            ``unconfirmed_count``, ``mempool_size_bytes``,
+            ``mempool_tx_count``, ``fee_fastest``, ``fee_half_hour``,
+            ``fee_hour``, ``fee_economy``, ``block_height``).
+        """
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache:
             return self._cache
@@ -301,7 +375,17 @@ class OnChainAnalyzer:
         return metrics
 
     def _analyze(self, metrics: dict) -> tuple[str, float, dict[str, Any]]:
-        """Analyze on-chain metrics and produce a signal."""
+        """Analyze on-chain metrics and produce a signal.
+
+        Args:
+            metrics: Raw metric dict from ``_fetch_all_metrics()``.
+
+        Returns:
+            A tuple of ``(signal, strength, analysis)`` where ``signal``
+            is ``'bullish'``, ``'bearish'``, or ``'neutral'``;
+            ``strength`` is in [0.0, 0.4]; and ``analysis`` is a dict
+            of per-metric commentary strings plus a ``net_score`` float.
+        """
         scores = []
         analysis = {}
 
@@ -402,7 +486,20 @@ class OnChainAnalyzer:
     }
 
     def _fetch_json(self, url: str, parse_text: bool = False, timeout: int = 8) -> Any:
-        """Fetch a URL and return parsed JSON or numeric value."""
+        """Fetch a URL and return parsed JSON or numeric value.
+
+        Args:
+            url: Full URL to fetch.
+            parse_text: When ``True``, attempt to parse the response body
+                as a plain numeric text value (used for Blockchain.com
+                simple endpoints).  When ``False``, parse as JSON.
+            timeout: Request timeout in seconds (default 8).
+
+        Returns:
+            Parsed JSON object when ``parse_text=False``, or a ``float``
+            when ``parse_text=True``.  Returns 0 (``parse_text=True``) or
+            ``{}`` (``parse_text=False``) on any error or non-200 response.
+        """
         try:
             resp = requests.get(url, headers=self._HEADERS, timeout=timeout)
             if resp.status_code == 429:

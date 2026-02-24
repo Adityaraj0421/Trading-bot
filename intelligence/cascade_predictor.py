@@ -20,6 +20,8 @@ Uses Binance public API (no auth required):
   - Taker buy/sell volume
 """
 
+from __future__ import annotations
+
 import logging
 import time
 from collections import deque
@@ -69,8 +71,15 @@ class CascadeRisk:
     signal_confidence: float = 0.0
     timestamp: float = 0.0
 
-    def to_dict(self) -> dict:
-        """Serialize cascade risk assessment to dict."""
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize cascade risk assessment to dict.
+
+        Returns:
+            Dictionary containing scalar risk metrics suitable for JSON
+            serialisation and dashboard display.  Level lists are replaced
+            with counts (``n_long_levels``, ``n_short_levels``) to keep the
+            payload compact.
+        """
         return {
             "symbol": self.symbol,
             "risk_score": round(self.risk_score, 1),
@@ -88,10 +97,12 @@ class CascadeRisk:
 
 
 class CascadePredictor:
-    """
-    Predicts liquidation cascades and generates trading signals.
+    """Predicts liquidation cascades and generates trading signals.
+
     Uses publicly available Binance futures data to estimate where
     forced liquidations will cluster and when cascades are likely.
+    Results are cached for ``CACHE_TTL`` seconds to avoid excessive
+    API calls.
     """
 
     CACHE_TTL = 120  # 2 min cache
@@ -102,6 +113,13 @@ class CascadePredictor:
     LEVERAGE_DIST = [2, 3, 5, 10, 20, 25, 50, 75, 100, 125]
 
     def __init__(self, symbols: list[str] | None = None) -> None:
+        """Initialise the predictor for a set of futures symbols.
+
+        Args:
+            symbols: List of Binance futures symbol strings (e.g.
+                ``['BTCUSDT', 'ETHUSDT']``).  Defaults to
+                ``['BTCUSDT', 'ETHUSDT']`` when ``None``.
+        """
         self.symbols = symbols or ["BTCUSDT", "ETHUSDT"]
         self._cache: dict[str, CascadeRisk] = {}
         self._cache_ts: float = 0
@@ -109,7 +127,18 @@ class CascadePredictor:
         self._price_history: dict[str, deque] = {s: deque(maxlen=50) for s in self.symbols}
 
     def get_signal(self) -> dict[str, Any]:
-        """Standard intelligence provider interface."""
+        """Standard intelligence provider interface.
+
+        Returns a cached result when the cache is still fresh; otherwise
+        re-analyses all tracked symbols and refreshes the cache.
+
+        Returns:
+            Dictionary with keys: ``source``, ``signal``
+            (``'bullish'``, ``'bearish'``, or ``'neutral'``), ``strength``
+            (0.0–1.0), and ``data`` containing per-symbol cascade risk dicts
+            plus ``max_risk_symbol``, ``max_risk_score``, and
+            ``cascade_direction``.
+        """
         now = time.time()
         if now - self._cache_ts < self.CACHE_TTL and self._cache:
             return self._aggregate_signal()
@@ -126,8 +155,40 @@ class CascadePredictor:
         self._cache_ts = now
         return self._aggregate_signal()
 
+    def get_emergency_exit_symbols(self) -> list[str]:
+        """Return list of symbols where cascade risk is extreme.
+
+        Returns:
+            List of symbol strings whose ``risk_score`` exceeds
+            ``CASCADE_EXTREME`` (90).  Empty list when no extreme-risk
+            symbols are tracked.
+        """
+        return [symbol for symbol, risk in self._cache.items() if risk.risk_score >= self.CASCADE_EXTREME]
+
+    def get_status(self) -> dict[str, Any]:
+        """Return cascade predictor status for dashboard display.
+
+        Returns:
+            Dictionary with keys: ``symbols`` (list of tracked symbols),
+            ``risks`` (dict mapping symbol → serialised ``CascadeRisk``),
+            and ``emergency_symbols`` (list of extreme-risk symbols).
+        """
+        return {
+            "symbols": self.symbols,
+            "risks": {s: r.to_dict() for s, r in self._cache.items()},
+            "emergency_symbols": self.get_emergency_exit_symbols(),
+        }
+
     def _analyze_symbol(self, symbol: str) -> CascadeRisk:
-        """Full cascade risk analysis for one symbol."""
+        """Full cascade risk analysis for one symbol.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            A ``CascadeRisk`` dataclass populated with all computed metrics
+            and a trading signal.
+        """
         # Fetch data
         oi_data = self._fetch_open_interest(symbol)
         ls_data = self._fetch_long_short_ratio(symbol)
@@ -189,7 +250,15 @@ class CascadePredictor:
         )
 
     def _fetch_open_interest(self, symbol: str) -> list[dict]:
-        """Fetch OI history from Binance."""
+        """Fetch OI history from Binance.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            List of OI history dicts from the Binance API, or an empty
+            list on failure.
+        """
         try:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/futures/data/openInterestHist",
@@ -207,7 +276,15 @@ class CascadePredictor:
         return []
 
     def _fetch_long_short_ratio(self, symbol: str) -> list[dict]:
-        """Fetch global long/short account ratio."""
+        """Fetch global long/short account ratio.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            List of long/short ratio history dicts, or an empty list on
+            failure.
+        """
         try:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/futures/data/globalLongShortAccountRatio",
@@ -225,7 +302,15 @@ class CascadePredictor:
         return []
 
     def _fetch_funding_rate(self, symbol: str) -> float:
-        """Fetch current funding rate."""
+        """Fetch current funding rate.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Current funding rate as a float (e.g. 0.0001 = 0.01%).
+            Returns 0.0 on failure.
+        """
         try:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/fapi/v1/premiumIndex",
@@ -243,7 +328,14 @@ class CascadePredictor:
         return 0.0
 
     def _fetch_taker_ratio(self, symbol: str) -> list[dict]:
-        """Fetch taker buy/sell volume ratio."""
+        """Fetch taker buy/sell volume ratio.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            List of taker ratio history dicts, or an empty list on failure.
+        """
         try:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/futures/data/takerlongshortRatio",
@@ -261,7 +353,14 @@ class CascadePredictor:
         return []
 
     def _fetch_current_price(self, symbol: str) -> float:
-        """Fetch current price."""
+        """Fetch current price.
+
+        Args:
+            symbol: Binance futures symbol string, e.g. ``'BTCUSDT'``.
+
+        Returns:
+            Current mark price as a float, or 0.0 on failure.
+        """
         try:
             resp = requests.get(
                 f"{BINANCE_FUTURES}/fapi/v1/ticker/price",
@@ -282,11 +381,23 @@ class CascadePredictor:
             _log.error("Price parse error for %s: %s", symbol, e)
         return 0.0
 
-    def _estimate_liquidation_levels(self, price: float, oi_data: list, ls_data: list) -> tuple[list, list]:
-        """
-        Estimate liquidation price levels based on OI and leverage.
-        Long liquidations occur at: entry_price * (1 - 1/leverage)
-        Short liquidations occur at: entry_price * (1 + 1/leverage)
+    def _estimate_liquidation_levels(
+        self, price: float, oi_data: list, ls_data: list
+    ) -> tuple[list[LiquidationLevel], list[LiquidationLevel]]:
+        """Estimate liquidation price levels based on OI and leverage.
+
+        Long liquidations occur at: ``entry_price * (1 - 1/leverage)``
+        Short liquidations occur at: ``entry_price * (1 + 1/leverage)``
+
+        Args:
+            price: Current market price.
+            oi_data: Open interest history list from the Binance API.
+            ls_data: Long/short ratio history list from the Binance API.
+
+        Returns:
+            A tuple of ``(long_levels, short_levels)`` where each element is
+            a list of ``LiquidationLevel`` objects sorted by proximity to
+            current price.
         """
         if not oi_data:
             return [], []
@@ -346,9 +457,17 @@ class CascadePredictor:
         return long_levels, short_levels
 
     def _compute_oi_concentration(self, oi_data: list, symbol: str) -> float:
-        """
-        How concentrated is OI? High OI + recent increase = risky.
-        Returns 0-1 where 1 = maximum concentration risk.
+        """Compute OI concentration risk.
+
+        High OI + recent increase = risky.
+
+        Args:
+            oi_data: Open interest history list from the Binance API.
+            symbol: Symbol string (unused in computation, kept for logging).
+
+        Returns:
+            Float in [0, 1] where 1.0 = maximum concentration risk
+            (>20% OI growth vs recent average).
         """
         if len(oi_data) < 2:
             return 0.0
@@ -366,18 +485,30 @@ class CascadePredictor:
         return min(1.0, max(0.0, growth / 0.2))
 
     def _compute_funding_pressure(self, funding_rate: float) -> float:
-        """
+        """Compute signed funding pressure from the funding rate.
+
         High absolute funding = high leverage = high cascade risk.
-        Returns signed value: positive = longs paying (long cascade risk),
-        negative = shorts paying (short squeeze risk).
+
+        Args:
+            funding_rate: Raw funding rate value (e.g. 0.0001 = 0.01%).
+
+        Returns:
+            Signed float in [-1, 1].  Positive = longs paying (long cascade
+            risk); negative = shorts paying (short squeeze risk).
         """
         # Normalize: 0.1% funding = extreme pressure
         return max(-1.0, min(1.0, funding_rate / 0.001))
 
     def _compute_ls_imbalance(self, ls_data: list) -> float:
-        """
-        Long/short ratio imbalance. Extreme imbalance = cascade risk.
-        Returns 0-1 where 1 = extreme imbalance.
+        """Compute long/short ratio imbalance.
+
+        Extreme imbalance = cascade risk.
+
+        Args:
+            ls_data: Long/short ratio history list from the Binance API.
+
+        Returns:
+            Float in [0, 1] where 1.0 = extreme imbalance.
         """
         if not ls_data:
             return 0.0
@@ -387,9 +518,16 @@ class CascadePredictor:
         return min(1.0, imbalance)
 
     def _compute_taker_aggression(self, taker_data: list) -> float:
-        """
-        Net taker aggression. High sell aggression + long OI = cascade incoming.
-        Returns -1 (sell aggression) to +1 (buy aggression).
+        """Compute net taker aggression from taker buy/sell data.
+
+        High sell aggression + long OI = cascade incoming.
+
+        Args:
+            taker_data: Taker ratio history list from the Binance API.
+
+        Returns:
+            Float in [-1, 1].  -1 = strong sell aggression,
+            +1 = strong buy aggression.
         """
         if not taker_data:
             return 0.0
@@ -398,17 +536,40 @@ class CascadePredictor:
         avg_ratio = np.mean(ratios)
         return max(-1.0, min(1.0, avg_ratio - 1.0))
 
-    def _nearest_cluster_distance(self, price: float, long_levels: list, short_levels: list) -> float:
-        """Distance to nearest liquidation cluster (%)."""
+    def _nearest_cluster_distance(
+        self, price: float, long_levels: list[LiquidationLevel], short_levels: list[LiquidationLevel]
+    ) -> float:
+        """Compute distance to nearest liquidation cluster.
+
+        Args:
+            price: Current market price (unused directly; distances are
+                pre-computed in ``LiquidationLevel.distance_pct``).
+            long_levels: List of estimated long liquidation levels.
+            short_levels: List of estimated short liquidation levels.
+
+        Returns:
+            Minimum distance (%) to the nearest cluster across all levels.
+            Returns 100.0 when no levels are available.
+        """
         distances = [lvl.distance_pct for lvl in long_levels] + [lvl.distance_pct for lvl in short_levels]
         return min(distances) if distances else 100.0
 
     def _compute_risk_score(
         self, oi_conc: float, funding: float, ls_imb: float, taker: float, nearest_pct: float
     ) -> float:
-        """
-        Composite cascade risk score (0-100).
+        """Compute composite cascade risk score (0–100).
+
         High score = cascade is imminent.
+
+        Args:
+            oi_conc: OI concentration score in [0, 1].
+            funding: Funding pressure in [-1, 1].
+            ls_imb: Long/short imbalance in [0, 1].
+            taker: Net taker aggression in [-1, 1].
+            nearest_pct: Distance (%) to nearest liquidation cluster.
+
+        Returns:
+            Composite risk score clamped to [0, 100].
         """
         # Proximity risk: closer clusters = higher risk
         proximity_risk = max(0, (10 - nearest_pct) / 10) * 100
@@ -439,7 +600,21 @@ class CascadePredictor:
     def _generate_signal(
         self, risk_score: float, direction: str, oi_conc: float, funding: float, nearest_pct: float
     ) -> tuple[str, float]:
-        """Generate trading signal from cascade analysis."""
+        """Generate trading signal from cascade analysis.
+
+        Args:
+            risk_score: Composite risk score in [0, 100].
+            direction: Cascade direction, ``'down'`` or ``'up'``.
+            oi_conc: OI concentration score in [0, 1].
+            funding: Funding pressure in [-1, 1].
+            nearest_pct: Distance (%) to nearest liquidation cluster.
+
+        Returns:
+            A tuple of ``(signal_name, confidence)`` where ``signal_name``
+            is one of ``'pre_cascade_short'``, ``'pre_cascade_long'``,
+            ``'cascade_warning_bearish'``, ``'cascade_warning_bullish'``,
+            ``'post_cascade_reversal'``, or ``'neutral'``.
+        """
         if risk_score >= self.CASCADE_EXTREME:
             # Emergency: very high cascade risk
             if direction == "down":
@@ -461,7 +636,15 @@ class CascadePredictor:
         return "neutral", 0.0
 
     def _aggregate_signal(self) -> dict[str, Any]:
-        """Aggregate cascade signals across all monitored symbols."""
+        """Aggregate cascade signals across all monitored symbols.
+
+        Returns:
+            Standard intelligence provider signal dict with keys:
+            ``source``, ``signal``, ``strength``, ``data``.  The ``data``
+            sub-dict contains ``max_risk_symbol``, ``max_risk_score``,
+            ``cascade_direction``, ``cascade_signal``, and a ``symbols``
+            mapping of per-symbol risk serialisations.
+        """
         if not self._cache:
             return {
                 "source": "CascadePredictor",
@@ -496,16 +679,4 @@ class CascadePredictor:
                 "cascade_signal": max_risk.signal,
                 "symbols": {s: r.to_dict() for s, r in self._cache.items()},
             },
-        }
-
-    def get_emergency_exit_symbols(self) -> list[str]:
-        """Return list of symbols where cascade risk is extreme."""
-        return [symbol for symbol, risk in self._cache.items() if risk.risk_score >= self.CASCADE_EXTREME]
-
-    def get_status(self) -> dict[str, Any]:
-        """Return cascade predictor status for dashboard display."""
-        return {
-            "symbols": self.symbols,
-            "risks": {s: r.to_dict() for s, r in self._cache.items()},
-            "emergency_symbols": self.get_emergency_exit_symbols(),
         }
