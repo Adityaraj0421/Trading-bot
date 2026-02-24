@@ -11,6 +11,8 @@ Sends alerts via Telegram, Discord, and email for:
 All channels are optional — configure via .env.
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
 import smtplib
@@ -42,6 +44,11 @@ class Notifier:
     """Multi-channel notification system for the trading agent."""
 
     def __init__(self) -> None:
+        """Initialize the notifier with channel credentials from Config.
+
+        All channel credentials are read from the Config object. If a
+        credential is absent the corresponding channel is disabled silently.
+        """
         self._telegram_token: str = getattr(Config, "TELEGRAM_BOT_TOKEN", "")
         self._telegram_chat_id: str = getattr(Config, "TELEGRAM_CHAT_ID", "")
         self._discord_webhook: str = getattr(Config, "DISCORD_WEBHOOK_URL", "")
@@ -64,7 +71,16 @@ class Notifier:
         self._data_store: Any = None
 
     def set_data_store(self, store: Any) -> None:
-        """Attach DataStore so sent notifications appear on the /notifications API."""
+        """Attach DataStore so sent notifications appear on the /notifications API.
+
+        Called from ``agent.py:set_data_store()`` after the DataStore is wired.
+        Once set, every ``_send_all()`` call will also push the notification to
+        ``DataStore.append_notification()`` so the /notifications endpoint can
+        serve it.
+
+        Args:
+            store: The shared DataStore instance used by the agent and API.
+        """
         self._data_store = store
 
     @property
@@ -83,7 +99,11 @@ class Notifier:
         return bool(self._email_enabled and self._email_smtp and self._email_user)
 
     def has_channels(self) -> bool:
-        """Check if any notification channel is configured."""
+        """Check if any notification channel is configured.
+
+        Returns:
+            True if at least one of Telegram, Discord, or email is enabled.
+        """
         return self.telegram_enabled or self.discord_enabled or self.email_enabled
 
     def notify_trade_open(
@@ -97,7 +117,18 @@ class Notifier:
         strategy: str = "",
         confidence: float = 0,
     ) -> None:
-        """Notify about a new trade."""
+        """Notify about a new trade being opened.
+
+        Args:
+            symbol: Trading pair symbol (e.g. ``"BTC/USDT"``).
+            side: Trade direction — ``"long"`` or ``"short"``.
+            price: Entry price of the trade.
+            quantity: Position size in base asset units.
+            sl: Stop-loss price level (0 if not set).
+            tp: Take-profit price level (0 if not set).
+            strategy: Name of the strategy that generated the signal.
+            confidence: Strategy confidence score in [0, 1].
+        """
         side_emoji = "🟢" if side == "long" else "🔴"
         msg = (
             f"{side_emoji} **TRADE OPEN** | {side.upper()} {symbol}\n"
@@ -118,7 +149,18 @@ class Notifier:
         strategy: str,
         hold_bars: int,
     ) -> None:
-        """Notify about a closed trade."""
+        """Notify about a trade being closed and record it for the daily summary.
+
+        Args:
+            symbol: Trading pair symbol (e.g. ``"BTC/USDT"``).
+            side: Trade direction — ``"long"`` or ``"short"``.
+            entry: Entry price of the trade.
+            exit_price: Price at which the trade was closed.
+            pnl: Net profit/loss in quote currency (negative = loss).
+            reason: Exit reason (e.g. ``"tp_hit"``, ``"sl_hit"``, ``"signal"``).
+            strategy: Name of the strategy that opened the trade.
+            hold_bars: Number of candles the position was held.
+        """
         pnl_emoji = "✅" if pnl >= 0 else "❌"
         pnl_sign = "+" if pnl >= 0 else ""
         msg = (
@@ -142,7 +184,16 @@ class Notifier:
         self._daily_pnl += pnl
 
     def notify_state_change(self, old_state: str, new_state: str, reason: str) -> None:
-        """Notify about system state change."""
+        """Notify about a system state change (e.g. NORMAL -> DEFENSIVE).
+
+        Uses CRITICAL level for ``halted`` or ``defensive`` states, WARNING
+        for all other transitions.
+
+        Args:
+            old_state: The previous state name (e.g. ``"normal"``).
+            new_state: The new state name (e.g. ``"halted"``).
+            reason: Human-readable description of why the state changed.
+        """
         state_emojis = {
             "normal": "🟢",
             "cautious": "🟡",
@@ -155,17 +206,39 @@ class Notifier:
         self._send_all(msg, level)
 
     def notify_kill_switch(self, reason: str) -> None:
-        """Notify about kill switch activation."""
+        """Notify about emergency kill switch activation.
+
+        Sends a CRITICAL-level alert to all configured channels.
+
+        Args:
+            reason: Human-readable description of what triggered the halt.
+        """
         msg = f"🚨 **EMERGENCY HALT** 🚨\nAll trading stopped.\nReason: {reason}"
         self._send_all(msg, AlertLevel.CRITICAL)
 
     def notify_large_loss(self, pnl: float, capital_pct: float) -> None:
-        """Notify about a large loss."""
+        """Notify about a large single-trade or session loss.
+
+        Args:
+            pnl: Loss amount in quote currency (should be negative).
+            capital_pct: Loss as a percentage of total capital (e.g. 5.0 = 5 %).
+        """
         msg = f"⚠️ **LARGE LOSS**: ${pnl:,.2f} ({capital_pct:.1f}% of capital)\nReview positions immediately."
         self._send_all(msg, AlertLevel.WARNING)
 
     def notify_daily_summary(self, capital: float, total_pnl: float, win_rate: float, open_positions: int) -> None:
-        """Send daily performance summary."""
+        """Send daily performance summary and reset daily accumulators.
+
+        Aggregates per-strategy PnL from trades recorded via
+        ``notify_trade_close()`` and resets ``_daily_trades``/``_daily_pnl``
+        after sending.
+
+        Args:
+            capital: Current total capital in quote currency.
+            total_pnl: Cumulative PnL over all time (not just today).
+            win_rate: Overall historical win rate as a fraction in [0, 1].
+            open_positions: Number of currently open positions.
+        """
         pnl_emoji = "📈" if total_pnl >= 0 else "📉"
         trade_count = len(self._daily_trades)
         winners = sum(1 for t in self._daily_trades if t["pnl"] > 0)
@@ -208,7 +281,16 @@ class Notifier:
         pairs: list[str],
         prices: dict[str, float] | None = None,
     ) -> None:
-        """v7.0: Hourly heartbeat — agent is alive + quick stats."""
+        """Send an hourly heartbeat confirming the agent is alive.
+
+        Args:
+            cycle: Current agent cycle number.
+            capital: Current total capital in quote currency.
+            total_pnl: Cumulative all-time PnL.
+            open_positions: Number of currently open positions.
+            pairs: List of actively traded pair symbols.
+            prices: Optional mapping of ``symbol -> last_price`` for display.
+        """
         pnl_sign = "+" if total_pnl >= 0 else ""
         daily_sign = "+" if self._daily_pnl >= 0 else ""
 
@@ -227,12 +309,29 @@ class Notifier:
         self._send_all(msg, AlertLevel.INFO)
 
     def notify_error(self, component: str, error: str) -> None:
-        """Notify about a system error."""
+        """Notify about an internal system error.
+
+        Args:
+            component: Name of the module or component that errored.
+            error: Error message string (truncated to 200 chars in the alert).
+        """
         msg = f"⚙️ **ERROR** in {component}:\n{error[:200]}"
         self._send_all(msg, AlertLevel.WARNING)
 
     def _send_all(self, message: str, level: str) -> None:
-        """Send to all enabled channels (async, non-blocking)."""
+        """Single funnel that dispatches a message to all enabled channels.
+
+        This is the architectural chokepoint for all outbound notifications.
+        It appends the message to ``_history`` and to ``DataStore`` (for the
+        /notifications API endpoint), then spawns daemon threads to deliver to
+        Telegram, Discord, and/or email without blocking the agent loop.
+
+        Email is only sent for CRITICAL or DAILY_SUMMARY levels to avoid spam.
+
+        Args:
+            message: Plain-text (with **markdown bold**) message body.
+            level: Severity level — one of the ``AlertLevel`` constants.
+        """
         ts = datetime.now().isoformat()
         self._history.append(
             {
@@ -346,5 +445,13 @@ class Notifier:
             _log.debug("Email error: %s", e)
 
     def get_history(self, limit: int = 50) -> list[dict]:
-        """Get recent notification history."""
+        """Return recent notification history from the in-memory deque.
+
+        Args:
+            limit: Maximum number of most-recent entries to return.
+
+        Returns:
+            List of notification dicts with keys ``ts``, ``level``,
+            and ``message`` (newest last).
+        """
         return list(self._history)[-limit:]

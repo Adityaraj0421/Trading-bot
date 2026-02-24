@@ -1,4 +1,12 @@
-"""Intelligence signal routes."""
+"""
+Intelligence signal routes.
+
+Endpoints:
+  GET /intelligence/signals   — Aggregated signals from all enabled providers.
+  GET /intelligence/providers — List providers with their enabled/disabled status.
+"""
+
+from __future__ import annotations
 
 from typing import Any
 
@@ -8,7 +16,14 @@ from api.data_store import DataStore
 
 
 def create_router(store: DataStore) -> APIRouter:
-    """Create intelligence signal routes."""
+    """Create the intelligence router with signal and provider endpoints.
+
+    Args:
+        store: The shared DataStore instance used by the agent and API.
+
+    Returns:
+        Configured ``APIRouter`` with prefix ``/intelligence``.
+    """
     router = APIRouter(prefix="/intelligence", tags=["intelligence"])
 
     @router.get("/signals")

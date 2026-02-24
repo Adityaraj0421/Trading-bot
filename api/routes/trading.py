@@ -5,7 +5,15 @@ Trade and equity data are served from the persistent TradeDB (SQLite) when
 available, with an automatic fallback to the in-memory DataStore for the
 current session. This ensures trade history and equity curves survive server
 restarts.
+
+Endpoints:
+  GET /trades        — Trade history with optional status filter.
+  GET /positions     — Currently open positions.
+  GET /equity        — Equity curve data points.
+  GET /pnl-summary   — PnL breakdown by pair and strategy with cumulative curve.
 """
+
+from __future__ import annotations
 
 from typing import Any
 
@@ -15,7 +23,14 @@ from api.data_store import DataStore
 
 
 def create_router(store: DataStore) -> APIRouter:
-    """Create trading routes (trades, positions, equity, PnL)."""
+    """Create the trading router with trade, position, equity, and PnL endpoints.
+
+    Args:
+        store: The shared DataStore instance used by the agent and API.
+
+    Returns:
+        Configured ``APIRouter`` with all trading endpoints registered.
+    """
     router = APIRouter(tags=["trading"])
 
     @router.get("/trades")

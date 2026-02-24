@@ -1,4 +1,13 @@
-"""Risk simulation routes — Monte Carlo, VaR, stress testing (v2.0)."""
+"""
+Risk simulation routes — Monte Carlo, VaR, stress testing (v2.0).
+
+Endpoints:
+  GET  /risk/simulation    — Retrieve stored Monte Carlo results.
+  POST /risk/monte-carlo   — Launch Monte Carlo simulation in background (max 1).
+  GET  /risk/stress-tests  — List available stress test scenarios.
+"""
+
+from __future__ import annotations
 
 import threading
 from typing import Any
@@ -13,13 +22,22 @@ _state = {"active_thread": None}
 
 
 class MonteCarloRequest(BaseModel):
+    """Request body for the /risk/monte-carlo endpoint."""
+
     n_simulations: int | None = Field(default=None, gt=0, le=100000, description="Max 100K simulations")
     n_days: int | None = Field(default=None, gt=0, le=1000, description="Max 1000 days horizon")
     initial_equity: float | None = Field(default=None, gt=0, le=1e9, description="Starting equity")
 
 
 def create_router(store: DataStore) -> APIRouter:
-    """Create risk simulation routes (Monte Carlo, stress tests)."""
+    """Create the risk router with Monte Carlo simulation and stress-test endpoints.
+
+    Args:
+        store: The shared DataStore instance used by the agent and API.
+
+    Returns:
+        Configured ``APIRouter`` with prefix ``/risk``.
+    """
     router = APIRouter(prefix="/risk", tags=["risk"])
 
     @router.get("/simulation")

@@ -6,7 +6,15 @@ Accepts WebSocket connections and streams live agent data.
 Auth: after connecting, client sends {"type":"auth","api_key":"xxx"}
 as the first message.  When API_AUTH_KEY is not set, auth is skipped.
 This avoids leaking the API key in URL query parameters.
+
+The API key comparison uses ``secrets.compare_digest()`` to prevent
+timing side-channel attacks.
+
+Endpoints:
+  WS /ws — Persistent WebSocket connection for real-time agent events.
 """
+
+from __future__ import annotations
 
 import asyncio
 import json
@@ -20,7 +28,15 @@ from config import Config
 
 
 def create_router(ws_manager: WebSocketManager) -> APIRouter:
-    """Create WebSocket route for real-time dashboard streaming."""
+    """Create the WebSocket router for real-time dashboard streaming.
+
+    Args:
+        ws_manager: The ``WebSocketManager`` that tracks connections and
+            broadcasts events from the agent thread.
+
+    Returns:
+        Configured ``APIRouter`` with the ``/ws`` WebSocket endpoint.
+    """
     router = APIRouter(tags=["websocket"])
 
     @router.websocket("/ws")

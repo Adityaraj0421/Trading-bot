@@ -3,6 +3,8 @@ Async Data Fetcher — Uses ccxt.async_support and aiohttp for non-blocking I/O.
 Falls back to sync DataFetcher demo data if async exchange is unavailable.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from typing import Any
@@ -22,6 +24,11 @@ class AsyncDataFetcher:
     """
 
     def __init__(self) -> None:
+        """Initialize the async fetcher with lazy exchange and session creation.
+
+        The ccxt async exchange and aiohttp session are created on first use
+        via ``_get_exchange()`` and ``_get_session()`` respectively.
+        """
         self._exchange: Any = None
         self.using_demo: bool = False
         self._session: aiohttp.ClientSession | None = None
@@ -52,7 +59,23 @@ class AsyncDataFetcher:
     async def fetch_ohlcv(
         self, symbol: str | None = None, timeframe: str | None = None, limit: int | None = None
     ) -> pd.DataFrame:
-        """Async OHLCV fetch with demo fallback."""
+        """Fetch OHLCV candle data from the configured exchange asynchronously.
+
+        Falls back to synthetic demo data (via ``demo_data.generate_ohlcv``)
+        if the exchange is unavailable or returns an error. Sets
+        ``self.using_demo`` accordingly.
+
+        Args:
+            symbol: Trading pair override (defaults to ``Config.TRADING_PAIR``).
+            timeframe: Candle interval override (defaults to
+                ``Config.TIMEFRAME``).
+            limit: Number of candles to fetch (defaults to
+                ``Config.LOOKBACK_BARS``).
+
+        Returns:
+            DataFrame indexed by timestamp with columns
+            ``open``, ``high``, ``low``, ``close``, ``volume``.
+        """
         symbol = symbol or Config.TRADING_PAIR
         timeframe = timeframe or Config.TIMEFRAME
         limit = limit or Config.LOOKBACK_BARS
@@ -79,7 +102,12 @@ class AsyncDataFetcher:
         return self._generate_demo_data(limit, timeframe)
 
     async def fetch_fear_greed(self) -> dict:
-        """Async Fear & Greed API fetch."""
+        """Fetch the latest Fear & Greed index value from alternative.me.
+
+        Returns:
+            Dict with ``value`` (int, 0–100) and ``source``
+            (``"async_api"`` on success, ``"fallback"`` on error).
+        """
         url = "https://api.alternative.me/fng/?limit=7&format=json"
         try:
             session = await self._get_session()
@@ -91,9 +119,13 @@ class AsyncDataFetcher:
             return {"value": 50, "source": "fallback"}
 
     async def fetch_all(self) -> tuple[pd.DataFrame, dict[str, Any]]:
-        """
-        Fetch OHLCV and Fear & Greed concurrently.
-        This is the key optimization — both API calls happen in parallel.
+        """Fetch OHLCV and Fear & Greed index concurrently.
+
+        Runs both API calls in parallel via ``asyncio.gather`` — the key
+        performance optimization over sequential polling.
+
+        Returns:
+            Tuple of ``(ohlcv_dataframe, fear_greed_dict)``.
         """
         ohlcv_task = asyncio.create_task(self.fetch_ohlcv())
         fg_task = asyncio.create_task(self.fetch_fear_greed())
@@ -115,7 +147,7 @@ class AsyncDataFetcher:
         )
 
     async def close(self) -> None:
-        """Clean up async resources."""
+        """Close the ccxt exchange and aiohttp session to release resources."""
         if self._exchange:
             await self._exchange.close()
         if self._session and not self._session.closed:

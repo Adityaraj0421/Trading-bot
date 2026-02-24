@@ -5,8 +5,15 @@ Receives incoming updates from Telegram (commands, callback queries)
 and forwards them to the TelegramBot handler.
 
 Security: validates the X-Telegram-Bot-Api-Secret-Token header
-against the configured TELEGRAM_WEBHOOK_SECRET.
+against the configured TELEGRAM_WEBHOOK_SECRET using
+``secrets.compare_digest()`` to prevent timing attacks.
+
+Endpoints:
+  POST /telegram/webhook — Receive Telegram webhook updates (public, secret-protected).
+  GET  /telegram/status  — Bot configuration and status summary.
 """
+
+from __future__ import annotations
 
 import json
 import secrets
@@ -19,7 +26,15 @@ from config import Config
 
 
 def create_router(telegram_bot: Any) -> APIRouter:
-    """Create Telegram webhook and status routes."""
+    """Create the Telegram router with webhook and status endpoints.
+
+    Args:
+        telegram_bot: The ``TelegramBot`` instance that handles incoming
+            updates and sends outgoing messages.
+
+    Returns:
+        Configured ``APIRouter`` with prefix ``/telegram``.
+    """
     router = APIRouter(prefix="/telegram", tags=["telegram"])
 
     @router.post("/webhook")

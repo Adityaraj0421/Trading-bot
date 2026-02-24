@@ -1,4 +1,17 @@
-"""Backtest routes — run and view backtest results (v2.3)."""
+"""
+Backtest routes — run and view backtest results (v2.3).
+
+Endpoints:
+  POST /backtest/run       — Launch a backtest in a background thread (max 1 concurrent).
+  POST /backtest/clear     — Clear all stored backtest results.
+  GET  /backtest/results   — Retrieve stored backtest results.
+  GET  /backtest/scenarios — List available named backtest scenarios.
+
+The concurrency guard uses a threading.Lock-protected check-and-set pattern
+to prevent two simultaneous backtests from exhausting memory.
+"""
+
+from __future__ import annotations
 
 import threading
 from typing import Any
@@ -18,6 +31,8 @@ _VALID_TIMEFRAMES = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h
 
 
 class BacktestRequest(BaseModel):
+    """Request body for the /backtest/run endpoint."""
+
     pair: str | None = Field(
         default=None,
         pattern=r"^[A-Z0-9]{2,10}/[A-Z0-9]{2,10}$",
@@ -38,7 +53,14 @@ class BacktestRequest(BaseModel):
 
 
 def create_router(store: DataStore) -> APIRouter:
-    """Create backtest routes (run, results, scenarios)."""
+    """Create the backtest router with run, results, and scenarios endpoints.
+
+    Args:
+        store: The shared DataStore instance used by the agent and API.
+
+    Returns:
+        Configured ``APIRouter`` with prefix ``/backtest``.
+    """
     router = APIRouter(prefix="/backtest", tags=["backtest"])
 
     @router.post("/run")

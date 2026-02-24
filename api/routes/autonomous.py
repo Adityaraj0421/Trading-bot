@@ -1,6 +1,17 @@
 """
 Autonomous mode routes — status, events, kill switch, manual override.
+
+Endpoints:
+  GET  /autonomous/status               — Current autonomous state and config.
+  GET  /autonomous/events               — Recent autonomous decision events.
+  POST /autonomous/halt                 — Emergency kill switch (stop all trading).
+  POST /autonomous/resume               — Resume after kill switch halt.
+  POST /autonomous/force-close          — Force close all open positions.
+  GET  /autonomous/alerts               — Pending alerts from the decision engine.
+  POST /autonomous/alerts/acknowledge   — Mark all alerts as acknowledged.
 """
+
+from __future__ import annotations
 
 from typing import Any
 
@@ -11,6 +22,8 @@ from api.data_store import DataStore
 
 
 class HaltRequest(BaseModel):
+    """Request body for the emergency halt endpoint."""
+
     reason: str | None = Field(
         default="Manual kill switch via API",
         max_length=500,
@@ -19,7 +32,14 @@ class HaltRequest(BaseModel):
 
 
 def create_router(store: DataStore) -> APIRouter:
-    """Create autonomous-mode routes (status, events, kill switch, alerts)."""
+    """Create the autonomous-mode router with control and event endpoints.
+
+    Args:
+        store: The shared DataStore instance used by the agent and API.
+
+    Returns:
+        Configured ``APIRouter`` with prefix ``/autonomous``.
+    """
     router = APIRouter(prefix="/autonomous", tags=["autonomous"])
 
     @router.get("/status")

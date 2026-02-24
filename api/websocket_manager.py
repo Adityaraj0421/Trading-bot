@@ -5,6 +5,8 @@ Manages connected WebSocket clients and broadcasts real-time updates.
 Provides a thread-safe sync wrapper for broadcasting from the agent thread.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -19,26 +21,57 @@ class WebSocketManager:
     """Manages WebSocket connections and broadcasts events to all clients."""
 
     def __init__(self) -> None:
+        """Initialize the manager with an empty connection set.
+
+        The event loop reference (``_loop``) must be set via
+        ``set_event_loop()`` before ``broadcast_sync()`` can be called from
+        the agent thread.
+        """
         self._connections: set[WebSocket] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Capture the FastAPI event loop for thread-safe broadcasting."""
+        """Capture the FastAPI event loop for thread-safe broadcasting.
+
+        Must be called once during FastAPI lifespan startup so that
+        ``broadcast_sync()`` can schedule coroutines on the correct loop.
+
+        Args:
+            loop: The running asyncio event loop from
+                ``asyncio.get_running_loop()``.
+        """
         self._loop = loop
 
     async def connect(self, ws: WebSocket) -> None:
-        """Accept a new WebSocket connection and register it."""
+        """Accept a new WebSocket connection and register it for broadcasting.
+
+        Args:
+            ws: The incoming ``WebSocket`` instance from the FastAPI route.
+        """
         await ws.accept()
         self._connections.add(ws)
         _log.info("WebSocket client connected (%d total)", len(self._connections))
 
     async def disconnect(self, ws: WebSocket) -> None:
-        """Unregister a WebSocket connection."""
+        """Unregister a WebSocket connection after disconnect or error.
+
+        Args:
+            ws: The ``WebSocket`` instance to remove from the active set.
+        """
         self._connections.discard(ws)
         _log.info("WebSocket client disconnected (%d total)", len(self._connections))
 
     async def broadcast(self, event_type: str, data: dict) -> None:
-        """Send an event to all connected WebSocket clients."""
+        """Send a typed event to all connected WebSocket clients.
+
+        Dead connections are detected and removed automatically. The message
+        is serialized as JSON with ``type``, ``data``, and ``ts`` fields.
+
+        Args:
+            event_type: Event category string (e.g. ``"snapshot"``,
+                ``"trade"``, ``"equity"``, ``"event"``).
+            data: Payload dict to include in the message.
+        """
         if not self._connections:
             return
 
@@ -65,10 +98,16 @@ class WebSocketManager:
         self._connections -= dead
 
     def broadcast_sync(self, event_type: str, data: dict) -> None:
-        """Thread-safe broadcast from the synchronous agent thread.
+        """Thread-safe broadcast callable for use from the synchronous agent thread.
 
-        Schedules the async broadcast on the FastAPI event loop.
-        Safe to call from any thread.
+        Schedules ``broadcast()`` as a coroutine on the FastAPI event loop via
+        ``asyncio.run_coroutine_threadsafe``. No-ops if no clients are
+        connected or if the event loop has not been set.
+
+        Args:
+            event_type: Event category string (e.g. ``"snapshot"``,
+                ``"trade"``, ``"equity"``, ``"event"``).
+            data: Payload dict to broadcast to all connected clients.
         """
         if not self._connections or not self._loop:
             return

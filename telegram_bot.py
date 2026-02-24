@@ -10,6 +10,8 @@ Uses raw requests.post for sending (works from the sync agent thread).
 Receives updates via FastAPI webhook endpoint (api/routes/telegram.py).
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
 import threading
@@ -51,6 +53,15 @@ class TelegramBot:
     """Interactive Telegram bot with commands and trade confirmations."""
 
     def __init__(self, data_store: Any = None) -> None:
+        """Initialize the Telegram bot with credentials from Config.
+
+        Starts a background daemon thread (``"tg-cleanup"``) that removes
+        expired ``PendingConfirmation`` objects every 30 seconds.
+
+        Args:
+            data_store: Optional shared DataStore for command handlers.
+                Can also be set later via ``set_data_store()``.
+        """
         self._token: str = Config.TELEGRAM_BOT_TOKEN
         self._chat_id: str = str(Config.TELEGRAM_CHAT_ID)
         self._webhook_url: str = Config.TELEGRAM_WEBHOOK_URL
@@ -84,7 +95,11 @@ class TelegramBot:
         return bool(self._token and self._chat_id)
 
     def set_data_store(self, store: Any) -> None:
-        """Attach the shared DataStore for command handlers."""
+        """Attach the shared DataStore for command handlers.
+
+        Args:
+            store: The DataStore instance shared between the agent and API.
+        """
         self._data_store = store
 
     # ------------------------------------------------------------------
@@ -92,7 +107,15 @@ class TelegramBot:
     # ------------------------------------------------------------------
 
     def setup_webhook(self) -> bool:
-        """Register the webhook URL with Telegram."""
+        """Register the webhook URL with the Telegram Bot API.
+
+        Sets ``secret_token`` header validation when
+        ``TELEGRAM_WEBHOOK_SECRET`` is configured.
+
+        Returns:
+            True if Telegram confirmed the webhook registration, False
+            if the bot is not configured or the API call failed.
+        """
         if not self.enabled or not self._webhook_url:
             _log.info("Telegram bot: webhook not configured (no URL)")
             return False
@@ -118,7 +141,11 @@ class TelegramBot:
             return False
 
     def teardown_webhook(self) -> None:
-        """Remove the webhook from Telegram."""
+        """Remove the webhook registration from the Telegram Bot API.
+
+        Called during FastAPI lifespan shutdown to prevent Telegram from
+        posting to a stale URL.
+        """
         if not self.enabled:
             return
         try:
@@ -135,7 +162,15 @@ class TelegramBot:
     # ------------------------------------------------------------------
 
     def handle_update(self, update: dict) -> None:
-        """Process an incoming Telegram update (message or callback query)."""
+        """Process an incoming Telegram update from the webhook endpoint.
+
+        Dispatches to ``_handle_message`` for text commands or
+        ``_handle_callback_query`` for inline-keyboard button presses.
+        Unauthorized chat IDs are silently ignored at the inner handlers.
+
+        Args:
+            update: Parsed JSON body from the Telegram webhook POST request.
+        """
         try:
             if "callback_query" in update:
                 self._handle_callback_query(update["callback_query"])
@@ -417,9 +452,27 @@ class TelegramBot:
     def request_confirmation(
         self, signal: str, pair: str, side: str, price: float, quantity: float, strategy: str, confidence: float
     ) -> PendingConfirmation:
-        """
-        Send a trade confirmation request to Telegram and return a
-        PendingConfirmation. The caller should wait on conf.event with a timeout.
+        """Send a trade confirmation request via Telegram inline keyboard.
+
+        Creates a ``PendingConfirmation`` object, registers it in
+        ``_pending``, sends the trade details with Approve/Reject buttons to
+        the configured chat, and returns immediately. The caller is expected
+        to block on ``conf.event.wait(timeout)`` — the webhook callback will
+        set ``conf.decision`` and call ``conf.event.set()`` when the user taps
+        a button. If no response arrives before ``TELEGRAM_CONFIRMATION_TIMEOUT``
+        the caller uses ``TELEGRAM_CONFIRMATION_DEFAULT``.
+
+        Args:
+            signal: Signal direction string (e.g. ``"BUY"`` or ``"SELL"``).
+            pair: Trading pair symbol (e.g. ``"BTC/USDT"``).
+            side: Trade side — ``"long"`` or ``"short"``.
+            price: Proposed entry price.
+            quantity: Position size in base asset units.
+            strategy: Strategy that generated the signal.
+            confidence: Strategy confidence score in [0, 1].
+
+        Returns:
+            A ``PendingConfirmation`` whose ``event`` can be waited on.
         """
         trade_id = uuid.uuid4().hex[:8]
         conf = PendingConfirmation(

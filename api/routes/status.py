@@ -1,6 +1,16 @@
 """
 Status routes — health check, agent status, configuration.
+
+Endpoints:
+  GET /health              — Liveness check with staleness detection (public).
+  GET /status              — Full agent snapshot enriched with TradeDB stats.
+  GET /config              — Current trading configuration parameters.
+  GET /system/modules      — v7.0 module enable/status overview.
+  GET /system/rate-limiter — Rate limiter usage statistics.
+  GET /notifications       — Recent notification log (last N entries).
 """
+
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
@@ -13,7 +23,14 @@ from config import Config
 
 
 def create_router(store: DataStore) -> APIRouter:
-    """Create status routes (health, config, system modules)."""
+    """Create the status router with health, config, and system-module endpoints.
+
+    Args:
+        store: The shared DataStore instance used by the agent and API.
+
+    Returns:
+        Configured ``APIRouter`` with all status endpoints registered.
+    """
     router = APIRouter(tags=["status"])
 
     @router.get("/health")

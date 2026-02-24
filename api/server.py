@@ -9,6 +9,8 @@ Security: API key authentication is enforced when API_AUTH_KEY is set
 in the environment. All endpoints except /health require the key.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import threading
@@ -45,7 +47,19 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc", "/telegram/webhook"}
 
     async def dispatch(self, request: Request, call_next: Any) -> Any:
-        """Check X-API-Key header and reject unauthorized requests."""
+        """Check X-API-Key header and reject unauthorized requests.
+
+        Skips authentication when ``Config.API_AUTH_KEY`` is empty (dev mode)
+        or when the request path is in ``PUBLIC_PATHS``.
+
+        Args:
+            request: The incoming FastAPI/Starlette request.
+            call_next: ASGI callable that passes the request to the next layer.
+
+        Returns:
+            The response from the next middleware or route handler, or a 401
+            JSON response if the API key is invalid.
+        """
         # Skip auth if no key configured (development mode)
         if not Config.API_AUTH_KEY:
             return await call_next(request)
@@ -84,8 +98,19 @@ ws_manager = WebSocketManager()
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
-def create_app(lifespan=None) -> FastAPI:
-    """Create and configure the FastAPI application."""
+def create_app(lifespan: Any = None) -> FastAPI:
+    """Create and configure the FastAPI application.
+
+    Registers all route modules, attaches authentication middleware, and
+    configures CORS from ``Config.CORS_ORIGINS``.
+
+    Args:
+        lifespan: Optional async context manager for FastAPI lifespan events
+            (agent thread startup and Telegram webhook teardown).
+
+    Returns:
+        Configured ``FastAPI`` application instance.
+    """
     app = FastAPI(
         title="Crypto Trading Agent API",
         description="Real-time API for the autonomous crypto trading agent",
@@ -124,7 +149,11 @@ def create_app(lifespan=None) -> FastAPI:
 # Agent thread
 # ---------------------------------------------------------------------------
 def _run_agent() -> None:
-    """Import and start the trading agent in the current thread."""
+    """Import and start the trading agent in the current thread.
+
+    Called as the target of the daemon ``"agent-thread"`` started in the
+    FastAPI lifespan. The agent runs until the process exits.
+    """
     try:
         from agent import TradingAgent, set_data_store
 

@@ -12,6 +12,8 @@ Features:
   - Heartbeat monitoring
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -50,6 +52,14 @@ class WebSocketStreamer:
     """
 
     def __init__(self, exchange_id: str, trading_pair: str, timeframe: str = "1h") -> None:
+        """Initialize the WebSocket streamer for a given exchange and pair.
+
+        Args:
+            exchange_id: Exchange name (``"binance"``, ``"kraken"``,
+                ``"coinbase"``, or ``"bybit"``).
+            trading_pair: Symbol to stream, e.g. ``"BTC/USDT"``.
+            timeframe: Kline/candle interval (default ``"1h"``).
+        """
         self.exchange_id: str = exchange_id.lower()
         self.trading_pair: str = trading_pair
         self.timeframe: str = timeframe
@@ -81,23 +91,49 @@ class WebSocketStreamer:
         self.connection_uptime_start: float = 0
 
     def on_ticker(self, callback: Callable) -> None:
-        """Register callback for ticker updates: callback(ticker_dict)"""
+        """Register a callback for ticker price updates.
+
+        Args:
+            callback: Callable invoked with a ticker dict containing
+                ``price``, ``high_24h``, ``low_24h``, ``volume_24h``,
+                ``change_pct``, and ``ts`` keys.
+        """
         self._on_ticker = callback
 
     def on_trade(self, callback: Callable) -> None:
-        """Register callback for trade updates: callback(trade_dict)"""
+        """Register a callback for individual trade (fill) updates.
+
+        Args:
+            callback: Callable invoked with a trade dict containing
+                ``price``, ``quantity``, ``side``, and ``ts`` keys.
+        """
         self._on_trade = callback
 
     def on_kline(self, callback: Callable) -> None:
-        """Register callback for kline/candle updates: callback(kline_dict)"""
+        """Register a callback for kline/candle updates.
+
+        Args:
+            callback: Callable invoked with a kline dict containing
+                ``open``, ``high``, ``low``, ``close``, ``volume``,
+                ``closed``, and ``ts`` keys.
+        """
         self._on_kline = callback
 
     def on_orderbook(self, callback: Callable) -> None:
-        """Register callback for order book updates: callback(book_dict)"""
+        """Register a callback for order book depth updates.
+
+        Args:
+            callback: Callable invoked with a book dict containing
+                ``bids`` (list of [price, qty]), ``asks``, and ``ts`` keys.
+        """
         self._on_orderbook = callback
 
     def start(self) -> None:
-        """Start websocket connection in a background thread."""
+        """Start the WebSocket connection in a background daemon thread.
+
+        Spawns a thread named ``"ws-streamer"`` that runs an asyncio event
+        loop. No-ops if the streamer is already running.
+        """
         if self._running:
             _log.warning("WebSocket streamer already running")
             return
@@ -108,7 +144,11 @@ class WebSocketStreamer:
         _log.info("WebSocket streamer started for %s on %s", self.trading_pair, self.exchange_id)
 
     def stop(self) -> None:
-        """Stop websocket connection."""
+        """Stop the WebSocket connection and wait for the thread to exit.
+
+        Signals the asyncio loop to stop, then joins the background thread
+        with a 5-second timeout.
+        """
         self._running = False
         if self._loop:
             self._loop.call_soon_threadsafe(self._loop.stop)
@@ -118,11 +158,21 @@ class WebSocketStreamer:
         _log.info("WebSocket streamer stopped")
 
     def is_connected(self) -> bool:
-        """Return True if the WebSocket is connected and running."""
+        """Return True if the WebSocket is currently connected and running.
+
+        Returns:
+            True only when both ``_connected`` and ``_running`` are set.
+        """
         return self._connected and self._running
 
     def get_status(self) -> dict:
-        """Get streamer status."""
+        """Return a status snapshot of the streamer.
+
+        Returns:
+            Dict with keys: ``connected``, ``running``, ``exchange``,
+            ``pair``, ``messages_received``, ``reconnect_count``,
+            ``uptime_seconds``, ``last_message_age``.
+        """
         uptime = time.time() - self.connection_uptime_start if self.connection_uptime_start else 0
         return {
             "connected": self._connected,
