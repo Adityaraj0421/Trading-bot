@@ -20,6 +20,7 @@ class PaperExecutor:
     """Simulates trade execution without touching real money."""
 
     def __init__(self) -> None:
+        """Initialize the paper executor with an empty in-memory orders list."""
         self.orders: list[dict[str, Any]] = []
 
     def place_order(self, symbol: str, side: str, quantity: float, price: float) -> dict[str, Any]:
@@ -65,6 +66,13 @@ class LiveExecutor:
     """Places real orders on the exchange via CCXT."""
 
     def __init__(self, exchange: ccxt.Exchange) -> None:
+        """Wrap a CCXT exchange instance for live order placement.
+
+        Args:
+            exchange: An authenticated CCXT exchange object (e.g.
+                ``ccxt.binance({"apiKey": ..., "secret": ...})``).
+                All order and cancel calls are delegated to this instance.
+        """
         self.exchange = exchange
 
     def place_order(self, symbol: str, side: str, quantity: float, price: float) -> dict[str, Any]:
@@ -82,8 +90,8 @@ class LiveExecutor:
 
         Raises:
             ValueError: If ``side`` is not ``"long"`` or ``"short"``.
-            ExecutionError: Propagated only for unexpected CCXT errors not
-                caught by the inner ``except`` clauses.
+            ccxt.NetworkError, ccxt.RequestTimeout: Unexpected CCXT exceptions
+                propagate to the caller unwrapped.
         """
         if side not in ("long", "short"):
             raise ValueError(f"Invalid side '{side}': must be 'long' or 'short'")

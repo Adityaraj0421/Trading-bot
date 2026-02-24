@@ -78,6 +78,18 @@ class DecisionEngine:
     """
 
     def __init__(self, initial_capital: float = 10000) -> None:
+        """Initialize all autonomous subsystems and tracking state.
+
+        Instantiates the self-healer, strategy evolver, meta-learner, and
+        auto-optimizer. Sets the operational state to ``NORMAL`` and resets
+        all cycle counters and the autonomous event log.
+
+        Args:
+            initial_capital: Starting capital in quote currency (USD). Used to
+                detect whether equity has fallen below the minimum safe level
+                (``AutonomousConfig.min_capital_pct``) and trigger a state
+                transition to ``HALTED``.
+        """
         self.healer = SelfHealer()
         self.evolver = StrategyEvolver()
         self.meta = MetaLearner()

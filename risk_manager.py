@@ -44,6 +44,13 @@ class Position:
     breakeven_triggered: bool = False
 
     def __post_init__(self) -> None:
+        """Finalize position initialization after the dataclass ``__init__``.
+
+        Sets ``highest_price`` and ``lowest_price`` to ``entry_price`` when
+        they are still at their default of ``0.0``, and initializes
+        ``trailing_stop`` to the entry-price-based value derived from
+        ``Config.TRAILING_STOP_PCT`` when it has not been explicitly provided.
+        """
         if self.highest_price == 0.0:
             self.highest_price = self.entry_price
         if self.lowest_price == 0.0:
@@ -239,6 +246,13 @@ class RiskManager:
     DD_TIER3_PCT = 0.15  # -15%: halt trading 24h, review
 
     def __init__(self) -> None:
+        """Initialize the risk manager with capital set to ``Config.INITIAL_CAPITAL``.
+
+        Sets up empty position and trade-history lists, resets daily/total PnL
+        counters, initializes volatility-adaptive state (rolling returns, peak
+        capital, halt timer), and creates the internal threading lock used for
+        atomic check-and-open operations.
+        """
         self.capital = Config.INITIAL_CAPITAL
         self.positions: list[Position] = []
         self.trade_history: list[TradeRecord] = []
@@ -403,7 +417,8 @@ class RiskManager:
 
         Args:
             entry_price: Price at which the position will be entered.
-            fee_pct: Round-trip fee as a decimal. Defaults to
+            fee_pct: One-way (entry-leg) fee as a decimal. The exit fee is
+                charged separately at close time. Defaults to
                 ``Config.FEE_PCT`` when ``None``.
             confidence: Signal confidence in ``[0, 1]``.
             strategy_name: Strategy name for per-strategy Kelly estimation.
@@ -507,11 +522,13 @@ class RiskManager:
 
         Args:
             regime: Market regime string, e.g. ``"trending_up"``,
-                ``"ranging"``, ``"volatile"``, ``"crash"``.
+                ``"ranging"``, ``"volatile"``, ``"breakout"``, ``"crash"``.
 
         Returns:
-            Multiplier in the range ``[0.3, 1.3]``. Returns ``1.0`` for
-            unknown regimes.
+            Multiplier in the range ``[0.3, 1.3]``. Key values:
+            ``trending_up`` → 1.3, ``trending_down`` → 1.1,
+            ``breakout`` → 1.2, ``ranging`` → 0.7, ``volatile`` → 0.5,
+            ``crash`` → 0.3. Returns ``1.0`` for unknown regimes.
         """
         regime_mults = {
             "trending_up": 1.3,
@@ -533,7 +550,6 @@ class RiskManager:
         Returns:
             Position-size multiplier in ``[0.0, 1.0]``.
         """
-        _, _ = self._tiered_drawdown_scaling()
         mult, _ = self._tiered_drawdown_scaling()
         return mult
 
@@ -788,6 +804,8 @@ class RiskManager:
             - trending_up/down: ``(1.0, 1.5 / 1.4)`` — wide TP, normal SL.
             - ranging: ``(0.8, 0.7)`` — tight both for quick scalps.
             - volatile: ``(0.7, 1.3)`` — tight SL, wide TP.
+            - high_volatility: ``(0.7, 1.3)`` — same as ``volatile``.
+            - breakout: ``(1.1, 1.8)`` — slightly wider SL, much wider TP.
             - crash: ``(0.5, 0.6)`` — very tight everything.
             - unknown: ``(1.0, 1.0)`` — no adjustment.
         """
