@@ -17,6 +17,8 @@ associations that are impossible to hard-code.
 Falls back to static REGIME_STRATEGY_MAP when not enough experience.
 """
 
+from __future__ import annotations
+
 import logging
 from collections import deque
 from dataclasses import dataclass, field
@@ -72,7 +74,15 @@ if _HAS_TORCH:
         Maps state → Q-value per strategy.
         """
 
-        def __init__(self, state_dim: int, n_strategies: int, hidden_dim: int = 64):
+        def __init__(self, state_dim: int, n_strategies: int, hidden_dim: int = 64) -> None:
+            """
+            Initialize the strategy Q-network.
+
+            Args:
+                state_dim: Dimensionality of the input state vector.
+                n_strategies: Number of strategies (output Q-values).
+                hidden_dim: Width of the hidden layers.
+            """
             super().__init__()
             self.net = nn.Sequential(
                 nn.Linear(state_dim, hidden_dim),
@@ -113,6 +123,16 @@ class StrategyMetaSelector:
     PERF_WINDOW = 50  # Rolling window of strategy performance
 
     def __init__(self, strategy_names: list[str], state_dim: int = 12) -> None:
+        """
+        Initialize the DQN-based strategy meta-selector.
+
+        Args:
+            strategy_names: Ordered list of strategy identifiers that map to
+                DQN action indices.
+            state_dim: Dimensionality of the state vector passed to
+                :meth:`select_strategy`. Defaults to 12 (regime features +
+                recent per-strategy PnL + market indicators).
+        """
         self.strategy_names = strategy_names
         self.n_strategies = len(strategy_names)
         self.state_dim = state_dim
@@ -398,7 +418,12 @@ class StrategyMetaSelector:
         return state
 
     def load_state(self, state: dict[str, Any]) -> None:
-        """Restore selector state."""
+        """
+        Restore selector state from a previously saved dict.
+
+        Args:
+            state: Dict previously returned by :meth:`save_state`.
+        """
         self._epsilon = state.get("epsilon", self.EPSILON_START)
         self._total_selections = state.get("total_selections", 0)
         self._train_step = state.get("train_step", 0)

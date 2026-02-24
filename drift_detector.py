@@ -17,6 +17,8 @@ Original methods:
   3. Prediction confidence decay monitoring
 """
 
+from __future__ import annotations
+
 import logging
 from collections import deque
 from dataclasses import dataclass, field
@@ -80,6 +82,15 @@ class DriftDetector:
     BLEND_MAX = 1.0
 
     def __init__(self, window_size: int = 50) -> None:
+        """
+        Initialize the predictive drift detector.
+
+        Args:
+            window_size: Number of recent predictions used for accuracy and
+                confidence monitoring. Also controls the length of the
+                actuals deque. Confidence tracking uses ``window_size * 2``
+                slots.
+        """
         self.window_size = window_size
         self.predictions: deque[str] = deque(maxlen=window_size)
         self.actuals: deque[str | None] = deque(maxlen=window_size)
@@ -108,7 +119,17 @@ class DriftDetector:
     # ── Backward-Compatible Interface ─────────────────────────────
 
     def record_prediction(self, predicted: str, confidence: float) -> None:
-        """Record a new prediction (actual outcome filled in later)."""
+        """
+        Record a new prediction with its confidence score.
+
+        The matching actual outcome should be filled in later via
+        :meth:`record_outcome`.
+
+        Args:
+            predicted: Predicted signal — one of ``"BUY"``, ``"SELL"``,
+                or ``"HOLD"``.
+            confidence: Model confidence for this prediction in [0, 1].
+        """
         self.predictions.append(predicted)
         self.confidences.append(confidence)
         self.actuals.append(None)
@@ -118,7 +139,19 @@ class DriftDetector:
         self._confidence_timestamps.append((self._confidence_index, confidence))
 
     def record_outcome(self, actual_return: float, threshold: float = 0.01) -> None:
-        """Fill in the actual outcome for the most recent unresolved prediction."""
+        """
+        Fill in the actual outcome for the most recent unresolved prediction.
+
+        Converts a continuous return to a discrete label using ``threshold``
+        and backfills the oldest ``None`` slot in :attr:`actuals`.
+
+        Args:
+            actual_return: Realised return for the bar following the
+                prediction.
+            threshold: Minimum absolute return to classify as ``"BUY"`` or
+                ``"SELL"``; returns within ``[-threshold, threshold]`` are
+                labelled ``"HOLD"``.
+        """
         if actual_return > threshold:
             actual = "BUY"
         elif actual_return < -threshold:
@@ -132,7 +165,18 @@ class DriftDetector:
                 break
 
     def set_baseline(self, accuracy: float, avg_confidence: float) -> None:
-        """Set the baseline accuracy from initial training."""
+        """
+        Set the baseline accuracy and confidence from initial training.
+
+        These values are used as reference points when computing accuracy
+        drop and confidence decay in subsequent drift checks.
+
+        Args:
+            accuracy: Validation accuracy from the most recent training run,
+                as a fraction in [0, 1].
+            avg_confidence: Mean model confidence over the validation set,
+                in [0, 1].
+        """
         self.baseline_accuracy = accuracy
         self.baseline_confidence = avg_confidence
 
@@ -160,7 +204,13 @@ class DriftDetector:
         }
 
     def reset(self) -> None:
-        """Reset after retraining."""
+        """
+        Reset all tracking state after model retraining.
+
+        Clears prediction/outcome history, confidence timeline, recent
+        feature buffer, and live regime counts. Call this immediately after
+        a successful model retrain so the detector starts fresh.
+        """
         self.predictions.clear()
         self.actuals.clear()
         self.confidences.clear()
@@ -174,24 +224,53 @@ class DriftDetector:
     def set_training_features(self, features: np.ndarray, feature_names: list[str]) -> None:
         """
         Store training feature distributions for KS testing.
-        Call this after model training with the scaled feature matrix.
+
+        Call this after model training with the scaled feature matrix so the
+        detector has a reference distribution for each feature column.
+
+        Args:
+            features: Scaled training feature matrix of shape
+                (n_samples, n_features).
+            feature_names: Ordered list of feature names matching the columns
+                in ``features``.
         """
         self._training_features = features.copy()
         self._feature_names = feature_names
 
     def set_training_regime_dist(self, regime_distribution: dict[str, float]) -> None:
         """
-        Store the regime distribution during training.
-        e.g., {"trending_up": 0.3, "ranging": 0.5, "trending_down": 0.2}
+        Store the regime distribution observed during training.
+
+        Used to detect regime-model mismatch when the live regime
+        distribution diverges significantly from the training distribution.
+
+        Args:
+            regime_distribution: Mapping of regime label to fraction of
+                training bars, e.g.
+                ``{"trending_up": 0.3, "ranging": 0.5, "trending_down": 0.2}``.
         """
         self._training_regime_dist = regime_distribution
 
     def record_features(self, feature_vector: np.ndarray) -> None:
-        """Record a single feature vector for distribution monitoring."""
+        """
+        Record a single feature vector for distribution monitoring.
+
+        Args:
+            feature_vector: Scaled feature array of shape (n_features,)
+                from the most recent bar.
+        """
         self._recent_features.append(feature_vector)
 
     def record_live_regime(self, regime: str) -> None:
-        """Track what regime the market is in during live trading."""
+        """
+        Track what regime the market is in during live trading.
+
+        Increments the count for ``regime`` in the internal live-regime
+        histogram used by the regime-mismatch detector.
+
+        Args:
+            regime: Market regime label for the current bar.
+        """
         self._live_regime_counts[regime] = self._live_regime_counts.get(regime, 0) + 1
 
     def check_drift_predictive(self) -> DriftReport:
@@ -305,9 +384,12 @@ class DriftDetector:
         """
         Return current blend weight for model transitions.
 
-        1.0 = fully trust current model
-        0.0 = fully trust new model
-        Use: final_prediction = blend * old_pred + (1-blend) * new_pred
+        A value of 1.0 means fully trust the current model; 0.0 means
+        fully trust the new model.  Use as:
+        ``final_prediction = blend * old_pred + (1 - blend) * new_pred``.
+
+        Returns:
+            Current blend weight in [0.0, 1.0].
         """
         return self._blend_weight
 
@@ -315,8 +397,12 @@ class DriftDetector:
         """
         Advance model blending after a validation cycle.
 
-        If the new model is outperforming, increase its weight.
-        Otherwise, slow down or revert.
+        If the new model is outperforming, increase its weight (lower
+        ``blend_weight``). Otherwise, pull back toward the old model.
+
+        Args:
+            new_model_performing: ``True`` if the new model outperformed
+                the current model in the most recent validation window.
         """
         if new_model_performing:
             self._blend_weight = max(self._blend_weight - self.BLEND_INCREMENT, 0.0)
@@ -410,6 +496,12 @@ class DriftDetector:
     def _check_feature_drift_simple(self) -> tuple[float, list[dict]]:
         """
         Fallback drift check without scipy — uses mean/std comparison.
+
+        Applies a z-test for each feature: if ``|recent_mean - train_mean|``
+        exceeds 3 standard errors, the feature is flagged as drifted.
+
+        Returns:
+            Tuple of (fraction of features drifted, list of alert dicts).
         """
         recent_matrix = np.array(list(self._recent_features))
         n_features = min(self._training_features.shape[1], recent_matrix.shape[1])
@@ -453,11 +545,17 @@ class DriftDetector:
 
     def _check_regime_mismatch(self) -> bool:
         """
-        Check if the market regime during live trading significantly
-        differs from the regime distribution during training.
+        Check if the live regime distribution differs significantly from training.
+
+        Uses total-variation distance (L1/2) between the training and live
+        regime distributions. Returns ``True`` when the distance exceeds
+        ``REGIME_MISMATCH_THRESHOLD``.
 
         Example: Model trained on 70% ranging data but market is now
         80% trending → mismatch detected.
+
+        Returns:
+            ``True`` if a regime mismatch is detected, ``False`` otherwise.
         """
         if not self._training_regime_dist or not self._live_regime_counts:
             return False
@@ -481,8 +579,14 @@ class DriftDetector:
         """
         Recommend model blend weight based on drift severity.
 
-        Low drift → keep current model (blend=1.0)
-        High drift → prepare for new model (blend=0.5-0.2)
+        Low drift (< 30) keeps the current model fully (blend=1.0).
+        High drift (>= 90) prepares for a near-complete switch (blend=0.2).
+
+        Args:
+            drift_score: Composite drift score in [0, 100].
+
+        Returns:
+            Recommended blend weight in [0.2, 1.0].
         """
         if drift_score < 30:
             return 1.0

@@ -21,6 +21,8 @@ API preserved: predict(df_ind, regime) → (signal, confidence)
                get_stats(), to_dict(), from_dict()
 """
 
+from __future__ import annotations
+
 import ast
 import contextlib
 import logging
@@ -83,7 +85,14 @@ ACTIONS = ["BUY", "SELL", "HOLD"]
 class ReplayBuffer:
     """Experience replay with uniform sampling."""
 
-    def __init__(self, capacity: int = 10_000):
+    def __init__(self, capacity: int = 10_000) -> None:
+        """
+        Initialize the replay buffer.
+
+        Args:
+            capacity: Maximum number of transitions to retain in the buffer.
+                Older transitions are evicted when the buffer is full.
+        """
         self.buffer: deque = deque(maxlen=capacity)
 
     def push(self, state: np.ndarray, action_idx: int, reward: float, next_state: np.ndarray, done: float) -> None:
@@ -115,7 +124,15 @@ if HAS_TORCH:
     class QNetwork(nn.Module):
         """Dueling DQN architecture for better value estimation."""
 
-        def __init__(self, state_dim: int, num_actions: int, hidden: int = 64):
+        def __init__(self, state_dim: int, num_actions: int, hidden: int = 64) -> None:
+            """
+            Initialize the dueling Q-network.
+
+            Args:
+                state_dim: Dimensionality of the input state vector.
+                num_actions: Number of discrete actions.
+                hidden: Width of the shared hidden layers.
+            """
             super().__init__()
             self.feature = nn.Sequential(
                 nn.Linear(state_dim, hidden),
@@ -150,6 +167,19 @@ if HAS_TORCH:
             tau: float = 0.005,
             batch_size: int = 32,
         ) -> None:
+            """
+            Initialize the DQN agent.
+
+            Args:
+                agent_id: Unique integer identifier for this agent.
+                feature_indices: Indices into ``FEATURE_NAMES`` that this
+                    agent observes.
+                lr: Learning rate for the Adam optimizer.
+                gamma: Discount factor for future rewards.
+                epsilon: Initial epsilon for epsilon-greedy exploration.
+                tau: Soft target-network update coefficient.
+                batch_size: Mini-batch size for experience-replay training.
+            """
             self.agent_id = agent_id
             self.feature_indices = feature_indices
             self.state_dim = len(feature_indices)
@@ -171,6 +201,15 @@ if HAS_TORCH:
             self.train_steps = 0
 
         def _extract_state(self, features: dict[str, float]) -> np.ndarray:
+            """
+            Extract the agent-specific state vector from a full feature dict.
+
+            Args:
+                features: Mapping of feature name to value.
+
+            Returns:
+                Float32 array of length ``len(feature_indices)``.
+            """
             vals = [features.get(FEATURE_NAMES[i], 0.0) for i in self.feature_indices]
             return np.array(vals, dtype=np.float32)
 
@@ -252,7 +291,15 @@ if HAS_TORCH:
     class PPONetwork(nn.Module):
         """Actor-Critic network for PPO meta-agent."""
 
-        def __init__(self, state_dim: int, num_actions: int, hidden: int = 64):
+        def __init__(self, state_dim: int, num_actions: int, hidden: int = 64) -> None:
+            """
+            Initialize the Actor-Critic network.
+
+            Args:
+                state_dim: Dimensionality of the input state vector.
+                num_actions: Number of discrete actions for the actor head.
+                hidden: Width of the shared hidden layers.
+            """
             super().__init__()
             self.shared = nn.Sequential(
                 nn.Linear(state_dim, hidden),
@@ -283,6 +330,17 @@ if HAS_TORCH:
             epochs: int = 4,
             batch_size: int = 32,
         ) -> None:
+            """
+            Initialize the PPO meta-agent.
+
+            Args:
+                agent_id: Unique integer identifier for this agent.
+                lr: Learning rate for the Adam optimizer.
+                gamma: Discount factor for trajectory returns.
+                clip_eps: PPO clipping epsilon for surrogate objective.
+                epochs: Number of PPO update epochs per trajectory batch.
+                batch_size: Minimum trajectory length before a PPO update.
+            """
             self.agent_id = agent_id
             self.gamma = gamma
             self.clip_eps = clip_eps
@@ -416,6 +474,17 @@ class QLearnerAgent:
         gamma: float = 0.95,
         epsilon: float = 0.15,
     ) -> None:
+        """
+        Initialize the tabular Q-learning fallback agent.
+
+        Args:
+            agent_id: Unique integer identifier for this agent.
+            state_bins: Mapping from feature name to bin edges used to
+                discretize the continuous state space.
+            alpha: TD learning rate.
+            gamma: Discount factor for future rewards.
+            epsilon: Initial epsilon for epsilon-greedy exploration.
+        """
         self.agent_id = agent_id
         self.state_bins = state_bins
         self.alpha = alpha
@@ -501,6 +570,13 @@ class RLEnsemble:
     """
 
     def __init__(self) -> None:
+        """
+        Initialize the multi-agent RL ensemble.
+
+        When PyTorch is available, instantiates three specialized DQN agents
+        and one PPO meta-agent. Falls back to three tabular Q-learning agents
+        when PyTorch is not installed.
+        """
         self._use_deep = HAS_TORCH
 
         if self._use_deep:
@@ -577,7 +653,16 @@ class RLEnsemble:
         self._last_actions: dict[int, str] = {}
 
     def _encode_regime(self, regime: str) -> float:
-        """Map regime string to numeric code for RL state representation."""
+        """
+        Map regime string to numeric code for RL state representation.
+
+        Args:
+            regime: Market regime label such as ``"ranging"`` or
+                ``"trending_up"``.
+
+        Returns:
+            Float code in {0.0, 1.0, 2.0, 3.0}.
+        """
         mapping = {
             "ranging": 0,
             "trending_up": 1,
@@ -590,7 +675,18 @@ class RLEnsemble:
         return float(mapping.get(regime, 0))
 
     def _extract_features(self, df_ind: Any, regime: str = "") -> dict[str, float]:
-        """Extract feature dict from the latest row of indicator DataFrame."""
+        """
+        Extract feature dict from the latest row of indicator DataFrame.
+
+        Args:
+            df_ind: Indicator DataFrame; only the last row is used.
+            regime: Current market regime label used to encode
+                ``regime_code``.
+
+        Returns:
+            Mapping of feature name to float value covering all
+            ``FEATURE_NAMES``.
+        """
         last = df_ind.iloc[-1]
         return {
             "regime_code": self._encode_regime(regime),

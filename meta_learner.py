@@ -27,6 +27,8 @@ Research basis:
   - Bayesian treatment allocation (shift capital toward winner)
 """
 
+from __future__ import annotations
+
 import copy
 import logging
 import math
@@ -72,7 +74,7 @@ class MetaConfig:
             "regime_adjustments": self.regime_adjustments,
         }
 
-    def copy(self) -> "MetaConfig":
+    def copy(self) -> MetaConfig:
         """Deep copy for experiment forking."""
         new = MetaConfig(
             strategy_weight=self.strategy_weight,
@@ -196,6 +198,12 @@ class ABTestEngine:
     ALLOCATION_SHIFT_RATE = 0.05  # Shift allocation toward interim winner
 
     def __init__(self) -> None:
+        """
+        Initialize the A/B testing engine.
+
+        Starts with no active experiments and zeroed counters for
+        adopted, rejected, and inconclusive outcomes.
+        """
         self._experiments: list[ABExperiment] = []
         self._active_experiment: ABExperiment | None = None
         self._experiment_counter: int = 0
@@ -520,7 +528,13 @@ class ABTestEngine:
         return actual_pnl * scale
 
     def _force_conclude(self) -> None:
-        """Force-conclude the active experiment as inconclusive."""
+        """
+        Force-conclude the active experiment as inconclusive.
+
+        Called when a new experiment is started while one is already running.
+        Marks the current experiment ``INCONCLUSIVE`` and clears the active
+        reference so the new experiment can be registered.
+        """
         if self._active_experiment:
             self._active_experiment.status = ExperimentStatus.INCONCLUSIVE
             self._active_experiment.conclusion = "Force-concluded for new experiment"
@@ -543,6 +557,14 @@ class MetaLearner:
     """
 
     def __init__(self, window_size: int = 200) -> None:
+        """
+        Initialize the MetaLearner with A/B testing support.
+
+        Args:
+            window_size: Maximum number of trade observations to retain in
+                the rolling learning window. Older observations are evicted
+                when the window is full.
+        """
         self.window_size = window_size
         self.observations: deque[TradeObservation] = deque(maxlen=window_size)
         self.config = MetaConfig()
@@ -570,7 +592,25 @@ class MetaLearner:
         ml_confidence: float,
         regime: str,
     ) -> None:
-        """Record a trade outcome with full context."""
+        """
+        Record a trade outcome with full context.
+
+        Appends the observation to the rolling window and, if an A/B
+        experiment is active, feeds the PnL to the experiment engine.
+        Automatically handles experiment conclusions (adoption / rejection /
+        inconclusive) when the engine signals a result.
+
+        Args:
+            pnl: Realised profit-and-loss for this trade.
+            strategy_signal: Signal produced by the strategy ensemble
+                (``"BUY"``, ``"SELL"``, or ``"HOLD"``).
+            ml_signal: Signal produced by the ML model.
+            final_signal: The signal that was actually executed.
+            strategy_confidence: Confidence score from the strategy
+                ensemble in [0, 1].
+            ml_confidence: Confidence score from the ML model in [0, 1].
+            regime: Market regime label at trade time.
+        """
         if strategy_signal == ml_signal:
             source = "both"
         elif final_signal == strategy_signal:
@@ -672,9 +712,14 @@ class MetaLearner:
 
     def learn_immediate(self) -> dict[str, Any]:
         """
-        v1.0 compatibility: Learn and apply immediately (no A/B test).
+        v1.0 compatibility: learn and apply configuration changes immediately.
 
-        Use this for initial warm-up or when you want to skip validation.
+        Runs all learning algorithms and applies proposed changes directly to
+        ``self.config`` without creating an A/B experiment. Use this for
+        initial warm-up or when statistical validation is not required.
+
+        Returns:
+            Dict with keys ``status``, ``changes``, and ``round``.
         """
         if len(self.observations) < 10:
             return {"status": "insufficient_data", "observations": len(self.observations)}
@@ -712,7 +757,13 @@ class MetaLearner:
     # ── A/B Testing Internals ─────────────────────────────────────────
 
     def _adopt_treatment(self) -> None:
-        """Treatment config won — adopt it as the new config."""
+        """
+        Adopt the winning treatment config as the new live configuration.
+
+        Called when the A/B engine reports ``"treatment_wins"``.  Resets the
+        consecutive-rejection counter and records the adoption in
+        ``_adoption_history``.
+        """
         exp = self._ab_engine._experiments[-1]
         self.config = exp.treatment_config.copy()
         self._consecutive_rejections = 0
@@ -727,7 +778,13 @@ class MetaLearner:
         _log.info("[MetaLearner] New config adopted! Sharpe: %.2f → %.2f", exp.control_sharpe, exp.treatment_sharpe)
 
     def _handle_rejection(self) -> None:
-        """Treatment config lost — keep current config, adjust learning rate."""
+        """
+        Handle a rejected treatment: keep current config, adjust learning rate.
+
+        Increments the consecutive-rejection counter and reduces the
+        adaptive learning rate after three or more consecutive rejections,
+        making future proposals more conservative.
+        """
         self._consecutive_rejections += 1
         self._adoption_history.append(
             {
@@ -748,7 +805,12 @@ class MetaLearner:
             )
 
     def _handle_inconclusive(self) -> None:
-        """Experiment was inconclusive — no change."""
+        """
+        Handle an inconclusive experiment outcome.
+
+        No configuration change is made; the result is recorded in
+        ``_adoption_history`` for dashboard visibility.
+        """
         self._adoption_history.append(
             {
                 "round": self.learning_count,
@@ -966,7 +1028,12 @@ class MetaLearner:
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
-        """Restore from state."""
+        """
+        Restore learner state from a serialized dict.
+
+        Args:
+            data: Dict previously returned by :meth:`to_dict`.
+        """
         self.learning_count = data.get("learning_count", 0)
         cfg = data.get("config", {})
         if cfg:

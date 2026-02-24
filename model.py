@@ -25,6 +25,8 @@ Install for full power:
     pip install torch xgboost
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 
@@ -88,6 +90,17 @@ if _HAS_TORCH:
             dropout: float = 0.2,
             embedding_dim: int = 16,
         ) -> None:
+            """
+            Initialize the LSTM feature extractor.
+
+            Args:
+                n_features: Number of input features per timestep.
+                hidden_dim: Number of hidden units in the LSTM.
+                n_layers: Number of stacked LSTM layers.
+                dropout: Dropout probability applied between LSTM layers and
+                    in the projection head.
+                embedding_dim: Dimensionality of the output embedding.
+            """
             super().__init__()
             self.hidden_dim = hidden_dim
             self.n_layers = n_layers
@@ -162,6 +175,15 @@ if _HAS_TORCH:
         def __init__(
             self, model: LSTMFeatureExtractor, n_features: int, lr: float = 0.001, weight_decay: float = 1e-5
         ) -> None:
+            """
+            Initialize the self-supervised trainer.
+
+            Args:
+                model: The LSTM feature extractor to train.
+                n_features: Number of input features.
+                lr: Learning rate for AdamW optimizer.
+                weight_decay: L2 regularization coefficient.
+            """
             self.model = model
             self.embedding_dim = model.projection[-1].out_features
 
@@ -231,7 +253,16 @@ if _HAS_TORCH:
             """
             Full training loop with early stopping.
 
-            Returns training history dict.
+            Args:
+                X_sequences: Training sequences of shape (N, seq_len, n_features).
+                Y_targets: Training targets of shape (N, target_dim).
+                X_val_seq: Optional validation sequences.
+                Y_val_targets: Optional validation targets.
+                epochs: Maximum number of training epochs.
+                patience: Early-stopping patience in epochs.
+
+            Returns:
+                Training history dict with keys ``train_loss`` and ``val_loss``.
             """
             best_val_loss = float("inf")
             best_state = None
@@ -265,7 +296,16 @@ if _HAS_TORCH:
             return history
 
         def _validate(self, X_seq: np.ndarray, Y_targets: np.ndarray) -> float:
-            """Compute validation loss."""
+            """
+            Compute validation loss.
+
+            Args:
+                X_seq: Validation sequences of shape (N, seq_len, n_features).
+                Y_targets: Validation targets of shape (N, target_dim).
+
+            Returns:
+                Scalar validation loss.
+            """
             self.model.eval()
             self.pred_head.eval()
             with torch.no_grad():
@@ -300,6 +340,13 @@ class TradingModel:
     """
 
     def __init__(self) -> None:
+        """
+        Initialize TradingModel, selecting the best available tier.
+
+        Tier 1 requires both PyTorch and XGBoost. Tier 2 requires XGBoost
+        only. Tier 3 uses scikit-learn RandomForest + GradientBoosting and
+        is always available as a fallback.
+        """
         self.scaler = StandardScaler()
         self.is_trained = False
         self.last_train_accuracy = 0.0
@@ -363,8 +410,16 @@ class TradingModel:
 
     # ── LSTM Builder ────────────────────────────────────────────────
 
-    def _build_lstm(self, n_features: int) -> "LSTMFeatureExtractor":
-        """Build PyTorch LSTM feature extractor."""
+    def _build_lstm(self, n_features: int) -> LSTMFeatureExtractor:
+        """
+        Build PyTorch LSTM feature extractor.
+
+        Args:
+            n_features: Number of input features per timestep.
+
+        Returns:
+            Configured ``LSTMFeatureExtractor`` instance.
+        """
         model = LSTMFeatureExtractor(
             n_features=n_features,
             hidden_dim=64,
@@ -377,7 +432,18 @@ class TradingModel:
     # ── Sequence Creation ────────────────────────────────────────────
 
     def _create_sequences(self, X: np.ndarray, y: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray | None]:
-        """Create LSTM-compatible sequences from flat feature matrix."""
+        """
+        Create LSTM-compatible sequences from flat feature matrix.
+
+        Args:
+            X: Scaled feature matrix of shape (N, n_features).
+            y: Optional label array of length N.
+
+        Returns:
+            Tuple of (sequences, labels) where sequences has shape
+            (N-lookback, lookback, n_features). Labels is ``None`` when
+            ``y`` is not provided.
+        """
         sequences = []
         labels = []
         for i in range(self.lookback, len(X)):
@@ -389,7 +455,16 @@ class TradingModel:
         return np.array(sequences), np.array(labels) if y is not None else None
 
     def _create_labels(self, future_return: pd.Series) -> np.ndarray:
-        """Vectorized label creation with configurable threshold."""
+        """
+        Vectorized label creation with configurable threshold.
+
+        Args:
+            future_return: Series of forward returns for each bar.
+
+        Returns:
+            String label array with values ``Signal.BUY``, ``Signal.SELL``,
+            or ``Signal.HOLD``.
+        """
         threshold = Config.ML_LABEL_THRESHOLD
         labels = np.full(len(future_return), Signal.HOLD)
         labels[future_return.values > threshold] = Signal.BUY
@@ -399,7 +474,28 @@ class TradingModel:
     # ── Training ─────────────────────────────────────────────────────
 
     def train(self, df: pd.DataFrame | None = None, df_ind: pd.DataFrame | None = None) -> dict[str, Any]:
-        """Train the model using the best available tier."""
+        """
+        Train the model using the best available tier.
+
+        Accepts either raw OHLCV data (``df``) or a pre-computed indicator
+        DataFrame (``df_ind``). When only ``df`` is supplied, indicators are
+        computed internally.
+
+        Args:
+            df: Raw OHLCV DataFrame. Used to compute indicators when
+                ``df_ind`` is ``None``.
+            df_ind: Pre-computed indicator DataFrame that already contains
+                ``future_return`` and all feature columns.
+
+        Returns:
+            Dict with keys ``cv_accuracy``, ``samples``,
+            ``class_distribution``, and ``tier`` on success, or
+            ``{"error": <reason>}`` when training cannot proceed.
+
+        Raises:
+            Exception: Re-raised if tier-3 training itself fails (all
+                fallbacks exhausted).
+        """
         if df_ind is None:
             df_ind = Indicators.add_all(df)
 
@@ -457,7 +553,11 @@ class TradingModel:
         return {"cv_accuracy": val_accuracy, "samples": len(y), "class_distribution": dist, "tier": self._tier}
 
     def _init_tier3(self) -> None:
-        """Initialize tier 3 models."""
+        """
+        Initialize tier-3 sklearn models.
+
+        Called when falling back from tier 1 or 2 after a training failure.
+        """
         self.rf_model = RandomForestClassifier(
             n_estimators=100,
             max_depth=8,
@@ -488,6 +588,17 @@ class TradingModel:
           1. Self-supervised LSTM pre-training (predict next features)
           2. Extract LSTM embeddings
           3. Combine embeddings + raw features → XGBoost
+
+        Args:
+            X_train: Scaled training features.
+            y_train: Training labels.
+            X_val: Scaled validation features.
+            y_val: Validation labels.
+            X_all: Full scaled feature matrix for final refit.
+            y_all: Full label array for final refit.
+
+        Returns:
+            Validation accuracy as a fraction in [0, 1].
         """
         n_features = X_train.shape[1]
         self.lstm_model = self._build_lstm(n_features)
@@ -559,7 +670,20 @@ class TradingModel:
         X_all: np.ndarray,
         y_all: np.ndarray,
     ) -> float:
-        """Train XGBoost only."""
+        """
+        Train XGBoost only.
+
+        Args:
+            X_train: Scaled training features.
+            y_train: Training labels.
+            X_val: Scaled validation features.
+            y_val: Validation labels.
+            X_all: Full scaled feature matrix for final refit.
+            y_all: Full label array for final refit.
+
+        Returns:
+            Validation accuracy as a fraction in [0, 1].
+        """
         y_train_mapped = np.array([self._label_map[lbl] for lbl in y_train])
         y_val_mapped = np.array([self._label_map[lbl] for lbl in y_val])
 
@@ -579,7 +703,20 @@ class TradingModel:
         X_all: np.ndarray,
         y_all: np.ndarray,
     ) -> float:
-        """Train sklearn ensemble."""
+        """
+        Train sklearn RandomForest + GradientBoosting ensemble.
+
+        Args:
+            X_train: Training features.
+            y_train: Training labels.
+            X_val: Validation features.
+            y_val: Validation labels.
+            X_all: Full feature matrix for final refit.
+            y_all: Full label array for final refit.
+
+        Returns:
+            Validation accuracy as a fraction in [0, 1].
+        """
         self.rf_model.fit(X_train, y_train)
         self.gb_model.fit(X_train, y_train)
 
@@ -596,7 +733,22 @@ class TradingModel:
     # ── Prediction ───────────────────────────────────────────────────
 
     def predict(self, df: pd.DataFrame | None = None, df_ind: pd.DataFrame | None = None) -> tuple[str, float]:
-        """Predict signal for latest candle."""
+        """
+        Predict signal for the latest candle.
+
+        Results are cached by (last_close, last_index) to avoid redundant
+        computation within the same agent cycle.
+
+        Args:
+            df: Raw OHLCV DataFrame. Used to compute indicators when
+                ``df_ind`` is ``None``.
+            df_ind: Pre-computed indicator DataFrame.
+
+        Returns:
+            Tuple of ``(signal, confidence)`` where signal is one of
+            ``Signal.BUY``, ``Signal.SELL``, or ``Signal.HOLD`` and
+            confidence is a float in [0, 1].
+        """
         if not self.is_trained:
             return Signal.HOLD, 0.0
 
@@ -623,7 +775,18 @@ class TradingModel:
         return result
 
     def _predict_tier1(self, df_ind: pd.DataFrame) -> tuple[str, float]:
-        """Predict using PyTorch LSTM + XGBoost."""
+        """
+        Predict using PyTorch LSTM + XGBoost.
+
+        Falls back to tier-2 prediction when the LSTM model has not been
+        built or there is insufficient history for a full sequence.
+
+        Args:
+            df_ind: Indicator DataFrame with at least ``lookback + 1`` rows.
+
+        Returns:
+            Tuple of ``(signal, confidence)``.
+        """
         if self.lstm_model is None or len(df_ind) < self.lookback + 1:
             return self._predict_tier2(df_ind)
 
@@ -642,7 +805,15 @@ class TradingModel:
         return self._label_inv[pred_idx], float(proba[pred_idx])
 
     def _predict_tier2(self, df_ind: pd.DataFrame) -> tuple[str, float]:
-        """Predict using XGBoost only."""
+        """
+        Predict using XGBoost only.
+
+        Args:
+            df_ind: Indicator DataFrame; only the last row is used.
+
+        Returns:
+            Tuple of ``(signal, confidence)``.
+        """
         latest = df_ind[self.feature_cols].iloc[-1:].values
         latest_scaled = self.scaler.transform(latest)
         proba = self.xgb_model.predict_proba(latest_scaled)[0]
@@ -650,7 +821,15 @@ class TradingModel:
         return self._label_inv[pred_idx], float(proba[pred_idx])
 
     def _predict_tier3(self, df_ind: pd.DataFrame) -> tuple[str, float]:
-        """Predict using sklearn ensemble."""
+        """
+        Predict using sklearn RandomForest + GradientBoosting ensemble.
+
+        Args:
+            df_ind: Indicator DataFrame; only the last row is used.
+
+        Returns:
+            Tuple of ``(signal, confidence)``.
+        """
         latest = df_ind[self.feature_cols].iloc[-1:].values
         latest_scaled = self.scaler.transform(latest)
 
@@ -666,7 +845,16 @@ class TradingModel:
     # ── Feature Importance ───────────────────────────────────────────
 
     def get_feature_importance(self) -> dict[str, float]:
-        """Return feature importance scores sorted by importance (descending)."""
+        """
+        Return feature importance scores sorted by importance (descending).
+
+        For tier-1 and tier-2 models the XGBoost ``feature_importances_``
+        attribute is used. For tier 3 the RandomForest importances are used.
+
+        Returns:
+            Mapping of feature name to importance score, sorted descending.
+            Returns an empty dict when the model has not been trained.
+        """
         if not self.is_trained:
             return {}
         if self._tier in (1, 2) and hasattr(self, "xgb_model"):
@@ -688,7 +876,12 @@ class TradingModel:
         """
         Serialize model state for persistence.
 
-        Returns dict with all model parameters (including LSTM weights).
+        Captures scaler parameters and, for tier-1, the LSTM weight tensors
+        as nested lists (JSON-serializable).
+
+        Returns:
+            Dict with all model parameters including LSTM weights when
+            applicable.
         """
         state = {
             "tier": self._tier,
@@ -705,7 +898,12 @@ class TradingModel:
         return state
 
     def load_model_state(self, state: dict[str, Any]) -> None:
-        """Restore model from serialized state."""
+        """
+        Restore model from serialized state.
+
+        Args:
+            state: Dict previously returned by :meth:`save_model_state`.
+        """
         self._tier = state.get("tier", self._tier)
         self.is_trained = state.get("is_trained", False)
         self.last_train_accuracy = state.get("last_train_accuracy", 0.0)
@@ -727,7 +925,15 @@ class TradingModel:
                 _log.warning("Failed to restore LSTM state: %s", e)
 
     def get_model_info(self) -> dict[str, Any]:
-        """Return model architecture info for dashboard."""
+        """
+        Return model architecture info for the dashboard.
+
+        Returns:
+            Dict with keys ``tier``, ``tier_name``, ``is_trained``,
+            ``accuracy``, ``lookback``, ``n_features``, and ``runtime``.
+            Tier-1 models also include ``lstm_params``, ``lstm_hidden_dim``,
+            and ``lstm_layers``.
+        """
         info = {
             "tier": self._tier,
             "tier_name": {1: "PyTorch-LSTM+XGB", 2: "XGBoost", 3: "RF+GB"}[self._tier],
