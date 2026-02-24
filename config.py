@@ -138,6 +138,30 @@ class Config:
     MAX_REQUESTS_PER_MINUTE: int = int(os.getenv("MAX_REQUESTS_PER_MINUTE", "1200"))
     MAX_ORDERS_PER_MINUTE: int = int(os.getenv("MAX_ORDERS_PER_MINUTE", "10"))
 
+    # Autonomous subsystem intervals (cycles)
+    EVOLUTION_INTERVAL = int(os.getenv("EVOLUTION_INTERVAL", "500"))
+    META_LEARNING_INTERVAL = int(os.getenv("META_LEARNING_INTERVAL", "100"))
+    OPTIMIZATION_INTERVAL = int(os.getenv("OPTIMIZATION_INTERVAL", "1000"))
+    HEALTH_CHECK_INTERVAL = int(os.getenv("HEALTH_CHECK_INTERVAL", "10"))
+    EQUITY_SNAPSHOT_INTERVAL = int(os.getenv("EQUITY_SNAPSHOT_INTERVAL", "5"))
+    STATE_SAVE_INTERVAL = int(os.getenv("STATE_SAVE_INTERVAL", "10"))
+    PORTFOLIO_REBALANCE_INTERVAL = int(os.getenv("PORTFOLIO_REBALANCE_INTERVAL", "20"))
+
+    # Self-healer
+    CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("CIRCUIT_BREAKER_THRESHOLD", "3"))
+    CIRCUIT_BREAKER_TIMEOUT = int(os.getenv("CIRCUIT_BREAKER_TIMEOUT", "60"))
+    DATA_FRESHNESS_SECONDS = int(os.getenv("DATA_FRESHNESS_SECONDS", "600"))
+    MODEL_STALENESS_HOURS = int(os.getenv("MODEL_STALENESS_HOURS", "24"))
+
+    # Safety recovery
+    SAFETY_RECOVERY_TIMEOUT_SECONDS = int(os.getenv("SAFETY_RECOVERY_TIMEOUT_SECONDS", "1800"))
+    DRIFT_BASELINE_CONFIDENCE = float(os.getenv("DRIFT_BASELINE_CONFIDENCE", "0.7"))
+
+    # A/B Testing
+    AB_MIN_TRADES = int(os.getenv("AB_MIN_TRADES", "25"))
+    AB_MAX_TRADES = int(os.getenv("AB_MAX_TRADES", "150"))
+    AB_SIGNIFICANCE_LEVEL = float(os.getenv("AB_SIGNIFICANCE_LEVEL", "0.05"))
+
     @classmethod
     def any_intelligence_enabled(cls) -> bool:
         """Return True if at least one intelligence module is enabled.

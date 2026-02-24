@@ -10,7 +10,7 @@ Covers:
   - Serialization round-trip
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -85,7 +85,7 @@ class TestSafetyChecks:
     def test_auto_recovery_from_cautious(self, engine):
         """After 30 min with < 3 consecutive losses, recover to NORMAL."""
         engine.state = DecisionState.CAUTIOUS
-        engine._state_change_time = datetime.now() - timedelta(minutes=35)
+        engine._state_change_time = datetime.now(UTC) - timedelta(minutes=35)
         engine._consecutive_losses = 1  # Below recovery threshold
 
         engine.orchestrate(cycle_count=1, current_capital=9500)
@@ -94,7 +94,7 @@ class TestSafetyChecks:
     def test_no_recovery_if_losses_still_high(self, engine):
         """Don't recover if consecutive_losses >= 3 even after 30 min."""
         engine.state = DecisionState.CAUTIOUS
-        engine._state_change_time = datetime.now() - timedelta(minutes=35)
+        engine._state_change_time = datetime.now(UTC) - timedelta(minutes=35)
         engine._consecutive_losses = 5  # Still too many
 
         engine.orchestrate(cycle_count=1, current_capital=9500)

@@ -11,9 +11,12 @@ from __future__ import annotations
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from auto_optimizer import AutoOptimizer
 from meta_learner import MetaLearner
@@ -34,17 +37,45 @@ class DecisionState(Enum):
 
 @dataclass
 class AutonomousConfig:
-    """Safety limits for autonomous operation."""
+    """Safety limits for autonomous operation.
+
+    Defaults are loaded from Config (env vars) at construction time,
+    but can be overridden per-instance for testing.
+    """
 
     max_daily_loss_pct: float = 5.0  # Max % loss in a day
     max_consecutive_losses: int = 5  # Max losing streak before CAUTIOUS
     min_capital_pct: float = 50.0  # Min % of initial capital before HALTED
     cautious_position_mult: float = 0.5  # Position size multiplier in CAUTIOUS
     defensive_position_mult: float = 0.25  # Position size multiplier in DEFENSIVE
-    evolution_interval: int = 500  # Cycles between evolution rounds
-    learning_interval: int = 100  # Cycles between meta-learning
-    optimization_interval: int = 1000  # Cycles between optimization
-    health_check_interval: int = 10  # Cycles between health checks
+    evolution_interval: int | None = None  # Cycles between evolution rounds
+    learning_interval: int | None = None  # Cycles between meta-learning
+    optimization_interval: int | None = None  # Cycles between optimization
+    health_check_interval: int | None = None  # Cycles between health checks
+    safety_recovery_timeout: int | None = None  # Seconds before auto-recovery
+
+    def __post_init__(self) -> None:
+        """Fill None values from Config to avoid hardcoding defaults here."""
+        try:
+            from config import Config as _Cfg
+
+            if self.evolution_interval is None:
+                self.evolution_interval = _Cfg.EVOLUTION_INTERVAL
+            if self.learning_interval is None:
+                self.learning_interval = _Cfg.META_LEARNING_INTERVAL
+            if self.optimization_interval is None:
+                self.optimization_interval = _Cfg.OPTIMIZATION_INTERVAL
+            if self.health_check_interval is None:
+                self.health_check_interval = _Cfg.HEALTH_CHECK_INTERVAL
+            if self.safety_recovery_timeout is None:
+                self.safety_recovery_timeout = _Cfg.SAFETY_RECOVERY_TIMEOUT_SECONDS
+        except ImportError:
+            # Fallback for isolated tests
+            self.evolution_interval = self.evolution_interval or 500
+            self.learning_interval = self.learning_interval or 100
+            self.optimization_interval = self.optimization_interval or 1000
+            self.health_check_interval = self.health_check_interval or 10
+            self.safety_recovery_timeout = self.safety_recovery_timeout or 1800
 
 
 @dataclass
@@ -256,7 +287,7 @@ class DecisionEngine:
         if state != self.state:
             old_state = self.state
             self.state = state
-            self._state_change_time = datetime.now()
+            self._state_change_time = datetime.now(UTC)
             self._log_event(
                 "state_change",
                 f"{old_state.value} -> {state.value}: {reason}",
@@ -312,9 +343,9 @@ class DecisionEngine:
             Tuple of ``(DecisionState, reason_string)`` where ``reason_string``
             is a human-readable explanation of why the state was chosen.
         """
-        now = datetime.now()
+        now = datetime.now(UTC)
 
-        # Reset daily PnL tracking at midnight
+        # Reset daily PnL tracking at midnight UTC
         if self._daily_reset_date is None or self._daily_reset_date.date() != now.date():
             self._daily_pnl = 0.0
             self._daily_reset_date = now
@@ -328,7 +359,7 @@ class DecisionEngine:
             return DecisionState.HALTED, f"capital at {capital_pct:.1f}% (min {self.config.min_capital_pct}%)"
 
         # Check daily loss
-        daily_loss_pct = abs(min(0, self._daily_pnl)) / self.initial_capital * 100
+        daily_loss_pct = max(0, -self._daily_pnl) / self.initial_capital * 100
         if daily_loss_pct > self.config.max_daily_loss_pct:
             return DecisionState.DEFENSIVE, f"daily loss {daily_loss_pct:.1f}% (max {self.config.max_daily_loss_pct}%)"
 
@@ -339,11 +370,15 @@ class DecisionEngine:
         # Check if we can recover from CAUTIOUS/DEFENSIVE
         if self.state in (DecisionState.CAUTIOUS, DecisionState.DEFENSIVE) and self._state_change_time:
             elapsed = (now - self._state_change_time).total_seconds()
-            # Auto-recover after 30 minutes if conditions improve
-            if elapsed > 1800 and self._consecutive_losses < 3:
+            # Auto-recover after timeout if conditions improve
+            if elapsed > self.config.safety_recovery_timeout and self._consecutive_losses < 3:
                 return DecisionState.NORMAL, "conditions improved"
 
-        return self.state if self.state != DecisionState.HALTED else DecisionState.NORMAL, "ok"
+        # If currently HALTED (from previous safety check) but conditions have improved,
+        # recover to NORMAL. Otherwise keep the current state.
+        if self.state == DecisionState.HALTED:
+            return DecisionState.NORMAL, "conditions recovered"
+        return self.state, "ok"
 
     def record_trade_result(
         self,
@@ -495,14 +530,16 @@ class DecisionEngine:
             max_per_strategy: Maximum number of genomes to evaluate per
                 strategy population in a single call.
 
+        Uses real historical OHLCV data from the exchange when available,
+        falls back to demo data only as a last resort.
+
         Returns:
             Total number of genomes scored across all strategy populations.
         """
         from backtester import Backtester
-        from demo_data import generate_ohlcv
 
         scored = 0
-        df = generate_ohlcv(periods=500)  # Longer series for reliable fitness
+        df = self._fetch_fitness_data(periods=500)
 
         for strat_name, population in self.evolver.populations.items():
             evaluated = 0
@@ -561,6 +598,7 @@ class DecisionEngine:
 
         Generates parameter suggestions from ``AutoOptimizer``, runs each
         through ``Backtester``, records results, and restores ``Config`` values.
+        Uses real historical OHLCV data when available.
 
         Args:
             n_trials: Number of parameter combinations to evaluate.
@@ -571,12 +609,11 @@ class DecisionEngine:
         """
         import config as cfg
         from backtester import Backtester
-        from demo_data import generate_ohlcv
 
         suggestions = self.optimizer.run_optimization_round(n_trials=n_trials)
         results = []
 
-        df = generate_ohlcv(periods=500)
+        df = self._fetch_fitness_data(periods=500)
 
         for params in suggestions:
             # Snapshot original config
@@ -614,6 +651,30 @@ class DecisionEngine:
                 cfg.Config.MAX_OPEN_POSITIONS = orig["positions"]
 
         return results
+
+    def _fetch_fitness_data(self, periods: int = 500) -> pd.DataFrame:
+        """Fetch real historical OHLCV data for fitness evaluation.
+
+        Tries the exchange first via DataFetcher. Falls back to demo data
+        only when the exchange is unreachable (e.g. during tests or offline).
+        """
+        try:
+            from data_fetcher import DataFetcher
+
+            fetcher = DataFetcher()
+            df = fetcher.fetch_ohlcv(limit=periods)
+            if df is not None and len(df) >= 50 and not fetcher.using_demo:
+                _log.info("Fitness eval using %d real OHLCV bars", len(df))
+                return df
+            _log.info("Exchange returned insufficient data (%d bars), using demo fallback", len(df) if df is not None else 0)
+        except Exception as e:
+            _log.debug("Could not fetch real OHLCV for fitness eval: %s", e)
+
+        # Last resort: demo data (offline / test environments)
+        from demo_data import generate_ohlcv
+
+        _log.info("Fitness eval using demo OHLCV data (exchange unavailable)")
+        return generate_ohlcv(periods=periods)
 
     def should_override_signal(self, signal: str, confidence: float) -> tuple[str, float]:
         """Override or dampen a trading signal based on the current safety state.

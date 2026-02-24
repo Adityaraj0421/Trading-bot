@@ -520,35 +520,65 @@ class ABTestEngine:
         self, actual_pnl: float, obs: TradeObservation, control: MetaConfig, treatment: MetaConfig
     ) -> float:
         """
-        Approximate what PnL would have been under treatment config.
+        Estimate what PnL would have been under treatment config.
 
-        Uses a scaling approach based on config differences.
-        This is an approximation — real A/B would run parallel strategies.
+        Re-computes the signal combination under treatment weights to determine:
+        1. Would treatment have taken this trade at all? (confidence gate)
+        2. Would treatment have reached a different combined signal strength?
+        3. How would position sizing differ under treatment config?
+
+        The PnL is then scaled by the ratio of treatment vs control signal
+        strength, reflecting that stronger conviction → larger position → more PnL.
+
+        Note: This is still an approximation since we can't replay the exact
+        market impact. True parallel execution would require splitting capital
+        at the order level, which is a future enhancement.
         """
-        # The main difference is signal weighting and confidence threshold
-        # If treatment would have taken the same trade: scale by weight diff
-        control_weight = control.strategy_weight if obs.signal_source == "strategy" else control.ml_weight
-        treatment_weight = treatment.strategy_weight if obs.signal_source == "strategy" else treatment.ml_weight
+        # Step 1: Re-compute combined confidence under treatment weights
+        control_combined_conf = (
+            obs.strategy_confidence * control.strategy_weight
+            + obs.ml_confidence * control.ml_weight
+        )
+        treatment_combined_conf = (
+            obs.strategy_confidence * treatment.strategy_weight
+            + obs.ml_confidence * treatment.ml_weight
+        )
 
-        # Weight ratio scaling
-        if control_weight > 0:
-            weight_ratio = treatment_weight / control_weight
+        # Agreement bonus: if both signals agree, add bonus
+        if obs.strategy_signal == obs.ml_signal and obs.strategy_signal != "HOLD":
+            control_combined_conf += control.agreement_bonus
+            treatment_combined_conf += treatment.agreement_bonus
+
+        # Disagreement penalty: if signals disagree, dampen
+        if obs.strategy_signal != obs.ml_signal:
+            control_combined_conf *= control.disagreement_penalty
+            treatment_combined_conf *= treatment.disagreement_penalty
+
+        # Step 2: Would treatment have traded?
+        if treatment_combined_conf < treatment.min_confidence:
+            return 0.0  # Treatment would have skipped this trade
+
+        # Step 3: Signal strength ratio determines PnL scaling
+        # Stronger combined confidence → larger effective position
+        if control_combined_conf > 1e-8:
+            signal_ratio = treatment_combined_conf / control_combined_conf
         else:
-            weight_ratio = 1.0
+            signal_ratio = 1.0
 
-        # Confidence threshold check: would treatment have traded?
-        max_conf = max(obs.strategy_confidence, obs.ml_confidence)
-        if max_conf < treatment.min_confidence:
-            # Treatment would have skipped this trade
-            return 0.0
-
-        # Kelly fraction scaling
+        # Step 4: Position sizing adjustment
+        sizing_ratio = 1.0
         if treatment.position_size_method == "kelly" and control.position_size_method == "kelly":
-            kelly_ratio = treatment.kelly_fraction / max(control.kelly_fraction, 0.01)
-            weight_ratio *= kelly_ratio
+            sizing_ratio = treatment.kelly_fraction / max(control.kelly_fraction, 0.01)
+        elif treatment.position_size_method == "kelly" and control.position_size_method == "fixed":
+            # Kelly vs fixed: scale by kelly fraction relative to baseline
+            sizing_ratio = treatment.kelly_fraction / 0.25  # 0.25 = default fixed sizing baseline
+        elif treatment.position_size_method == "fixed" and control.position_size_method == "kelly":
+            sizing_ratio = 0.25 / max(control.kelly_fraction, 0.01)
 
-        # Apply scaling (bounded to prevent wild swings)
-        scale = max(0.3, min(2.0, weight_ratio))
+        # Combined scale factor (bounded to prevent wild swings)
+        scale = signal_ratio * sizing_ratio
+        scale = max(0.2, min(3.0, scale))
+
         return actual_pnl * scale
 
     def _force_conclude(self) -> None:

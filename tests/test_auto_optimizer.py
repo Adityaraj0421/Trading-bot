@@ -155,27 +155,29 @@ class TestComputeScore:
     def test_sharpe_base(self, optimizer):
         tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=-1.0, max_drawdown=3.0, total_trades=10)
         score = optimizer._compute_score(tr)
-        # base = 2.0 * 2.0 = 4.0, no return bonus, no drawdown penalty,
-        # trades=10 is NOT > 10 so no trade bonus
-        assert score == pytest.approx(4.0, abs=0.01)
+        # base = 2.0 * 2.0 = 4.0, return=-1 (no bonus/penalty for small neg),
+        # drawdown 3% < 5% (no penalty), trades=10 >= 10 (+0.5) → 4.5
+        assert score == pytest.approx(4.5, abs=0.01)
 
     def test_positive_return_bonus(self, optimizer):
         tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=10.0, max_drawdown=3.0, total_trades=10)
         score = optimizer._compute_score(tr)
-        # base = 4.0, return bonus = 10*0.1 = 1.0, trades=10 (no trade bonus) → 5.0
-        assert score == pytest.approx(5.0, abs=0.01)
+        # base = 4.0, return=10% > 5% (+1.0), trades >= 10 (+0.5) → 5.5
+        assert score == pytest.approx(5.5, abs=0.01)
 
     def test_no_bonus_negative_return(self, optimizer):
-        tr1 = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=-5.0, max_drawdown=3.0, total_trades=10)
+        tr1 = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=-3.0, max_drawdown=3.0, total_trades=10)
         tr2 = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0, max_drawdown=3.0, total_trades=10)
-        # Both should have no return bonus
+        # tr1: return=-3% (small neg, no penalty bucket) → base 4.0 + 0.5 (trades) = 4.5
+        # tr2: return=0 (no bonus) → base 4.0 + 0.5 (trades) = 4.5
+        # Both should have same score (no penalty for small negative returns)
         assert optimizer._compute_score(tr1) == optimizer._compute_score(tr2)
 
     def test_drawdown_penalty(self, optimizer):
         tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0, max_drawdown=10.0, total_trades=10)
         score = optimizer._compute_score(tr)
-        # base = 4.0, drawdown penalty = -(10-5)*0.3 = -1.5, no trade bonus → 2.5
-        assert score == pytest.approx(2.5, abs=0.01)
+        # base = 4.0, drawdown penalty = -(10-5)/5 = -1.0, trades >= 10 (+0.5) → 3.5
+        assert score == pytest.approx(3.5, abs=0.01)
 
     def test_low_trade_penalty(self, optimizer):
         tr = TrialResult(params={}, metrics={}, sharpe=2.0, total_return=0.0, max_drawdown=3.0, total_trades=3)

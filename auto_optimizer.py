@@ -303,10 +303,13 @@ class AutoOptimizer:
 
     def _tell_optuna(self, params: dict[str, Any], result: TrialResult) -> None:
         """Report trial result back to Optuna study."""
-        # Find matching pending trial
+        # Find matching pending trial (tolerance-based float comparison)
         trial_number = None
         for pending in self._pending_params:
-            match = all(pending.get(k) == params.get(k) for k in self.search_space)
+            match = all(
+                abs(float(pending.get(k, 0)) - float(params.get(k, 0))) < 1e-6
+                for k in self.search_space
+            )
             if match:
                 trial_number = pending.get("_optuna_trial_number")
                 self._pending_params.remove(pending)
@@ -335,22 +338,38 @@ class AutoOptimizer:
             self._study.add_trial(trial)
 
     def _compute_score(self, result: TrialResult) -> float:
-        """Compute composite optimization score."""
-        score = result.sharpe * 2.0  # Primary: risk-adjusted return
+        """Compute composite optimization score.
 
-        # Bonus for positive returns
-        if result.total_return > 0:
-            score += result.total_return * 0.1
+        All components are normalized to comparable scales before combining.
+        The score is dimensionless and used only for ranking trials.
 
-        # Penalty for drawdown > 5%
+        Components:
+          - Sharpe ratio (already dimensionless): primary quality metric
+          - Return quality: sign-based bonus (not raw percentage)
+          - Drawdown penalty: penalizes excessive risk
+          - Trade count: penalizes overfitting (too few trades)
+        """
+        # Primary: Sharpe ratio (already dimensionless, typically -2 to +3)
+        score = result.sharpe * 2.0
+
+        # Return quality: bonus for profitable, penalty for losing
+        # Using sign + magnitude-bucket rather than raw pct to stay scale-neutral
+        if result.total_return > 5.0:
+            score += 1.0  # Strong positive return
+        elif result.total_return > 0:
+            score += 0.5  # Modest positive return
+        elif result.total_return < -5.0:
+            score -= 0.5  # Significant loss
+
+        # Drawdown penalty (normalized: 5% drawdown = 0 penalty, each 5% above = -1)
         if result.max_drawdown > 5:
-            score -= (result.max_drawdown - 5) * 0.3
+            score -= (result.max_drawdown - 5) / 5.0
 
-        # Penalty for too few trades (likely overfitting)
+        # Trade count penalty / bonus (prevents overfitting)
         if result.total_trades < 5:
-            score *= 0.5
-        elif result.total_trades > 10:
-            score += 0.5  # Bonus for activity
+            score *= 0.5  # Likely overfitting on few trades
+        elif result.total_trades >= 10:
+            score += 0.5  # Sufficient sample for statistical relevance
 
         return round(score, 4)
 
