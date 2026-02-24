@@ -1,19 +1,27 @@
 """
-Strategy Library — 6 proven strategies that activate based on market regime.
+Strategy Library — 10 strategies that activate based on market regime.
 
-Each strategy takes OHLCV data with indicators and returns a signal + confidence.
-The Strategy Engine selects which strategy to use based on the detected regime.
+Each strategy takes OHLCV data with indicators and returns a StrategySignal with
+action (BUY/SELL/HOLD) and confidence (0.0–1.0).  The StrategyEngine selects which
+strategies to run based on the detected regime and combines their outputs via
+weighted voting.
 
 Strategies:
-  1. MomentumStrategy      — Trend following (for TRENDING_UP / TRENDING_DOWN)
-  2. MeanReversionStrategy  — Buy dips / sell rallies (for RANGING)
-  3. BreakoutStrategy       — Catch new trends early (for RANGING → TRENDING)
-  4. GridStrategy           — Grid trading (for RANGING / low volatility)
-  5. ScalpingStrategy       — Quick in-and-out on micro moves (for any regime)
-  6. SentimentStrategy      — Contrarian + momentum based on Fear/Greed
+  1. MomentumStrategy       — MA + MACD + RSI trend following (TRENDING_UP/DOWN)
+  2. MeanReversionStrategy  — Bollinger Band + RSI oversold/overbought fades (RANGING)
+  3. BreakoutStrategy       — Volatility expansion / BB breakout (RANGING, HIGH_VOLATILITY)
+  4. GridStrategy           — Price oscillation within SMA20-anchored grid (RANGING)
+  5. ScalpingStrategy       — Hammer/shooting-star reversal candles (any regime)
+  6. SentimentDrivenStrategy — Contrarian + momentum on Fear/Greed extremes (all regimes)
+  7. VWAPStrategy           — VWAP deviation reversion (RANGING, TRENDING_UP/DOWN)
+  8. OBVDivergenceStrategy  — Price/OBV divergence leading reversals (TRENDING_UP/DOWN)
+  9. EMACrossoverStrategy   — EMA 9/21 golden/death cross with ADX filter (TRENDING_UP/DOWN)
+ 10. IchimokuStrategy       — TK-cross + cloud position + ADX filter (TRENDING_UP/DOWN)
 
 Inspired by: QuantInsti, Freqtrade, 3Commas, Renaissance Technologies research
 """
+
+from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
@@ -40,33 +48,50 @@ class StrategySignal:
 
 
 class BaseStrategy(ABC):
-    """Base class for all trading strategies."""
+    """Abstract base class for all trading strategies.
+
+    Subclasses must set the class-level ``name`` and ``best_regimes`` attributes and
+    implement ``generate_signal``.
+    """
 
     name: str = "base"
     best_regimes: list[MarketRegime] = []
 
     @abstractmethod
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Generate a BUY/SELL/HOLD signal from indicator-enriched OHLCV data."""
+        """Generate a BUY/SELL/HOLD signal from indicator-enriched OHLCV data.
+
+        Args:
+            df: DataFrame with OHLCV columns plus computed indicator columns.
+            sentiment: Optional current market sentiment state.
+
+        Returns:
+            A StrategySignal with signal, confidence, reason, and SL/TP hints.
+        """
 
 
 class MomentumStrategy(BaseStrategy):
-    """
-    Trend Following / Momentum Strategy.
-    Best in: TRENDING_UP, TRENDING_DOWN
+    """Trend-following / momentum strategy for trending markets.
 
-    Logic:
-    - Buy when price > SMA20 > SMA50, RSI 40-70, MACD bullish crossover
-    - Sell when price < SMA20 < SMA50, RSI 30-60, MACD bearish crossover
-    - Uses ATR for dynamic stops (wider in trends)
+    Generates BUY signals when price > SMA20 > SMA50, MACD is bullish, RSI is in
+    the healthy trend range (40–70), and volume confirms. Generates SELL signals on
+    the mirror-image bearish alignment. Stop-loss and take-profit are ATR-adaptive
+    (2× ATR and 3× ATR respectively).
 
-    Source: Top quant fund strategy, 70% of algo trading volume uses momentum.
+    Best regimes: TRENDING_UP, TRENDING_DOWN.
     """
 
     name = "Momentum"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``rsi_oversold`` (default 30), ``rsi_overbought`` (default 70),
+                ``macd_threshold`` (default 0.0), ``confidence_base`` (default 0.6).
+        """
         p = params or {}
         self.rsi_oversold = p.get("rsi_oversold", 30)
         self.rsi_overbought = p.get("rsi_overbought", 70)
@@ -74,7 +99,18 @@ class MomentumStrategy(BaseStrategy):
         self.confidence_base = p.get("confidence_base", 0.6)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Score MA alignment, MACD crossover, and RSI to produce a momentum signal."""
+        """Score MA alignment, MACD crossover, and RSI to produce a momentum signal.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns: ``close``,
+                ``sma_20``, ``sma_50``, ``macd``, ``macd_signal``, ``rsi``,
+                ``volume_ratio``, ``atr_pct``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. HOLD confidence is 0.5.
+            BUY/SELL confidence is capped at 0.95 and scaled by component scores.
+        """
         latest = df.iloc[-1]
         prev = df.iloc[-2]
 
@@ -147,29 +183,44 @@ class MomentumStrategy(BaseStrategy):
 
 
 class MeanReversionStrategy(BaseStrategy):
-    """
-    Mean Reversion Strategy.
-    Best in: RANGING
+    """Mean-reversion strategy for ranging, low-trend markets.
 
-    Logic:
-    - Buy when price touches lower Bollinger Band + RSI < 30 (oversold)
-    - Sell when price touches upper Bollinger Band + RSI > 70 (overbought)
-    - Tighter stops since we're fading the move
+    Generates BUY signals when price touches the lower Bollinger Band (bb_position <
+    0.1–0.2), RSI is oversold, and Stochastic %K is depressed. Generates SELL signals
+    on the mirror-image overbought conditions. Uses tighter fixed stops (1.5%/2.5%)
+    since the trade fades the current move.
 
-    Source: Works best in sideways markets. Bear market short-squeeze rallies.
+    Best regimes: RANGING.
     """
 
     name = "MeanReversion"
     best_regimes = [MarketRegime.RANGING]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``rsi_low`` (default 25), ``rsi_high`` (default 75),
+                ``confidence_base`` (default 0.6).
+        """
         p = params or {}
         self.rsi_low = p.get("rsi_low", 25)
         self.rsi_high = p.get("rsi_high", 75)
         self.confidence_base = p.get("confidence_base", 0.6)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Detect oversold/overbought extremes using Bollinger Bands, RSI, and Stochastic."""
+        """Detect oversold/overbought extremes using Bollinger Bands, RSI, and Stochastic.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns: ``bb_position``,
+                ``rsi``, ``stoch_k``, ``close_to_sma20``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. HOLD confidence is 0.5.
+            BUY/SELL confidence is capped at 0.9, derived from component scores.
+        """
         latest = df.iloc[-1]
 
         bb_pos = latest.get("bb_position", 0.5)
@@ -231,29 +282,44 @@ class MeanReversionStrategy(BaseStrategy):
 
 
 class BreakoutStrategy(BaseStrategy):
-    """
-    Breakout / Volatility Expansion Strategy.
-    Best in: RANGING (about to break out), HIGH_VOLATILITY
+    """Volatility-expansion / breakout strategy.
 
-    Logic:
-    - Buy when price breaks above upper Bollinger Band with volume surge
-    - Sell when price breaks below lower Bollinger Band with volume surge
-    - Tight stops: if breakout fails, exit fast
+    Generates BUY signals when price breaks above the upper Bollinger Band (bb_position
+    > 1.0) or hits a new N-bar high with volume surge. Generates SELL signals on
+    mirror-image downside breaks. A prior Bollinger squeeze increases confidence.
+    Tight stops (1%) allow fast exit if the breakout fails.
 
-    Source: Capitalizes on volatility expansion after compression (squeeze).
+    Best regimes: RANGING (about to break out), HIGH_VOLATILITY.
     """
 
     name = "Breakout"
     best_regimes = [MarketRegime.RANGING, MarketRegime.HIGH_VOLATILITY]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``lookback`` (default 20), ``volume_mult`` (default 1.5),
+                ``confidence_base`` (default 0.6).
+        """
         p = params or {}
         self.lookback = p.get("lookback", 20)
         self.volume_mult = p.get("volume_mult", 1.5)
         self.confidence_base = p.get("confidence_base", 0.6)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Identify Bollinger Band breakouts confirmed by volume surge."""
+        """Identify Bollinger Band breakouts confirmed by volume surge.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns: ``bb_position``,
+                ``volume_ratio``, ``bb_width``, ``high``, ``low``, ``close``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. HOLD confidence is 0.5.
+            BUY/SELL confidence scales with volume ratio and squeeze detection.
+        """
         latest = df.iloc[-1]
 
         bb_pos = latest.get("bb_position", 0.5)
@@ -303,16 +369,14 @@ class BreakoutStrategy(BaseStrategy):
 
 
 class GridStrategy(BaseStrategy):
-    """
-    Grid Trading Strategy.
-    Best in: RANGING (low volatility sideways)
+    """Virtual grid trading strategy for low-volatility sideways markets.
 
-    Logic:
-    - Places virtual buy/sell levels at intervals around current price
-    - Buy at grid support levels, sell at grid resistance levels
-    - Profits from oscillation within a range
+    Uses SMA20 as the grid centre. Generates BUY signals when price falls more than
+    1.5 grid levels below centre and SELL signals when it rises more than 1.5 grid
+    levels above centre.  Profits from oscillation within the range; stop-loss and
+    take-profit are multiples of the grid spacing.
 
-    Source: Pionex, Bitsgap, 3Commas grid bots.
+    Best regimes: RANGING.
     """
 
     name = "Grid"
@@ -321,13 +385,35 @@ class GridStrategy(BaseStrategy):
     def __init__(
         self, grid_spacing_pct: float = 0.01, grid_levels: int = 5, params: dict[str, float] | None = None
     ) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            grid_spacing_pct: Default grid spacing as a fraction of price (e.g. 0.01
+                for 1%). Overridden by ``params["grid_size_pct"]`` if present.
+            grid_levels: Number of grid levels (unused in signal logic, stored for
+                reference). Overridden by ``params["num_levels"]`` if present.
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``grid_size_pct`` (percentage, default ``grid_spacing_pct * 100``),
+                ``num_levels`` (default ``grid_levels``),
+                ``confidence_base`` (default 0.5).
+        """
         p = params or {}
         self.grid_spacing = p.get("grid_size_pct", grid_spacing_pct * 100) / 100.0
         self.grid_levels = p.get("num_levels", grid_levels)
         self.confidence_base = p.get("confidence_base", 0.5)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Signal BUY/SELL when price deviates from grid center by threshold levels."""
+        """Signal BUY/SELL when price deviates from grid center by threshold levels.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns: ``close``,
+                ``sma_20``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. HOLD confidence is 0.5.
+            BUY/SELL confidence grows with distance from grid centre, capped at 0.85.
+        """
         latest = df.iloc[-1]
         close = latest["close"]
 
@@ -371,28 +457,45 @@ class GridStrategy(BaseStrategy):
 
 
 class ScalpingStrategy(BaseStrategy):
-    """
-    Scalping / Quick Reversal Strategy.
-    Works in: Any regime (but best in high volume)
+    """High-frequency scalping strategy based on reversal candle patterns.
 
-    Logic:
-    - Look for RSI extreme + price rejection candle patterns
-    - Very tight stops and targets (0.5-1% range)
-    - High win-rate, small gains
+    Generates BUY signals on hammer candles (long lower wick, short body) or RSI
+    oversold bounce with a volume spike. Generates SELL signals on shooting-star
+    candles or RSI overbought drops with a volume spike. Targets are tight (0.5–1%)
+    for high win-rate, small-profit trades.
 
-    Source: CryptoRobotics, Pionex scalping bots.
+    Returns ``confidence=0.0`` (data-guard HOLD) when fewer than 5 bars are present
+    or when the candle has zero range.
+
+    Works in: Any regime (best in high-volume conditions).
     """
 
     name = "Scalping"
     best_regimes = [MarketRegime.RANGING, MarketRegime.HIGH_VOLATILITY]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``volume_spike`` (default 2.0), ``confidence_base`` (default 0.5).
+        """
         p = params or {}
         self.volume_spike = p.get("volume_spike", 2.0)
         self.confidence_base = p.get("confidence_base", 0.5)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Detect reversal candle patterns (hammer/shooting star) with volume spike."""
+        """Detect reversal candle patterns (hammer/shooting star) with volume spike.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns: ``rsi``,
+                ``close``, ``open``, ``high``, ``low``, ``volume_ratio``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. BUY/SELL confidence is fixed at 0.7.
+            HOLD confidence is 0.3 (normal) or 0.0 (data-guard: < 5 bars or zero range).
+        """
         if len(df) < 5:
             return StrategySignal(
                 signal="HOLD",
@@ -462,17 +565,15 @@ class ScalpingStrategy(BaseStrategy):
 
 
 class SentimentDrivenStrategy(BaseStrategy):
-    """
-    Sentiment-Driven Strategy.
-    Works in: Any regime (modifies other signals)
+    """Contrarian sentiment strategy based on the Fear & Greed Index.
 
-    Logic:
-    - At extreme fear: contrarian BUY (Warren Buffett approach)
-    - At extreme greed: contrarian SELL
-    - Volume-sentiment divergence = early warning
-    - Combines Fear/Greed Index with on-chain momentum
+    Generates BUY signals at extreme fear (fg <= fear_threshold - 10) when composite
+    sentiment is strongly negative, and SELL signals at extreme greed (fg >=
+    greed_threshold + 10) when composite sentiment is strongly positive. Moderate
+    fear/greed zones produce lower-confidence signals. Returns HOLD with confidence
+    0.0 when no sentiment data is available.
 
-    Source: Alternative.me, CoinGecko sentiment research.
+    Works in: All regimes.
     """
 
     name = "Sentiment"
@@ -484,14 +585,32 @@ class SentimentDrivenStrategy(BaseStrategy):
     ]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``fear_threshold`` (default 25), ``greed_threshold`` (default 75),
+                ``composite_threshold`` (default 0.3), ``confidence_base`` (default 0.5).
+        """
         p = params or {}
         self.fear_threshold = p.get("fear_threshold", 25)
         self.greed_threshold = p.get("greed_threshold", 75)
         self.composite_threshold = p.get("composite_threshold", 0.3)
         self.confidence_base = p.get("confidence_base", 0.5)
 
-    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState = None) -> StrategySignal:
-        """Generate contrarian signals at Fear & Greed extremes."""
+    def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
+        """Generate contrarian signals at Fear & Greed extremes.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame (not directly used; required by
+                the base class contract).
+            sentiment: Current market sentiment. Returns HOLD (confidence=0.0) if
+                ``None``.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. Extreme signals have confidence 0.8;
+            moderate zone signals have confidence 0.6; neutral HOLD has confidence 0.4.
+        """
         if sentiment is None:
             return StrategySignal(
                 signal="HOLD",
@@ -553,28 +672,43 @@ class SentimentDrivenStrategy(BaseStrategy):
 
 
 class VWAPStrategy(BaseStrategy):
-    """
-    VWAP Reversion Strategy.
-    Best in: RANGING, TRENDING_UP, TRENDING_DOWN
+    """VWAP deviation reversion strategy.
 
-    Logic:
-    - Price far below VWAP with RSI support = buy (institutional discount)
-    - Price far above VWAP with RSI resistance = sell (institutional premium)
-    - VWAP acts as institutional fair value — big money trades around it
+    Generates BUY signals when price is below VWAP by more than ``deviation_threshold``
+    and RSI < 40 (institutional discount zone). Generates SELL signals when price is
+    above VWAP by more than the threshold and RSI > 60 (institutional premium zone).
+    Volume confirmation increases confidence.
 
-    Source: Institutional order flow research; VWAP is the #1 institutional benchmark.
+    Best regimes: RANGING, TRENDING_UP, TRENDING_DOWN.
     """
 
     name = "VWAP"
     best_regimes = [MarketRegime.RANGING, MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``deviation_threshold`` (default 0.01 = 1%),
+                ``confidence_base`` (default 0.55).
+        """
         p = params or {}
         self.deviation_threshold = p.get("deviation_threshold", 0.01)  # 1%
         self.confidence_base = p.get("confidence_base", 0.55)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Signal when price deviates significantly from VWAP with RSI confirmation."""
+        """Signal when price deviates significantly from VWAP with RSI confirmation.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns:
+                ``close_to_vwap``, ``rsi``, ``volume_ratio``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. HOLD confidence is 0.4.
+            BUY/SELL confidence scales with VWAP deviation magnitude, capped at 0.9.
+        """
         latest = df.iloc[-1]
 
         vwap_dev = latest.get("close_to_vwap", 0)
@@ -613,28 +747,43 @@ class VWAPStrategy(BaseStrategy):
 
 
 class OBVDivergenceStrategy(BaseStrategy):
-    """
-    OBV Divergence Strategy.
-    Best in: TRENDING_UP, TRENDING_DOWN (catches reversals)
+    """OBV divergence strategy for detecting smart-money reversals.
 
-    Logic:
-    - Bullish divergence: price making lower lows but OBV making higher lows
-      → Smart money accumulating, reversal likely
-    - Bearish divergence: price making higher highs but OBV making lower highs
-      → Smart money distributing, reversal likely
+    Generates BUY signals on bullish divergence (price making lower lows while OBV
+    makes higher lows — accumulation), and SELL signals on bearish divergence (price
+    making higher highs while OBV makes lower highs — distribution). Signal strength
+    is enhanced when RSI is oversold/overbought and ADX is weakening.
 
-    Source: Joe Granville's OBV theory; divergence is a leading indicator.
+    Best regimes: TRENDING_UP, TRENDING_DOWN (catching reversals), RANGING.
     """
 
     name = "OBVDivergence"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN, MarketRegime.RANGING]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``confidence_base`` (default 0.55).
+        """
         p = params or {}
         self.confidence_base = p.get("confidence_base", 0.55)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Detect bullish or bearish OBV divergence as a leading reversal signal."""
+        """Detect bullish or bearish OBV divergence as a leading reversal signal.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns:
+                ``obv_divergence`` (1 = bullish, -1 = bearish, 0 = none),
+                ``rsi``, ``volume_ratio``, ``adx``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. HOLD confidence is 0.3.
+            BUY/SELL base confidence is 0.55, boosted by RSI and ADX conditions,
+            capped at 0.85.
+        """
         latest = df.iloc[-1]
 
         obv_div = latest.get("obv_divergence", 0)
@@ -676,28 +825,43 @@ class OBVDivergenceStrategy(BaseStrategy):
 
 
 class EMACrossoverStrategy(BaseStrategy):
-    """
-    EMA 9/21 Crossover with ADX Filter.
-    Best in: TRENDING_UP, TRENDING_DOWN
+    """EMA 9/21 crossover strategy with ADX trend-strength filter.
 
-    Logic:
-    - Buy on 9 EMA crossing above 21 EMA (golden cross) when ADX > 20
-    - Sell on 9 EMA crossing below 21 EMA (death cross) when ADX > 20
-    - ADX filter avoids whipsaws in choppy markets
+    Generates BUY signals when EMA 9 crosses above EMA 21 (golden cross) and ADX >
+    threshold, and SELL signals when EMA 9 crosses below EMA 21 (death cross) with
+    the same ADX filter. When no fresh cross is detected but trend is strong, a
+    lower-confidence directional alignment signal is returned.
 
-    Source: Classic crossover enhanced with trend strength filter.
+    Best regimes: TRENDING_UP, TRENDING_DOWN.
     """
 
     name = "EMACrossover"
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``adx_threshold`` (default 20), ``confidence_base`` (default 0.6).
+        """
         p = params or {}
         self.adx_threshold = p.get("adx_threshold", 20)
         self.confidence_base = p.get("confidence_base", 0.6)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Signal on EMA 9/21 crossover events filtered by ADX trend strength."""
+        """Signal on EMA 9/21 crossover events filtered by ADX trend strength.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns:
+                ``ema_cross`` (1 = golden cross, -1 = death cross, 0 = none),
+                ``adx``, ``rsi``, ``volume_ratio``, ``ema_9``, ``ema_21``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. Cross-event confidence ranges 0.55–0.9;
+            alignment-only confidence is fixed at 0.45. HOLD confidence is 0.3.
+        """
         latest = df.iloc[-1]
 
         ema_cross = latest.get("ema_cross", 0)
@@ -761,17 +925,18 @@ class EMACrossoverStrategy(BaseStrategy):
 
 
 class IchimokuStrategy(BaseStrategy):
-    """
-    Ichimoku Cloud Strategy.
-    Best in: TRENDING_UP, TRENDING_DOWN
+    """Ichimoku Cloud strategy using TK-cross, cloud position, and ADX filter.
 
-    Logic:
-    - BUY:  Tenkan/Kijun bullish cross (TK cross=1) + price above cloud + ADX >= threshold
-    - SELL: Tenkan/Kijun bearish cross (TK cross=-1) + price below cloud + ADX >= threshold
-    - Sustained alignment (no fresh cross): generates lower-confidence directional signal
+    Generates BUY signals when Tenkan/Kijun cross is bullish (tk_cross=1), price is
+    above the cloud, and ADX >= threshold. Generates SELL signals on the mirror-image
+    bearish conditions. When no fresh cross is present but trend alignment persists, a
+    lower-confidence directional signal is emitted. Returns HOLD (confidence=0.0) when
+    fewer than 3 bars are available (data-guard).
 
-    Confidence builds from base (0.60) + volume bonus (0.10) + ADX strength (up to 0.15),
-    capped at 0.90. Stop-loss = 2× ATR, take-profit = 4× ATR.
+    Confidence builds from ``confidence_base`` (0.60) + volume bonus (0.10) + ADX
+    bonus (up to 0.15), capped at 0.90. SL = 2× ATR, TP = 4× ATR.
+
+    Best regimes: TRENDING_UP, TRENDING_DOWN.
 
     Source: Goichi Hosoda (1969). Widely used in Japanese & Asian institutional trading.
     """
@@ -780,12 +945,31 @@ class IchimokuStrategy(BaseStrategy):
     best_regimes = [MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
 
     def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters. Recognised keys:
+                ``adx_threshold`` (default 20), ``confidence_base`` (default 0.6).
+        """
         p = params or {}
         self.adx_threshold = float(p.get("adx_threshold", 20))
         self.confidence_base = float(p.get("confidence_base", 0.6))
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Generate BUY/SELL/HOLD from Ichimoku TK-cross + cloud position + ADX filter."""
+        """Generate BUY/SELL/HOLD from Ichimoku TK-cross + cloud position + ADX filter.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame. Required columns:
+                ``ichimoku_tk_cross`` (1/-1/0), ``ichimoku_above_cloud``,
+                ``ichimoku_below_cloud``, ``ichimoku_tenkan``, ``ichimoku_kijun``,
+                ``adx``, ``volume_ratio``, ``atr_pct``.
+            sentiment: Ignored by this strategy.
+
+        Returns:
+            StrategySignal with BUY/SELL/HOLD. Fresh-cross signals have confidence
+            0.60–0.90; alignment-only signals are fixed at 0.45.
+            HOLD confidence is 0.3 (normal) or 0.0 (data-guard: < 3 bars).
+        """
         if len(df) < 3:
             return StrategySignal(
                 signal="HOLD",
@@ -866,10 +1050,17 @@ class IchimokuStrategy(BaseStrategy):
 
 
 class StrategyEngine:
-    """
-    Adaptive Strategy Engine — OPTIMIZED v3.
-    Only runs strategies relevant to the current regime (short-circuit).
-    Caches strategy instances, pre-filters by regime to avoid unnecessary work.
+    """Adaptive Strategy Engine (OPTIMIZED v3).
+
+    Selects and runs only strategies relevant to the current market regime.
+    Runs the primary strategy first and short-circuits when its confidence
+    exceeds 0.8, skipping secondary strategies to save compute.  Otherwise
+    combines all active strategies via weighted voting.
+
+    Attributes:
+        strategies: Dict mapping strategy name to instantiated strategy object.
+        last_signals: Dict of the most recent signals returned per strategy name.
+        REGIME_STRATEGY_MAP: Class-level mapping of regime -> primary/secondary/weights.
     """
 
     REGIME_STRATEGY_MAP = {
@@ -896,9 +1087,12 @@ class StrategyEngine:
     }
 
     def __init__(self, evolved_params: dict[str, dict[str, float]] | None = None) -> None:
-        """
-        Initialize strategies with optional evolved parameters.
-        evolved_params: dict mapping strategy name -> param dict from StrategyEvolver.
+        """Initialise all strategy instances with optional evolved parameters.
+
+        Args:
+            evolved_params: Dict mapping strategy name to a hyperparameter dict as
+                produced by StrategyEvolver. Strategies not present in the dict are
+                initialised with default parameters.
         """
         ep = evolved_params or {}
         self.strategies = {
@@ -915,7 +1109,7 @@ class StrategyEngine:
             # v9.1: Ichimoku Cloud strategy
             "Ichimoku": IchimokuStrategy(params=ep.get("Ichimoku")),
         }
-        self.last_signals = {}
+        self.last_signals: dict[str, StrategySignal] = {}
 
     # Map strategy names to classes for hot-reload
     _STRATEGY_CLASSES = {
@@ -932,7 +1126,14 @@ class StrategyEngine:
     }
 
     def apply_evolved_params(self, evolved_params: dict[str, dict[str, float]]) -> None:
-        """Hot-reload evolved parameters into strategies without restart."""
+        """Hot-reload evolved parameters into strategies without a full restart.
+
+        Reinstantiates only the strategies that appear in ``evolved_params`` and have
+        a matching entry in ``_STRATEGY_CLASSES``.
+
+        Args:
+            evolved_params: Dict mapping strategy name to evolved hyperparameter dict.
+        """
         for name, params in evolved_params.items():
             if name in self.strategies and params:
                 cls = self._STRATEGY_CLASSES.get(name)
@@ -945,9 +1146,21 @@ class StrategyEngine:
         regime: MarketRegime,
         sentiment: SentimentState | None = None,
     ) -> StrategySignal:
-        """
-        OPTIMIZED: Run primary first; if high confidence, short-circuit
-        and skip secondary strategies to save compute.
+        """Run the regime-appropriate strategies and return a combined signal.
+
+        Runs the primary strategy first.  If it produces a non-HOLD signal with
+        confidence > 0.8, secondary strategies are skipped (short-circuit).
+        Otherwise, secondary strategies are also run and their signals are combined
+        via weighted voting.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame passed to each strategy.
+            regime: Current detected market regime used to select strategies.
+            sentiment: Optional sentiment state forwarded to sentiment-aware strategies.
+
+        Returns:
+            A StrategySignal representing the ensemble consensus. BUY/SELL confidence
+            is capped at 0.95. HOLD confidence reflects the weighted hold score ratio.
         """
         config = self.REGIME_STRATEGY_MAP.get(regime, self.REGIME_STRATEGY_MAP[MarketRegime.RANGING])
         weights = config["weights"]

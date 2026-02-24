@@ -9,6 +9,8 @@ ATR% and volume_ratio are computed inline from raw OHLCV to avoid polluting the
 Indicators class-level cache (which is keyed per DataFrame identity).
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 
@@ -21,7 +23,14 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class PairScore:
-    """Scored pair entry with its component metrics."""
+    """Scored pair entry with its component metrics.
+
+    Attributes:
+        symbol: Trading pair symbol, e.g. ``"BTC/USDT"``.
+        score: Composite profit-potential score (``atr_pct × volume_ratio``).
+        atr_pct: 14-bar ATR expressed as a fraction of the closing price.
+        volume_ratio: Current bar volume divided by the 20-bar volume SMA.
+    """
 
     symbol: str
     score: float  # atr_pct × volume_ratio
@@ -30,32 +39,38 @@ class PairScore:
 
 
 class PairScorer:
-    """
-    Score pairs in PAIR_POOL and select the top N by profit potential.
+    """Score pairs in PAIR_POOL and select the top N by profit potential.
 
-    Scoring formula:
+    Scoring formula::
+
         score = atr_pct_14bar × volume_ratio_20bar
 
-    - atr_pct: normalised volatility (higher → more price movement opportunity)
-    - volume_ratio: current volume / 20-bar average (higher → more liquidity)
+    - ``atr_pct``: normalised volatility (higher → more price movement opportunity)
+    - ``volume_ratio``: current volume / 20-bar average (higher → more liquidity)
 
     The inline ATR computation avoids importing Indicators, preventing eviction
     of the main-pair indicators from the class-level cache.
     """
 
     def __init__(self) -> None:
+        """Initialise the scorer with an empty last-scores cache."""
         self._last_scores: list[PairScore] = []
 
     def score_pairs(self, price_data: dict[str, pd.DataFrame]) -> list[PairScore]:
-        """
-        Score all pairs present in price_data and return sorted list (highest first).
+        """Score all pairs present in price_data and return sorted list (highest first).
+
+        Computes ATR% and volume_ratio inline for each pair. Pairs with fewer than
+        20 bars are skipped. Errors for individual pairs are logged and skipped
+        without affecting other pairs.
 
         Args:
-            price_data: dict mapping symbol -> raw OHLCV DataFrame.
-                        Must contain columns: open, high, low, close, volume.
+            price_data: Dict mapping symbol to a raw OHLCV DataFrame. Each DataFrame
+                must contain columns: ``open``, ``high``, ``low``, ``close``,
+                ``volume``.
 
         Returns:
-            List of PairScore sorted descending by score.
+            List of PairScore instances sorted descending by score. The result is also
+            stored in ``_last_scores`` for retrieval via ``get_last_scores()``.
         """
         scores: list[PairScore] = []
         for symbol, df in price_data.items():
@@ -99,15 +114,17 @@ class PairScorer:
         return scores
 
     def select_top_pairs(self, price_data: dict[str, pd.DataFrame]) -> list[str]:
-        """
-        Return the top PAIR_SELECTOR_TOP_N symbols from the pool.
-        Falls back to Config.TRADING_PAIRS if scoring fails or yields no results.
+        """Return the top PAIR_SELECTOR_TOP_N symbols from the pool.
+
+        Calls ``score_pairs()`` internally.  Falls back to ``Config.TRADING_PAIRS``
+        if scoring fails entirely or yields no results.
 
         Args:
-            price_data: dict mapping symbol -> raw OHLCV DataFrame.
+            price_data: Dict mapping symbol to a raw OHLCV DataFrame.
 
         Returns:
-            List of symbol strings to actively trade this scoring period.
+            List of symbol strings to actively trade this scoring period. Length is
+            at most ``Config.PAIR_SELECTOR_TOP_N``.
         """
         top_n = Config.PAIR_SELECTOR_TOP_N
         try:
@@ -127,5 +144,11 @@ class PairScorer:
             return list(Config.TRADING_PAIRS)
 
     def get_last_scores(self) -> list[PairScore]:
-        """Return the most recently computed pair scores (empty before first call)."""
+        """Return the most recently computed pair scores (empty before first call).
+
+        Returns:
+            List of PairScore instances from the last ``score_pairs()`` call, sorted
+            descending by score. Returns an empty list if ``score_pairs()`` has not
+            yet been called.
+        """
         return self._last_scores
