@@ -10,6 +10,8 @@ Usage:
     allocation = portfolio.get_allocation("ETH/USDT")
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +42,13 @@ class PortfolioManager:
     """
 
     def __init__(self, pairs: list[str] | None = None) -> None:
+        """Initialise the portfolio manager with equal-weight allocations.
+
+        Args:
+            pairs: List of trading pair symbols to manage (e.g.
+                ``["BTC/USDT", "ETH/USDT"]``). Defaults to
+                ``Config.TRADING_PAIRS`` when omitted.
+        """
         self.pairs = pairs or Config.TRADING_PAIRS
         self.correlations: pd.DataFrame = pd.DataFrame()
         self.pair_returns: dict[str, pd.Series] = {}
@@ -53,13 +62,32 @@ class PortfolioManager:
         self.active_pairs: set = set()
 
     def update_prices(self, pair: str, prices: pd.Series) -> None:
-        """Update price series for a pair (for correlation calculation)."""
+        """Update the price series for a pair and recompute its volatility.
+
+        Stores percentage-change returns internally for use in correlation
+        calculation and inverse-volatility weighting.
+
+        Args:
+            pair: Trading pair symbol (e.g. ``"BTC/USDT"``).
+            prices: Closing-price series for the pair.
+        """
         returns = prices.pct_change().dropna()
         self.pair_returns[pair] = returns
         self.pair_volatility[pair] = float(returns.std()) if len(returns) > 10 else 0.02
 
     def compute_correlations(self) -> pd.DataFrame:
-        """Compute rolling correlation matrix between all pairs."""
+        """Compute the pairwise return correlation matrix for all tracked pairs.
+
+        Aligns all return series to a common index, drops NaN rows, and
+        computes Pearson correlations. The result is stored in
+        ``self.correlations`` and also returned for inspection.
+
+        Returns:
+            Square ``pd.DataFrame`` of correlation coefficients indexed and
+            columned by pair symbol. Returns an empty DataFrame when fewer
+            than two pairs have price data or when the aligned history is
+            shorter than 20 bars.
+        """
         if len(self.pair_returns) < 2:
             return pd.DataFrame()
 
@@ -74,11 +102,26 @@ class PortfolioManager:
         return self.correlations
 
     def get_allocation(self, pair: str, existing_positions: list[str] | None = None) -> PairAllocation:
-        """
-        Get capital allocation for a pair, accounting for:
-        - Base portfolio weight
-        - Correlation with existing positions
-        - Volatility adjustment (inverse volatility weighting)
+        """Get capital allocation for a pair with risk adjustments.
+
+        Applies three adjustments on top of the base portfolio weight:
+
+        1. **Volatility adjustment** — inverse-volatility scaling capped at
+           1.5× (lower-vol pairs receive more capital).
+        2. **Correlation penalty** — reduces allocation for pairs with
+           absolute correlation > 0.7 versus any currently open position.
+        3. **Tradeability gate** — marks the pair non-tradeable when the
+           combined correlation penalty would drop the allocation below
+           30 % of base.
+
+        Args:
+            pair: Trading pair symbol to evaluate.
+            existing_positions: List of pair symbols that currently have
+                open positions. Used for correlation penalty calculation.
+
+        Returns:
+            ``PairAllocation`` dataclass with the adjusted weight, maximum
+            position percentage, correlation penalty, and tradeability flag.
         """
         base_weight = self.weights.get(pair, 1.0 / len(self.pairs))
 
@@ -113,8 +156,24 @@ class PortfolioManager:
         )
 
     def get_portfolio_risk(self, positions: list[Any]) -> dict[str, Any]:
-        """
-        Calculate portfolio-level risk metrics.
+        """Calculate portfolio-level risk metrics for a list of open positions.
+
+        Computes notional exposure per pair, the Herfindahl concentration
+        index, and a qualitative correlation-risk label.
+
+        Args:
+            positions: List of open position objects or dicts. Each entry
+                must expose ``symbol`` (or ``"symbol"`` key) and
+                ``notional_value`` (or default 0).
+
+        Returns:
+            Dictionary with keys:
+
+            - ``total_exposure`` (float): Sum of all notional values.
+            - ``concentration`` (float): Herfindahl index in ``[0, 1]``;
+              higher values indicate more concentrated exposure.
+            - ``pair_exposure`` (dict): Notional value keyed by pair symbol.
+            - ``corr_risk`` (str): ``"low"``, ``"medium"``, or ``"high"``.
         """
         if not positions:
             return {"total_exposure": 0, "concentration": 0, "corr_risk": "low"}
@@ -160,9 +219,13 @@ class PortfolioManager:
         }
 
     def rebalance_weights(self) -> None:
-        """
-        Rebalance portfolio weights using inverse-volatility weighting.
-        Lower volatility pairs get higher allocation.
+        """Rebalance portfolio weights using inverse-volatility weighting.
+
+        Pairs with lower historical volatility receive a proportionally
+        higher weight. Updates ``self.weights`` in place. Pairs with no
+        recorded volatility are assigned an inverse-volatility of 50 (i.e.
+        assumed to have 2 % daily vol). Does nothing when no volatility data
+        is available.
         """
         if not self.pair_volatility:
             return

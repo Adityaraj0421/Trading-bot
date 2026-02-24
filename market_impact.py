@@ -16,6 +16,8 @@ Research basis:
   - Empirical crypto market impact studies (2024-2025)
 """
 
+from __future__ import annotations
+
 import logging
 from collections import deque
 from dataclasses import dataclass
@@ -102,6 +104,16 @@ class MarketImpactModel:
     ]
 
     def __init__(self, fee_pct: float = 0.001, enable_partial_fills: bool = True, enable_stress: bool = True) -> None:
+        """Initialise the market impact model.
+
+        Args:
+            fee_pct: Exchange fee rate applied to each execution (e.g.
+                ``0.001`` for 0.1 %).
+            enable_partial_fills: When ``True``, large orders relative to
+                bar volume may receive fractional fills.
+            enable_stress: When ``True``, random stress scenarios are
+                injected each bar according to their configured probability.
+        """
         self.fee_pct = fee_pct
         self.enable_partial_fills = enable_partial_fills
         self.enable_stress = enable_stress
@@ -127,13 +139,24 @@ class MarketImpactModel:
         Simulate realistic order execution.
 
         Args:
-            price: Current market price
-            quantity: Desired order size (in base asset)
-            side: "long" or "short"
-            is_entry: True for opening, False for closing
-            atr_pct: ATR as % of price (volatility measure)
-            avg_volume: Average bar volume (base asset)
-            bar_volume: Current bar volume
+            price: Current market price.
+            quantity: Desired order size in base asset units.
+            side: Trade direction — ``"long"`` or ``"short"``.
+            is_entry: ``True`` for position entries, ``False`` for exits.
+                Entries receive adverse fill prices; exits receive
+                more-favourable fills.
+            atr_pct: ATR expressed as a fraction of price (volatility
+                proxy). Drives the volatility-slippage component.
+            avg_volume: Average bar volume in base asset units. Used for
+                market-impact and partial-fill calculations.
+            bar_volume: Current bar volume. Used for spread and fill-rate
+                calculations.
+
+        Returns:
+            ``ExecutionResult`` dataclass containing filled quantity, fill
+            rate, average fill price, individual cost components
+            (slippage, spread, market impact), total cost as a fraction of
+            price, fees paid in quote currency, and a partial-fill flag.
         """
         # Check for active stress scenario
         stress_mult = self._get_stress_multipliers()
@@ -188,7 +211,14 @@ class MarketImpactModel:
         return result
 
     def advance_bar(self) -> None:
-        """Called each bar to manage stress scenarios."""
+        """Advance the internal bar counter and manage stress scenario state.
+
+        Should be called once per completed bar. Decrements the active
+        stress duration counter and, when the stress period ends, clears the
+        active scenario. May also probabilistically activate a new stress
+        scenario from ``STRESS_SCENARIOS`` when ``enable_stress`` is
+        ``True``.
+        """
         if self._stress_bars_remaining > 0:
             self._stress_bars_remaining -= 1
             if self._stress_bars_remaining <= 0:
@@ -204,7 +234,13 @@ class MarketImpactModel:
                     break
 
     def get_active_stress(self) -> dict[str, Any] | None:
-        """Return active stress scenario info."""
+        """Return metadata about the currently active stress scenario.
+
+        Returns:
+            Dictionary with keys ``name``, ``bars_remaining``,
+            ``liquidity_mult``, and ``spread_mult`` when a stress scenario
+            is active, or ``None`` when the market is in a normal state.
+        """
         if self._active_stress is None:
             return None
         return {
@@ -215,7 +251,22 @@ class MarketImpactModel:
         }
 
     def get_execution_stats(self) -> dict[str, Any]:
-        """Aggregate execution statistics."""
+        """Aggregate execution statistics from the rolling log.
+
+        Returns:
+            Dictionary with keys:
+
+            - ``executions`` (int): Total number of simulated executions.
+            - ``avg_slippage_pct`` (float): Mean slippage across all fills.
+            - ``avg_impact_pct`` (float): Mean market-impact cost.
+            - ``avg_fill_rate`` (float): Mean fill rate (0–1).
+            - ``partial_fills`` (int): Count of partial fills.
+            - ``partial_fill_rate`` (float): Fraction of fills that were
+              partial.
+            - ``max_slippage_pct`` (float): Worst-case slippage observed.
+
+            Returns ``{"executions": 0}`` when the log is empty.
+        """
         log = list(self._execution_log)
         if not log:
             return {"executions": 0}
@@ -238,22 +289,40 @@ class MarketImpactModel:
     # ── Internal: Cost Components ─────────────────────────────────
 
     def _compute_slippage(self, atr_pct: float, stress_mult: dict[str, float]) -> float:
-        """
-        Volatility-correlated slippage.
+        """Compute volatility-correlated slippage.
 
-        slippage = base + (atr_pct × multiplier)
-        Higher volatility → more slippage (prices move while order executes)
+        ``slippage = base_slippage × spread_mult + atr_pct × VOLATILITY_SLIPPAGE_MULT``
+
+        Higher volatility means prices move more during order execution.
+
+        Args:
+            atr_pct: ATR as a fraction of the current price.
+            stress_mult: Active stress multipliers; the ``"spread"`` key
+                scales the base slippage component.
+
+        Returns:
+            Slippage as a fraction of price (e.g. ``0.001`` = 0.1 %).
         """
         base = self.BASE_SLIPPAGE_PCT * stress_mult.get("spread", 1.0)
         vol_component = atr_pct * self.VOLATILITY_SLIPPAGE_MULT
         return base + vol_component
 
     def _compute_market_impact(self, quantity: float, avg_volume: float, stress_mult: dict[str, float]) -> float:
-        """
-        Square-root market impact model (Almgren-Chriss).
+        """Compute square-root market impact (Almgren-Chriss model).
 
-        impact = coefficient × sqrt(order_size / avg_volume)
-        Larger orders relative to volume → more price impact.
+        ``impact = IMPACT_COEFFICIENT × sqrt(quantity / effective_volume)``
+
+        Larger orders relative to available volume have greater price impact.
+        Effective volume is reduced by the liquidity stress multiplier.
+
+        Args:
+            quantity: Order size in base asset units.
+            avg_volume: Average bar volume in base asset units.
+            stress_mult: Active stress multipliers; the ``"liquidity"`` key
+                scales available volume down during stress events.
+
+        Returns:
+            Market impact as a fraction of price, capped at 5 %.
         """
         if avg_volume <= 0:
             return 0.001
@@ -268,13 +337,22 @@ class MarketImpactModel:
     def _compute_spread(
         self, atr_pct: float, bar_volume: float, avg_volume: float, stress_mult: dict[str, float]
     ) -> float:
-        """
-        Dynamic spread modeling.
+        """Compute the dynamic bid-ask spread cost.
 
-        Spread widens during:
-        - Low liquidity (low volume relative to average)
-        - High volatility
-        - Stress events
+        Spread widens during low-liquidity bars, high-volatility periods,
+        and active stress scenarios.
+
+        Args:
+            atr_pct: ATR as a fraction of price; spreads above 3 % ATR
+                are widened further.
+            bar_volume: Current bar volume in base asset units.
+            avg_volume: Average bar volume. Used to compute a
+                volume-ratio that adjusts the spread.
+            stress_mult: Active stress multipliers; the ``"spread"`` key
+                is applied as a final multiplier.
+
+        Returns:
+            Full bid-ask spread as a fraction of price, capped at 2 %.
         """
         base = self.BASE_SPREAD_PCT
 
@@ -300,10 +378,25 @@ class MarketImpactModel:
     def _simulate_fill_rate(
         self, quantity: float, bar_volume: float, avg_volume: float, stress_mult: dict[str, float]
     ) -> float:
-        """
-        Simulate partial fills for large orders.
+        """Simulate partial fills for large orders.
 
-        Orders that are a significant fraction of volume may not fill entirely.
+        Orders whose size is a significant fraction of bar volume may not
+        fill entirely. Fill rate degrades linearly beyond
+        ``PARTIAL_FILL_THRESHOLD`` and asymptotes at 50 % for massive
+        orders.
+
+        Args:
+            quantity: Order size in base asset units.
+            bar_volume: Current bar volume in base asset units.
+            avg_volume: Average bar volume (unused directly; see
+                ``enable_partial_fills`` guard).
+            stress_mult: Active stress multipliers; the ``"liquidity"`` key
+                scales the effective bar volume.
+
+        Returns:
+            Fill rate as a fraction in ``(0, 1]``. Returns ``1.0`` when
+            ``enable_partial_fills`` is ``False`` or when the order is
+            small relative to bar volume.
         """
         if not self.enable_partial_fills:
             return 1.0
@@ -325,7 +418,12 @@ class MarketImpactModel:
             return 0.5  # Massive order, only half fills
 
     def _get_stress_multipliers(self) -> dict[str, float]:
-        """Get current stress scenario multipliers."""
+        """Return the spread and liquidity multipliers for the active stress scenario.
+
+        Returns:
+            Dictionary with ``"spread"`` and ``"liquidity"`` keys. Both
+            default to ``1.0`` when no stress scenario is active.
+        """
         if self._active_stress is None:
             return {"spread": 1.0, "liquidity": 1.0}
 

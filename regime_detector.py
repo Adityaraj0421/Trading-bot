@@ -4,6 +4,8 @@ Reuses pre-computed indicators instead of recalculating.
 Bounded history, cached HMM results.
 """
 
+from __future__ import annotations
+
 import logging
 from collections import deque
 from dataclasses import dataclass
@@ -76,6 +78,7 @@ class RegimeDetector:
     HMM_WEIGHT = 0.4
 
     def __init__(self) -> None:
+        """Initialise the detector and attempt to set up the HMM model."""
         self.hmm_model: Any = None
         self.has_hmm: bool = False
         self.current_regime: MarketRegime = MarketRegime.RANGING
@@ -86,7 +89,11 @@ class RegimeDetector:
         self._try_init_hmm()
 
     def _try_init_hmm(self) -> None:
-        """Attempt to initialise a Gaussian HMM; silently disable if hmmlearn is missing."""
+        """Attempt to initialise a Gaussian HMM; silently disable if hmmlearn is missing.
+
+        Sets ``self.has_hmm = True`` when the model is successfully
+        constructed and ``False`` when ``hmmlearn`` is not installed.
+        """
         try:
             import warnings
 
@@ -105,9 +112,27 @@ class RegimeDetector:
             self.has_hmm = False
 
     def detect(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> RegimeState:
-        """
-        Detect market regime. Accepts pre-computed indicators (df_ind)
-        to reuse ATR, BBs, MAs already computed by Indicators.add_all().
+        """Detect the current market regime from OHLCV data.
+
+        Combines three sub-models — volatility analysis, moving-average
+        trend detection, and (optionally) a Gaussian HMM — and merges
+        their votes into a single regime verdict.
+
+        Args:
+            df: Raw OHLCV DataFrame. Requires at least ``MIN_DATA_POINTS``
+                (50) rows.
+            df_ind: Optional pre-computed indicators DataFrame (output of
+                ``Indicators.add_all``). When provided, ``atr_pct``,
+                ``bb_width``, ``sma_10/20/50``, ``log_returns``, and
+                ``rolling_vol_10`` columns are reused to avoid redundant
+                computation.
+
+        Returns:
+            ``RegimeState`` with the detected ``MarketRegime``, a confidence
+            score in ``[0, 1]``, current volatility percentage, trend
+            strength, and the number of consecutive bars in this regime.
+            Returns a default RANGING state with 0.5 confidence when there
+            is insufficient data.
         """
         if len(df) < self.MIN_DATA_POINTS:
             return RegimeState(MarketRegime.RANGING, 0.5, 0.0, 0.0, 0)
@@ -135,7 +160,20 @@ class RegimeDetector:
         return state
 
     def _volatility_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> dict[str, Any]:
-        """Reuses pre-computed ATR and BB width from indicators."""
+        """Classify the volatility regime using ATR percentile and BB width.
+
+        Reuses pre-computed ``atr_pct`` and ``bb_width`` from ``df_ind``
+        when available; falls back to computing ATR from raw ``df``.
+
+        Args:
+            df: Raw OHLCV DataFrame (used only when ``df_ind`` is absent).
+            df_ind: Optional pre-computed indicators DataFrame.
+
+        Returns:
+            Dictionary with keys ``regime`` (``MarketRegime``),
+            ``volatility_pct`` (current ATR as fraction of price), and
+            ``confidence`` (float in ``[0, 1]``).
+        """
         if df_ind is not None and "atr_pct" in df_ind.columns:
             atr_pct = df_ind["atr_pct"]
             current_vol = float(atr_pct.iloc[-1])
@@ -173,7 +211,20 @@ class RegimeDetector:
             return {"regime": MarketRegime.RANGING, "volatility_pct": current_vol, "confidence": 0.5}
 
     def _trend_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> dict[str, Any]:
-        """Reuses pre-computed MAs from indicators."""
+        """Classify the trend regime using MA alignment and an ADX proxy.
+
+        Reuses pre-computed ``sma_10``, ``sma_20``, and ``sma_50`` from
+        ``df_ind`` when available; falls back to rolling means of ``close``.
+
+        Args:
+            df: Raw OHLCV DataFrame providing the ``close`` series.
+            df_ind: Optional pre-computed indicators DataFrame.
+
+        Returns:
+            Dictionary with keys ``regime`` (``MarketRegime``),
+            ``strength`` (ADX proxy float), ``alignment`` (int in
+            ``[-3, 3]``), and ``confidence`` (float in ``[0, 1]``).
+        """
         close = df["close"]
         latest_close = float(close.iloc[-1])
 
@@ -215,7 +266,21 @@ class RegimeDetector:
         return {"regime": regime, "strength": trend_strength, "alignment": alignment, "confidence": float(conf)}
 
     def _hmm_regime(self, df: pd.DataFrame, df_ind: pd.DataFrame | None = None) -> dict[str, Any] | None:
-        """Reuses pre-computed log returns and rolling vol."""
+        """Classify the regime using a Gaussian HMM on log-returns and volatility.
+
+        Reuses pre-computed ``log_returns`` and ``rolling_vol_10`` from
+        ``df_ind`` when available. The HMM is only refitted when the feature
+        array content changes (tail-hash cache).
+
+        Args:
+            df: Raw OHLCV DataFrame (used only when ``df_ind`` is absent).
+            df_ind: Optional pre-computed indicators DataFrame.
+
+        Returns:
+            Dictionary with keys ``regime`` (``MarketRegime``) and
+            ``confidence`` (float), or ``None`` when insufficient data is
+            available or HMM fitting fails.
+        """
         try:
             # Reuse from indicators if available
             if df_ind is not None and "log_returns" in df_ind.columns and "rolling_vol_10" in df_ind.columns:
@@ -268,7 +333,23 @@ class RegimeDetector:
     def _combine_regimes(
         self, vol_result: dict[str, Any], trend_result: dict[str, Any], hmm_result: dict[str, Any] | None
     ) -> tuple[MarketRegime, float]:
-        """Merge volatility, trend, and HMM sub-results into a single regime verdict."""
+        """Merge volatility, trend, and HMM sub-results into a single regime verdict.
+
+        Applies weighted voting: trend (0.4), volatility (0.2), HMM (0.4).
+        High-volatility detection from the volatility sub-model overrides
+        the other votes when confidence exceeds ``HIGH_VOL_THRESHOLD``.
+        When the HMM result is absent its weight is redistributed to the
+        trend signal.
+
+        Args:
+            vol_result: Output dict from ``_volatility_regime``.
+            trend_result: Output dict from ``_trend_regime``.
+            hmm_result: Output dict from ``_hmm_regime``, or ``None``.
+
+        Returns:
+            Two-tuple of ``(winning_regime, confidence)`` where confidence
+            is the normalised weighted vote share of the winning regime.
+        """
         votes = {}
 
         if vol_result["regime"] == MarketRegime.HIGH_VOLATILITY and vol_result["confidence"] > self.HIGH_VOL_THRESHOLD:

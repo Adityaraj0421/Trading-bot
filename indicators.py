@@ -4,6 +4,8 @@ Single-pass vectorized computation with result caching.
 Eliminates redundant recomputation across modules.
 """
 
+from __future__ import annotations
+
 import logging
 
 import numpy as np
@@ -60,9 +62,45 @@ class Indicators:
 
     @classmethod
     def add_all(cls, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Add all technical indicators. Returns cached result if data unchanged.
-        Cache key uses length + last close + last timestamp for fast comparison.
+        """Add all technical indicators to the OHLCV DataFrame.
+
+        Returns the cached result when the data is unchanged (cache key
+        is ``(len, last_close, last_timestamp)``).  Computes all indicators
+        in a single vectorised pass otherwise.
+
+        Indicators added (columns):
+            Moving averages: ``sma_10``, ``sma_20``, ``sma_50``,
+            ``ema_12``, ``ema_26``, ``ema_9``, ``ema_21``.
+            MACD: ``macd``, ``macd_signal``, ``macd_hist``.
+            RSI: ``rsi``.
+            Stochastic: ``stoch_k``, ``stoch_d``.
+            Bollinger Bands: ``bb_upper``, ``bb_lower``,
+            ``bb_width``, ``bb_position``.
+            ATR: ``atr``, ``atr_pct``.
+            Volume: ``volume_sma_20``, ``volume_ratio``.
+            Price action: ``returns_1``, ``returns_5``, ``returns_10``,
+            ``high_low_range``, ``close_to_sma20``, ``close_to_sma50``.
+            Log returns / vol: ``log_returns``, ``rolling_vol_10``.
+            VWAP: ``vwap``, ``close_to_vwap``.
+            OBV: ``obv``, ``obv_sma_20``, ``obv_divergence``.
+            EMA cross: ``ema_cross``.
+            ADX/DI: ``adx``, ``plus_di``, ``minus_di``.
+            Williams %R: ``williams_r``.
+            CCI: ``cci``.
+            Ichimoku: ``ichimoku_tenkan``, ``ichimoku_kijun``,
+            ``ichimoku_span_a``, ``ichimoku_span_b``,
+            ``ichimoku_above_cloud``, ``ichimoku_below_cloud``,
+            ``ichimoku_tk_cross``.
+            Target: ``future_return``.
+
+        Args:
+            df: Raw OHLCV DataFrame with columns
+                ``open``, ``high``, ``low``, ``close``, ``volume``,
+                indexed by timestamp.
+
+        Returns:
+            Copy of ``df`` with all indicator columns appended. Rows with
+            NaN values (warm-up period) are dropped.
         """
         key = (len(df), float(df["close"].iloc[-1]), str(df.index[-1]))
         if cls._cache_key == key and cls._cache_result is not None:
@@ -236,7 +274,11 @@ class Indicators:
 
     @staticmethod
     def get_feature_columns() -> list[str]:
-        """Return the list of feature column names used by the ML model."""
+        """Return the list of feature column names used by the ML model.
+
+        Returns:
+            The module-level ``FEATURE_COLUMNS`` list (24 entries for v9.1).
+        """
         return FEATURE_COLUMNS
 
     @classmethod
