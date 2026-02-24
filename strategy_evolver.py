@@ -6,6 +6,8 @@ Tests parameter variations via backtesting and breeds the
 best-performing combinations.
 """
 
+from __future__ import annotations
+
 import copy
 import logging
 import random
@@ -20,7 +22,21 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class Genome:
-    """A single set of strategy parameters with fitness tracking."""
+    """A single set of strategy parameters with fitness tracking.
+
+    Attributes:
+        strategy_name: Name of the strategy this genome belongs to
+            (e.g. "Momentum", "Ichimoku").
+        parameters: Mapping of parameter name to current value.
+        fitness_score: Composite fitness value computed by
+            ``StrategyEvolver.evaluate_fitness()``.
+        generation: Generation index at which this genome was created.
+        trade_count: Number of trades produced during the most recent
+            backtest evaluation.
+        sharpe: Sharpe ratio from the most recent backtest evaluation.
+        max_drawdown: Absolute maximum drawdown (%) from the most recent
+            backtest evaluation.
+    """
 
     strategy_name: str
     parameters: dict[str, Any]
@@ -31,7 +47,13 @@ class Genome:
     max_drawdown: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize genome to dict."""
+        """Serialize the genome to a JSON-compatible dict.
+
+        Returns:
+            Dict with keys ``strategy_name``, ``parameters``,
+            ``fitness_score``, ``generation``, ``trade_count``,
+            ``sharpe``, and ``max_drawdown``.
+        """
         return {
             "strategy_name": self.strategy_name,
             "parameters": self.parameters,
@@ -43,8 +65,15 @@ class Genome:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Genome":
-        """Create a Genome from a serialized dict."""
+    def from_dict(cls, data: dict[str, Any]) -> Genome:
+        """Create a Genome from a previously serialized dict.
+
+        Args:
+            data: Dict as produced by ``to_dict()``.
+
+        Returns:
+            Reconstructed ``Genome`` instance.
+        """
         return cls(**data)
 
 
@@ -150,6 +179,15 @@ class StrategyEvolver:
     """
 
     def __init__(self, population_size: int = 20, mutation_rate: float = 0.1, elite_fraction: float = 0.3) -> None:
+        """Initialise the genetic algorithm evolver.
+
+        Args:
+            population_size: Number of genomes per strategy population.
+            mutation_rate: Probability (0–1) that any single parameter is
+                mutated when creating an offspring genome.
+            elite_fraction: Fraction of each population that is carried
+                unchanged into the next generation as elites.
+        """
         self.population_size = population_size
         self.mutation_rate = mutation_rate
         self.elite_fraction = elite_fraction
@@ -160,7 +198,16 @@ class StrategyEvolver:
         self._initialized = False
 
     def initialize_population(self, strategy_names: list[str] | None = None) -> None:
-        """Create initial population from defaults + random variations."""
+        """Create the initial genome population for each strategy.
+
+        The first genome in each population uses the default parameters from
+        ``DEFAULT_PARAMS`` exactly.  The remaining genomes are Gaussian
+        perturbations around those defaults, clipped to ``PARAM_BOUNDS``.
+
+        Args:
+            strategy_names: List of strategy names to initialise. Defaults to
+                all keys in ``DEFAULT_PARAMS`` when ``None``.
+        """
         if strategy_names is None:
             strategy_names = list(DEFAULT_PARAMS.keys())
 
@@ -209,9 +256,18 @@ class StrategyEvolver:
         )
 
     def evaluate_fitness(self, genome: Genome, backtest_metrics: dict[str, Any]) -> None:
-        """
-        Evaluate fitness of a genome from backtest results.
-        Fitness = Sharpe * sqrt(trade_count) - drawdown_penalty
+        """Update a genome's fitness attributes from backtest results.
+
+        Fitness formula: ``Sharpe × sqrt(trades)`` with a bonus for win rate
+        above 50 %, a drawdown penalty above 5 %, and a penalty factor of 0.5
+        for fewer than 5 trades to discourage overfitted low-activity genomes.
+        The result is stored directly on ``genome.fitness_score``.
+
+        Args:
+            genome: The genome to score (mutated in place).
+            backtest_metrics: Metrics dict as returned by
+                ``Backtester.run()``, expected keys: ``sharpe_ratio``,
+                ``total_trades``, ``max_drawdown_pct``, ``win_rate``.
         """
         sharpe = backtest_metrics.get("sharpe_ratio", 0)
         trades = backtest_metrics.get("total_trades", 0)
@@ -240,9 +296,21 @@ class StrategyEvolver:
         genome.max_drawdown = round(drawdown, 4)
 
     def evolve(self, strategy_name: str) -> list[Genome]:
-        """
-        Evolve one generation for a strategy.
-        Select → Crossover → Mutate → Replace.
+        """Evolve the population for a single strategy by one generation.
+
+        Applies the standard genetic algorithm pipeline:
+        Select (elites) → Crossover (uniform) → Mutate (Gaussian) → Replace.
+        The elite fraction is carried over unchanged; the remaining slots are
+        filled with children produced from two randomly selected elites.
+
+        Args:
+            strategy_name: Name of the strategy population to evolve (must
+                be a key in ``self.populations``).
+
+        Returns:
+            The updated population list after evolution.  Returns the
+            unmodified population if it has fewer than 4 genomes or no
+            ``PARAM_BOUNDS`` entry exists for the strategy.
         """
         pop = self.populations.get(strategy_name, [])
         if len(pop) < 4:
@@ -319,18 +387,39 @@ class StrategyEvolver:
         return genome
 
     def get_best_params(self, strategy_name: str) -> dict[str, Any] | None:
-        """Get the best evolved parameters for a strategy."""
+        """Return the best evolved parameters for a strategy.
+
+        Args:
+            strategy_name: Strategy name to look up in ``best_genomes``.
+
+        Returns:
+            Parameter dict for the best genome, or ``None`` if no genome
+            with positive fitness has been recorded for that strategy.
+        """
         best = self.best_genomes.get(strategy_name)
         if best and best.fitness_score > 0:
             return best.parameters
         return None
 
     def get_all_best(self) -> dict[str, Any]:
-        """Get best params for all strategies."""
+        """Return the best genome serialized dict for every strategy.
+
+        Returns:
+            Dict mapping strategy name to the result of
+            ``Genome.to_dict()`` for each strategy that has at least one
+            genome with positive fitness.
+        """
         return {name: genome.to_dict() for name, genome in self.best_genomes.items() if genome.fitness_score > 0}
 
     def get_status(self) -> dict[str, Any]:
-        """Evolution status report."""
+        """Return a summary of the current evolution state.
+
+        Returns:
+            Dict with keys ``generation``, ``initialized``,
+            ``strategies`` (per-strategy population size, best fitness,
+            and best Sharpe), and ``recent_evolution`` (last 5 evolution
+            log entries).
+        """
         return {
             "generation": self.generation,
             "initialized": self._initialized,
@@ -346,7 +435,13 @@ class StrategyEvolver:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for state persistence."""
+        """Serialize the evolver state for persistence.
+
+        Returns:
+            Dict with keys ``generation``, ``best_genomes`` (mapping of
+            strategy name to serialized genome dict), and
+            ``evolution_history`` (list of evolution log entries).
+        """
         return {
             "generation": self.generation,
             "best_genomes": {name: g.to_dict() for name, g in self.best_genomes.items()},
@@ -354,7 +449,11 @@ class StrategyEvolver:
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
-        """Restore from state."""
+        """Restore evolver state from a previously serialized dict.
+
+        Args:
+            data: Dict as produced by ``to_dict()``.
+        """
         self.generation = data.get("generation", 0)
         for name, gdata in data.get("best_genomes", {}).items():
             self.best_genomes[name] = Genome.from_dict(gdata)

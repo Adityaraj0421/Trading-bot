@@ -17,6 +17,8 @@ Logic:
   - Transition probability matrix from historical regime sequences
 """
 
+from __future__ import annotations
+
 import logging
 from collections import Counter, deque
 from dataclasses import dataclass, field
@@ -33,7 +35,21 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class TimeframeRegime:
-    """Regime state for a single timeframe."""
+    """Regime state for a single timeframe.
+
+    Attributes:
+        timeframe: Timeframe label (e.g. "15m", "1h", "4h", "1d").
+        bias: Directional bias — "bullish", "bearish", or "neutral".
+        strength: Normalised bias strength from 0.0 (no conviction) to 1.0
+            (maximum conviction).
+        trend_alignment: Signed sum of directional indicator votes, ranging
+            from roughly −5 (all bearish) to +5 (all bullish).
+        rsi: Current RSI value for this timeframe.
+        macd_direction: MACD line position relative to signal line —
+            "bullish" or "bearish".
+        momentum: Recent percentage return over the last 5 bars.
+        details: Raw per-indicator directional votes (+1 / 0 / −1).
+    """
 
     timeframe: str
     bias: str  # "bullish", "bearish", "neutral"
@@ -47,7 +63,20 @@ class TimeframeRegime:
 
 @dataclass
 class MultiTFConsensus:
-    """Consensus result across all timeframes."""
+    """Consensus result across all configured timeframes.
+
+    Attributes:
+        overall_bias: Dominant direction — "bullish", "bearish", "neutral",
+            or "conflicted" when timeframes disagree.
+        consensus_strength: Weighted absolute score from 0.0 to 1.0.
+        agreement_count: Number of timeframes that agree with the overall bias.
+        total_timeframes: Total number of timeframes successfully analysed.
+        regime_by_tf: Mapping of timeframe label to its ``TimeframeRegime``.
+        transition_probs: Markov-like forward probabilities
+            (``{next_regime: probability}``).
+        confidence_multiplier: Multiplier (0.6–1.4) to scale the trading
+            signal confidence based on consensus quality.
+    """
 
     overall_bias: str  # "bullish", "bearish", "neutral", "conflicted"
     consensus_strength: float  # 0.0 to 1.0
@@ -81,7 +110,14 @@ class MultiTimeframeConfirmer:
     # Transition tracking
     MAX_TRANSITION_HISTORY = 200
 
-    def __init__(self, timeframes: list[str] = None):
+    def __init__(self, timeframes: list[str] | None = None) -> None:
+        """Initialise the multi-timeframe confirmer.
+
+        Args:
+            timeframes: Ordered list of timeframe labels to analyse, from
+                lowest to highest (e.g. ``["15m", "1h", "4h", "1d"]``).
+                Defaults to all four canonical timeframes.
+        """
         self.timeframes = timeframes or ["15m", "1h", "4h", "1d"]
         self._htf_cache: dict = {}  # {tf: (cache_key, result)}
 
@@ -142,8 +178,18 @@ class MultiTimeframeConfirmer:
         )
 
     def get_htf_bias(self, df: pd.DataFrame, target_tf: str = "4h") -> dict:
-        """
-        Backward-compatible: single-timeframe bias check.
+        """Return the directional bias for a single higher timeframe.
+
+        This is the backward-compatible v1 API that checks one HTF only.
+        Results are cached by (row count, last close price, target timeframe).
+
+        Args:
+            df: OHLCV DataFrame at the primary (lowest) timeframe.
+            target_tf: Higher timeframe to resample to.  Defaults to "4h".
+
+        Returns:
+            Dict with keys ``bias`` ("bullish", "bearish", or "neutral"),
+            ``strength`` (float 0–1), and ``details`` (per-indicator votes).
         """
         key = (len(df), float(df["close"].iloc[-1]), target_tf)
         cached = self._htf_cache.get(target_tf)
@@ -183,7 +229,21 @@ class MultiTimeframeConfirmer:
         return result
 
     def confirm_signal(self, signal: str, confidence: float, htf_bias: dict) -> tuple[str, float]:
-        """Backward-compatible: single-TF confirmation."""
+        """Adjust a trading signal using a single higher-timeframe bias.
+
+        Backward-compatible v1 confirmation.  Boosts confidence when the
+        signal aligns with the HTF bias; reduces it (and may convert to HOLD)
+        when the signal opposes the HTF bias.
+
+        Args:
+            signal: Primary signal — "BUY", "SELL", or "HOLD".
+            confidence: Signal confidence from the strategy engine (0–1).
+            htf_bias: Result from ``get_htf_bias()``, with at least ``bias``
+                and ``strength`` keys.
+
+        Returns:
+            Tuple of ``(adjusted_signal, adjusted_confidence)``.
+        """
         bias = htf_bias["bias"]
         strength = htf_bias["strength"]
 
@@ -209,11 +269,21 @@ class MultiTimeframeConfirmer:
         return signal, confidence
 
     def confirm_signal_multi_tf(self, signal: str, confidence: float, consensus: MultiTFConsensus) -> tuple[str, float]:
-        """
-        NEW v2.0: Confirm signal using full multi-timeframe consensus.
+        """Adjust a trading signal using the full multi-timeframe consensus.
 
-        Stronger than single-TF: uses weighted agreement across all TFs
-        and regime transition probabilities.
+        v2.0 enhancement over ``confirm_signal()``.  Applies the consensus
+        confidence multiplier, adjusts for directional alignment across all
+        timeframes, and uses Markov transition probabilities to provide a
+        slight boost or penalty based on regime persistence.
+
+        Args:
+            signal: Primary signal — "BUY", "SELL", or "HOLD".
+            confidence: Signal confidence from the strategy engine (0–1).
+            consensus: Result from ``get_multi_tf_consensus()``.
+
+        Returns:
+            Tuple of ``(adjusted_signal, adjusted_confidence)`` with
+            confidence capped at 0.95.
         """
         if signal == "HOLD":
             return signal, confidence
@@ -259,7 +329,22 @@ class MultiTimeframeConfirmer:
     # ── Resampling ────────────────────────────────────────────────
 
     def resample_to_higher_tf(self, df: pd.DataFrame, source_tf: str = "1h", target_tf: str = "4h") -> pd.DataFrame:
-        """Resample OHLCV to higher timeframe with proper aggregation."""
+        """Resample OHLCV data to a higher timeframe.
+
+        Aggregates OHLCV columns correctly: open/close by first/last,
+        high/low by max/min, and volume by sum.  Drops incomplete bars
+        (``dropna()``).
+
+        Args:
+            df: Source OHLCV DataFrame with a DatetimeIndex.
+            source_tf: Original timeframe label (informational only; not
+                used in the resampling logic).
+            target_tf: Target timeframe label. Supported values: "15m",
+                "1h", "4h", "1d", "1w".
+
+        Returns:
+            Resampled DataFrame at the target timeframe.
+        """
         tf_map = {"15m": "15min", "1h": "1h", "4h": "4h", "1d": "1D", "1w": "1W"}
         resample_rule = tf_map.get(target_tf, "4h")
 
@@ -516,7 +601,13 @@ class MultiTimeframeConfirmer:
     # ── Serialization ─────────────────────────────────────────────
 
     def get_status(self) -> dict:
-        """Return current multi-TF state for dashboards."""
+        """Return the current multi-TF state for dashboard display.
+
+        Returns:
+            Dict with keys ``timeframes``, ``transition_counts``
+            (formatted as "from->to" strings), ``regime_history_length``,
+            and ``last_regime``.
+        """
         return {
             "timeframes": self.timeframes,
             "transition_counts": dict({f"{k[0]}->{k[1]}": v for k, v in self._transition_counts.items()}),

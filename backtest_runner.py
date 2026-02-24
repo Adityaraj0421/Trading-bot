@@ -9,6 +9,8 @@ v2.1: passes symbol through to Backtester, flattens strategy attribution
       into results for dashboard display.
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime
 from typing import Any
@@ -23,9 +25,22 @@ _log = logging.getLogger(__name__)
 
 
 class BacktestRunner:
-    """Orchestrates complex backtest runs."""
+    """Orchestrates complex backtest runs across pairs, scenarios, and timeframes.
+
+    Provides convenience methods for:
+
+    - Synthetic scenario backtests (``run_scenario``, ``run_all_scenarios``).
+    - Multi-pair live-data backtests (``run_multi_pair``).
+    - Multi-timeframe backtests (``run_multi_timeframe``).
+    - Walk-forward validation with Monte Carlo robustness testing
+      (``run_walk_forward``, ``run_walk_forward_multi_pair``).
+
+    All results are accumulated in ``self.results`` for later retrieval via
+    ``get_all_results()``.
+    """
 
     def __init__(self) -> None:
+        """Initialise the runner with a fresh result list and data fetcher."""
         self.results: list[dict[str, Any]] = []
         self.fetcher = DataFetcher()
 
@@ -51,7 +66,21 @@ class BacktestRunner:
         return stats
 
     def run_scenario(self, scenario: str, periods: int = 500, base_price: float = 100000.0) -> dict[str, Any]:
-        """Run backtest on a synthetic market scenario."""
+        """Run a backtest on a synthetic market scenario.
+
+        Args:
+            scenario: Scenario name as recognised by ``generate_scenario()``
+                (e.g. "trending_up", "ranging", "volatile_crash").
+            periods: Number of OHLCV bars to generate.
+            base_price: Starting price for the synthetic data.
+
+        Returns:
+            Result dict with keys ``type`` ("scenario"), ``scenario``,
+            ``pair`` ("SYNTHETIC"), ``timeframe``, ``periods``, ``run_at``
+            (ISO-8601 string), ``metrics`` (from ``Backtester.run()``),
+            ``strategy_stats`` (per-strategy attribution list), and
+            ``equity_curve`` (last 200 equity values).
+        """
         df = generate_scenario(scenario, periods=periods, base_price=base_price)
         bt = Backtester(
             fee_pct=Config.FEE_PCT,
@@ -74,7 +103,23 @@ class BacktestRunner:
         return result
 
     def run_multi_pair(self, pairs: list[str] | None = None, limit: int = 500) -> list[dict[str, Any]]:
-        """Run backtests across multiple trading pairs."""
+        """Run backtests across multiple trading pairs.
+
+        Fetches live OHLCV data for each pair and runs a full backtest.
+        Pairs with insufficient data or fetch errors produce error entries
+        in the returned list instead of raising.
+
+        Args:
+            pairs: List of trading pair symbols to test. Defaults to
+                ``Config.TRADING_PAIRS`` when ``None``.
+            limit: Maximum number of OHLCV bars to fetch per pair.
+
+        Returns:
+            List of result dicts (one per pair) with keys ``type``
+            ("multi_pair"), ``pair``, and either a full result payload
+            (``timeframe``, ``periods``, ``run_at``, ``metrics``,
+            ``strategy_stats``, ``equity_curve``) or an ``error`` key.
+        """
         pairs = pairs or Config.TRADING_PAIRS
         results = []
         for pair in pairs:
@@ -114,7 +159,14 @@ class BacktestRunner:
         return results
 
     def run_all_scenarios(self) -> list[dict[str, Any]]:
-        """Run backtests on all predefined market scenarios."""
+        """Run backtests on every predefined market scenario.
+
+        Iterates over all scenario names returned by ``list_scenarios()``
+        and calls ``run_scenario()`` for each one.
+
+        Returns:
+            List of result dicts, one per scenario.
+        """
         results = []
         for scenario in list_scenarios():
             result = self.run_scenario(scenario)
@@ -122,7 +174,20 @@ class BacktestRunner:
         return results
 
     def run_multi_timeframe(self, timeframes: list[str] | None = None, limit: int = 500) -> list[dict[str, Any]]:
-        """Run backtests across multiple timeframes."""
+        """Run backtests across multiple timeframes for the default pair.
+
+        Args:
+            timeframes: List of timeframe strings to test (e.g.
+                ``["15m", "1h", "4h"]``). Defaults to those three when
+                ``None``.
+            limit: Maximum number of OHLCV bars to fetch per timeframe.
+
+        Returns:
+            List of result dicts (one per timeframe) with keys ``type``
+            ("multi_timeframe"), ``pair``, ``timeframe``, ``periods``,
+            ``run_at``, ``metrics``, ``strategy_stats``, and
+            ``equity_curve``, or an ``error`` key on failure.
+        """
         timeframes = timeframes or ["15m", "1h", "4h"]
         results = []
         for tf in timeframes:
@@ -158,10 +223,26 @@ class BacktestRunner:
         step_bars: int = 50,
         mc_simulations: int = 500,
     ) -> dict[str, Any]:
-        """
-        Run walk-forward validation with Monte Carlo robustness testing.
-        This is the gold standard for strategy validation — trains on rolling
-        windows and only reports out-of-sample performance.
+        """Run walk-forward validation with Monte Carlo robustness testing.
+
+        This is the gold-standard validation method.  Trains on rolling
+        windows and reports only out-of-sample performance, combined with
+        a Monte Carlo permutation test to distinguish real edge from luck.
+
+        Args:
+            pair: Trading pair symbol. Defaults to ``Config.TRADING_PAIR``.
+            limit: Maximum OHLCV bars to fetch.
+            train_bars: Bars per training window (passed to
+                ``WalkForwardValidator``).
+            test_bars: Bars per test window.
+            step_bars: Bars to advance the window each fold.
+            mc_simulations: Number of Monte Carlo trade-order shuffles.
+
+        Returns:
+            Result dict with keys ``type`` ("walk_forward"), ``pair``,
+            ``timeframe``, ``periods``, ``run_at``, ``wfo``
+            (``WFOResult.to_dict()``), and ``is_robust``.  On error,
+            returns a dict with ``type``, ``pair``, and ``error``.
         """
         pair = pair or Config.TRADING_PAIR
         try:
@@ -199,7 +280,17 @@ class BacktestRunner:
             return {"type": "walk_forward", "pair": pair, "error": str(e)}
 
     def run_walk_forward_multi_pair(self, pairs: list[str] | None = None, limit: int = 1000) -> list[dict[str, Any]]:
-        """Run walk-forward validation across multiple trading pairs."""
+        """Run walk-forward validation across multiple trading pairs.
+
+        Args:
+            pairs: Trading pair symbols to validate. Defaults to
+                ``Config.TRADING_PAIRS`` when ``None``.
+            limit: Maximum OHLCV bars to fetch per pair.
+
+        Returns:
+            List of result dicts (one per pair) as returned by
+            ``run_walk_forward()``.
+        """
         pairs = pairs or Config.TRADING_PAIRS
         results = []
         for pair in pairs:
@@ -208,5 +299,9 @@ class BacktestRunner:
         return results
 
     def get_all_results(self) -> list[dict[str, Any]]:
-        """Return all accumulated backtest results."""
+        """Return all backtest results accumulated during this session.
+
+        Returns:
+            List of all result dicts appended by previous ``run_*`` calls.
+        """
         return self.results

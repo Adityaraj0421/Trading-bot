@@ -6,6 +6,8 @@ Detects failures, attempts auto-recovery, and protects the system from
 cascading errors.
 """
 
+from __future__ import annotations
+
 import logging
 import traceback
 from collections import defaultdict, deque
@@ -64,7 +66,14 @@ class HealthMetrics:
         return critical and self.error_rate < 0.3
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize health metrics to dict."""
+        """Serialize the health snapshot to a JSON-compatible dict.
+
+        Returns:
+            Dict with keys ``memory_ok``, ``api_healthy``, ``data_fresh``,
+            ``model_stale``, ``error_rate``, ``uptime_seconds``,
+            ``components_healthy``, ``components_total``, and
+            ``overall_healthy``.
+        """
         return {
             "memory_ok": self.memory_ok,
             "api_healthy": self.api_healthy,
@@ -80,6 +89,22 @@ class HealthMetrics:
 
 @dataclass
 class CircuitBreaker:
+    """Per-component circuit breaker tracking failure counts and state transitions.
+
+    Attributes:
+        state: Current circuit state (CLOSED, OPEN, or HALF_OPEN).
+        failure_count: Cumulative failure count since last reset.
+        last_failure: Timestamp of the most recent failure, or ``None``.
+        last_success: Timestamp of the most recent success, or ``None``.
+        open_since: Timestamp when the circuit was last opened, or ``None``.
+        half_open_attempts: Number of test calls made while in HALF_OPEN state.
+        failure_threshold: Number of failures required to trip the circuit
+            from CLOSED to OPEN.
+        recovery_timeout: Base seconds before an OPEN circuit transitions to
+            HALF_OPEN.  Actual timeout uses exponential back-off.
+        max_half_open_attempts: Max test calls allowed before re-opening.
+    """
+
     state: CircuitState = CircuitState.CLOSED
     failure_count: int = 0
     last_failure: datetime | None = None
@@ -111,6 +136,12 @@ class SelfHealer:
     ]
 
     def __init__(self, max_errors: int = 200) -> None:
+        """Initialise the self-healer with empty state.
+
+        Args:
+            max_errors: Maximum number of ``ErrorRecord`` entries retained in
+                ``error_history``.  Older entries are discarded automatically.
+        """
         self.start_time = datetime.now()
         self.error_history: deque[ErrorRecord] = deque(maxlen=max_errors)
         self.circuit_breakers: dict[str, CircuitBreaker] = {comp: CircuitBreaker() for comp in self.COMPONENTS}
@@ -123,7 +154,17 @@ class SelfHealer:
         self._consecutive_data_failures: int = 0
 
     def record_error(self, component: str, error: Exception, severity: ErrorSeverity = ErrorSeverity.MEDIUM) -> None:
-        """Record an error and update circuit breaker state."""
+        """Record a component error and update the associated circuit breaker.
+
+        For HIGH or CRITICAL severity, ``attempt_recovery()`` is called
+        automatically after recording the error.
+
+        Args:
+            component: Name of the failing component (must be in
+                ``self.COMPONENTS`` for circuit breaker tracking).
+            error: The caught exception.
+            severity: Severity classification for the error.
+        """
         record = ErrorRecord(
             component=component,
             error_type=type(error).__name__,
@@ -157,7 +198,14 @@ class SelfHealer:
             self.attempt_recovery(component)
 
     def record_success(self, component: str) -> None:
-        """Record a successful operation — helps circuit breaker recover."""
+        """Record a successful operation and update the circuit breaker.
+
+        When the circuit is HALF_OPEN, a success closes it fully.
+        When CLOSED, success decays the failure count by one.
+
+        Args:
+            component: Name of the component that succeeded.
+        """
         cb = self.circuit_breakers.get(component)
         if cb:
             cb.last_success = datetime.now()
@@ -171,7 +219,18 @@ class SelfHealer:
                 cb.failure_count = max(0, cb.failure_count - 1)
 
     def get_circuit_state(self, component: str) -> CircuitState:
-        """Get current circuit state, transitioning OPEN→HALF_OPEN if timeout elapsed."""
+        """Return the current circuit state, applying timeout transitions.
+
+        Automatically transitions an OPEN circuit to HALF_OPEN when the
+        exponential back-off timeout has elapsed.
+
+        Args:
+            component: Component name to look up.
+
+        Returns:
+            Current ``CircuitState`` for the component, or
+            ``CircuitState.CLOSED`` if the component is not tracked.
+        """
         cb = self.circuit_breakers.get(component)
         if not cb:
             return CircuitState.CLOSED
@@ -188,18 +247,46 @@ class SelfHealer:
         return cb.state
 
     def is_component_available(self, component: str) -> bool:
-        """Check if a component is available (circuit not OPEN)."""
+        """Check whether a component is available for use.
+
+        Args:
+            component: Component name to check.
+
+        Returns:
+            ``True`` when the circuit is CLOSED or HALF_OPEN; ``False`` when
+            OPEN (i.e. the component should be skipped).
+        """
         state = self.get_circuit_state(component)
         return state != CircuitState.OPEN
 
     def register_recovery_action(self, component: str, action: Callable[[], None]) -> None:
-        """Register a recovery action for a component."""
+        """Register a callable to invoke when a component needs recovery.
+
+        Multiple actions may be registered for the same component; they are
+        tried in registration order until one succeeds.
+
+        Args:
+            component: Component name to associate the action with.
+            action: Zero-argument callable that attempts to restore the
+                component.  Should raise an exception on failure.
+        """
         if component not in self.recovery_actions:
             self.recovery_actions[component] = []
         self.recovery_actions[component].append(action)
 
     def attempt_recovery(self, component: str) -> bool:
-        """Attempt to recover a failed component."""
+        """Attempt to recover a failed component using registered actions.
+
+        Iterates through all registered recovery actions for the component
+        and stops after the first one that completes without raising.
+
+        Args:
+            component: Name of the component to recover.
+
+        Returns:
+            ``True`` if at least one recovery action succeeded, ``False`` if
+            all actions failed or no actions are registered.
+        """
         self.recovery_attempts[component] += 1
         attempt = self.recovery_attempts[component]
         _log.info("  [SelfHealer] Recovery attempt #%d for %s", attempt, component)
@@ -217,7 +304,15 @@ class SelfHealer:
         return False
 
     def record_data_fetch(self, success: bool) -> None:
-        """Track data fetcher health."""
+        """Track the outcome of a data fetch attempt.
+
+        On success, resets the consecutive failure counter and records a
+        success for the ``data_fetcher`` circuit.  After 3 consecutive
+        failures, records a HIGH severity error to trip the circuit.
+
+        Args:
+            success: ``True`` if the fetch completed without error.
+        """
         if success:
             self._last_data_time = datetime.now()
             self._consecutive_data_failures = 0
@@ -232,12 +327,26 @@ class SelfHealer:
                 )
 
     def record_model_train(self) -> None:
-        """Track model training time."""
+        """Record that the ML model was successfully retrained.
+
+        Updates the internal timestamp used to detect model staleness
+        and records a success for the ``model`` circuit breaker.
+        """
         self._last_model_train = datetime.now()
         self.record_success("model")
 
     def check_health(self) -> HealthMetrics:
-        """Comprehensive health check of all components."""
+        """Run a comprehensive health check across all tracked components.
+
+        Evaluates data freshness (stale if no data in 10 minutes), model
+        staleness (stale if not retrained in 24 hours), API health via the
+        ``data_fetcher`` circuit breaker, error rate over the last 10 minutes,
+        and memory usage via ``psutil`` (falling back to ``resource``).
+
+        Returns:
+            ``HealthMetrics`` snapshot.  The result is also cached in
+            ``self._cached_health`` for use by ``get_status()``.
+        """
         now = datetime.now()
         metrics = HealthMetrics()
 
@@ -293,7 +402,14 @@ class SelfHealer:
         return metrics
 
     def get_error_summary(self) -> dict[str, Any]:
-        """Get summary of recent errors by component."""
+        """Return a per-component error summary for the past hour.
+
+        Returns:
+            Dict mapping component name to a sub-dict with keys ``count``
+            (int), ``last`` (ISO-8601 timestamp of the most recent error),
+            and ``severity`` (the highest severity seen: "low", "medium",
+            "high", or "critical").
+        """
         summary = defaultdict(lambda: {"count": 0, "last": None, "severity": "low"})
         cutoff = datetime.now() - timedelta(hours=1)
 
@@ -310,7 +426,15 @@ class SelfHealer:
         return dict(summary)
 
     def get_status(self) -> dict[str, Any]:
-        """Full self-healer status report."""
+        """Return a full self-healer status report.
+
+        Returns:
+            Dict with keys ``health`` (``HealthMetrics.to_dict()``),
+            ``circuits`` (per-component state, failure count, and recovery
+            attempts — only for components with failures or non-CLOSED state),
+            ``total_errors`` (int), and ``error_summary``
+            (from ``get_error_summary()``).
+        """
         health = self._cached_health or self.check_health()
         return {
             "health": health.to_dict(),
@@ -328,7 +452,12 @@ class SelfHealer:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for state persistence."""
+        """Serialize the healer state for persistence.
+
+        Returns:
+            Dict with keys ``recovery_attempts``, ``total_errors``, and
+            ``start_time`` (ISO-8601 string).
+        """
         return {
             "recovery_attempts": dict(self.recovery_attempts),
             "total_errors": len(self.error_history),
@@ -336,5 +465,9 @@ class SelfHealer:
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
-        """Restore from state."""
+        """Restore healer state from a previously serialized dict.
+
+        Args:
+            data: Dict as produced by ``to_dict()``.
+        """
         self.recovery_attempts = defaultdict(int, data.get("recovery_attempts", {}))

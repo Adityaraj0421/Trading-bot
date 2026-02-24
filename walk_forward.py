@@ -15,6 +15,8 @@ Key concepts:
     samples to prevent look-ahead bias in ML model evaluation.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -47,7 +49,8 @@ class WFOWindow:
     metrics: dict[str, Any] = field(default_factory=dict)
     trades: list[dict[str, Any]] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Compute derived bar counts from the start/end indices."""
         self.train_bars = self.train_end - self.train_start
         self.test_bars = self.test_end - self.test_start
 
@@ -76,7 +79,17 @@ class WFOResult:
     rejection_reasons: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize walk-forward result to dict."""
+        """Serialize the walk-forward result to a JSON-compatible dict.
+
+        Returns:
+            Dict with keys ``n_folds``, ``total_oos_bars``,
+            ``oos_total_return_pct``, ``oos_sharpe``,
+            ``oos_max_drawdown_pct``, ``oos_win_rate``,
+            ``oos_profit_factor``, ``oos_total_trades``,
+            ``mc_sharpe_mean``, ``mc_sharpe_std``, ``mc_sharpe_p95``,
+            ``mc_p_value``, ``is_robust``, ``rejection_reasons``,
+            and ``fold_results``.
+        """
         return {
             "n_folds": self.n_folds,
             "total_oos_bars": self.total_oos_bars,
@@ -120,7 +133,32 @@ class WalkForwardValidator:
         slippage_pct: float | None = None,
         symbol: str | None = None,
         verbose: bool = True,
-    ):
+    ) -> None:
+        """Initialise the walk-forward validator with window and quality parameters.
+
+        Args:
+            train_bars: Number of bars in each training window (~17 days at 1 h).
+            test_bars: Number of out-of-sample bars after each training window
+                (~4 days at 1 h).
+            step_bars: Number of bars to advance the window on each fold
+                (~2 days at 1 h).
+            min_trades_per_fold: Minimum trades required per fold for the
+                total trade count check.
+            mc_simulations: Number of Monte Carlo trade-order shuffles used
+                to compute the null distribution of Sharpe ratios.
+            mc_confidence: Confidence level for the Monte Carlo significance
+                test (e.g. 0.95 means the real Sharpe must beat the 95th
+                percentile of shuffled Sharpes).
+            min_oos_sharpe: Minimum acceptable out-of-sample Sharpe ratio.
+            max_oos_drawdown: Maximum acceptable out-of-sample drawdown (as a
+                negative percentage, e.g. -20.0 means −20 %).
+            fee_pct: Trading fee as a decimal fraction. Defaults to
+                ``Config.FEE_PCT``.
+            slippage_pct: Slippage per side as a decimal fraction. Defaults
+                to ``Config.SLIPPAGE_PCT``.
+            symbol: Trading pair symbol. Defaults to ``Config.TRADING_PAIR``.
+            verbose: Print progress and the final report when ``True``.
+        """
         self.train_bars = train_bars
         self.test_bars = test_bars
         self.step_bars = step_bars
@@ -411,11 +449,26 @@ class WalkForwardValidator:
         }
 
     def monte_carlo_test(self, trades: list[dict[str, Any]], n_simulations: int | None = None) -> dict[str, Any]:
-        """
-        Monte Carlo permutation test: shuffle trade order N times.
-        Computes distribution of Sharpe ratios from shuffled trade sequences.
-        If the real Sharpe is above the 95th percentile of shuffled Sharpes,
-        we have confidence the strategy's edge is real, not luck.
+        """Run a Monte Carlo permutation significance test on trade PnLs.
+
+        Shuffles the trade order ``n_simulations`` times and computes the
+        Sharpe ratio of each shuffled sequence to build the null distribution.
+        If the real Sharpe exceeds the 95th percentile, the strategy's edge is
+        statistically significant.
+
+        Args:
+            trades: List of trade dicts, each containing a ``pnl_net`` key.
+            n_simulations: Number of shuffle iterations.  Defaults to
+                ``self.mc_simulations``.
+
+        Returns:
+            Dict with keys:
+                ``real_sharpe`` (float): Sharpe of the actual trade sequence.
+                ``mean_sharpe`` (float): Mean Sharpe across shuffled sequences.
+                ``std_sharpe`` (float): Std dev of shuffled Sharpes.
+                ``p95_sharpe`` (float): 95th-percentile Sharpe of shuffled sequences.
+                ``p_value`` (float): Fraction of shuffled runs that beat the
+                real Sharpe (lower is better; < 0.05 is significant).
         """
         n_sims = n_simulations or self.mc_simulations
         if len(trades) < 5:
@@ -691,20 +744,36 @@ class WalkForwardValidator:
 
 
 class PurgedKFoldCV:
-    """
-    Combinatorial Purged Cross-Validation for ML model evaluation.
-    Purges training samples that overlap with test samples
-    (within a lookback window) to prevent look-ahead bias.
+    """Combinatorial Purged Cross-Validation for ML model evaluation.
+
+    Purges training samples that are within a lookback window of the test
+    boundary to prevent look-ahead bias when evaluating the ML model on
+    time-series data.
     """
 
-    def __init__(self, n_splits: int = 5, purge_window: int = 30):
+    def __init__(self, n_splits: int = 5, purge_window: int = 30) -> None:
+        """Initialise the purged k-fold splitter.
+
+        Args:
+            n_splits: Number of folds.
+            purge_window: Number of bars on each side of the test boundary to
+                exclude from training to prevent look-ahead contamination.
+        """
         self.n_splits = n_splits
         self.purge_window = purge_window
 
     def split(self, n_samples: int) -> list[tuple[np.ndarray, np.ndarray]]:
-        """
-        Generate purged train/test indices.
-        Returns list of (train_indices, test_indices) tuples.
+        """Generate purged train/test index pairs.
+
+        Each fold's training set excludes a ``purge_window``-bar buffer zone
+        around the test fold boundaries to prevent label leakage.
+
+        Args:
+            n_samples: Total number of samples in the dataset.
+
+        Returns:
+            List of ``(train_indices, test_indices)`` tuples as numpy arrays.
+            Folds where either split has zero samples are omitted.
         """
         fold_size = n_samples // self.n_splits
         splits = []
@@ -731,9 +800,25 @@ class PurgedKFoldCV:
         return splits
 
     def evaluate_model(self, model: TradingModel, df_ind: pd.DataFrame) -> dict[str, Any]:
-        """
-        Evaluate ML model using purged k-fold CV.
-        Returns average metrics across all folds.
+        """Evaluate the ML model using purged k-fold cross-validation.
+
+        Trains a fresh ``TradingModel`` on each fold's purged training set and
+        scores it on the held-out test set.  Accuracy is measured as the
+        fraction of test bars where the predicted signal matches the label
+        derived from the forward return.
+
+        Args:
+            model: A ``TradingModel`` instance (used only to determine the
+                class; a fresh copy is trained per fold).
+            df_ind: Indicator-augmented OHLCV DataFrame with a
+                ``future_return`` column.
+
+        Returns:
+            Dict with keys:
+                ``cv_accuracy`` (float): Mean accuracy across all folds.
+                ``cv_std`` (float): Standard deviation of fold accuracies.
+                ``n_folds`` (int): Number of folds that produced predictions.
+                ``fold_accuracies`` (list[float]): Per-fold accuracy scores.
         """
         from indicators import FEATURE_COLUMNS
         from model import Signal

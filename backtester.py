@@ -15,6 +15,8 @@ Usage:
     bt.plot_equity_curve("equity.html")
 """
 
+from __future__ import annotations
+
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
@@ -36,7 +38,28 @@ _log = logging.getLogger(__name__)
 
 @dataclass
 class BacktestTrade:
-    """Record of a completed backtest trade with costs and attribution."""
+    """Record of a completed backtest trade with costs and attribution.
+
+    Attributes:
+        symbol: Trading pair symbol (e.g. "BTC/USDT").
+        side: Trade direction — "long" or "short".
+        entry_price: Raw fill price at entry (before slippage).
+        exit_price: Raw fill price at exit (before slippage).
+        entry_price_actual: Entry price after slippage applied.
+        exit_price_actual: Exit price after slippage applied.
+        quantity: Asset quantity traded.
+        pnl_gross: Gross profit/loss before fees.
+        pnl_net: Net profit/loss after fees and slippage costs.
+        fees_paid: Total maker/taker fees paid (entry + exit).
+        slippage_cost: Total slippage cost (entry + exit).
+        entry_time: Timestamp of trade entry.
+        exit_time: Timestamp of trade exit.
+        exit_reason: Why the trade was closed (e.g. "stop_loss",
+            "take_profit", "trailing_stop", "max_duration", "backtest_end").
+        strategy_name: Name of the strategy that generated the signal.
+        regime: Market regime at time of entry (e.g. "trending_up").
+        hold_bars: Number of bars the position was held.
+    """
 
     symbol: str
     side: str
@@ -59,7 +82,24 @@ class BacktestTrade:
 
 @dataclass
 class BacktestPosition:
-    """Tracks an open position during backtesting."""
+    """Tracks an open position during backtesting.
+
+    Attributes:
+        symbol: Trading pair symbol.
+        side: Position direction — "long" or "short".
+        entry_price: Mid-market price at entry bar.
+        entry_price_actual: Actual fill price after slippage.
+        quantity: Asset quantity held.
+        entry_bar: Bar index at entry (relative to test window).
+        entry_time: Timestamp of entry.
+        stop_loss: Static stop-loss price level.
+        take_profit: Static take-profit price level.
+        trailing_stop: Current trailing stop level (adjusted upward for longs).
+        highest_price: Highest observed close since entry (used for long trailing stop).
+        lowest_price: Lowest observed close since entry (used for short trailing stop).
+        strategy_name: Strategy that generated the entry signal.
+        regime: Market regime at time of entry.
+    """
 
     symbol: str
     side: str
@@ -92,7 +132,23 @@ class Backtester:
         max_hold_bars: int = 100,  # Force close after 100 bars
         min_confidence: float | None = None,
         symbol: str | None = None,  # v7.0: explicit symbol for multi-pair
-    ):
+    ) -> None:
+        """Initialise the backtesting engine with cost and risk parameters.
+
+        Args:
+            initial_capital: Starting capital in USDT. Defaults to
+                ``Config.INITIAL_CAPITAL`` when ``None``.
+            fee_pct: Maker/taker fee as a decimal fraction (e.g. 0.001 = 0.1%).
+            slippage_pct: Estimated slippage per side as a decimal fraction.
+            trailing_stop_pct: Trailing stop activation distance as a decimal
+                fraction of the current price.
+            max_hold_bars: Maximum number of bars a position may be held before
+                forced closure.
+            min_confidence: Minimum signal confidence to open a position.
+                Defaults to ``Config.MIN_CONFIDENCE`` when ``None``.
+            symbol: Trading pair symbol to use for position tracking.
+                Defaults to ``Config.TRADING_PAIR`` when ``None``.
+        """
         self.initial_capital = initial_capital or Config.INITIAL_CAPITAL
         self.fee_pct = fee_pct
         self.slippage_pct = slippage_pct
@@ -512,7 +568,16 @@ class Backtester:
         }
 
     def print_report(self, results: dict[str, Any] | None = None) -> None:
-        """Print formatted backtest results with strategy attribution."""
+        """Print formatted backtest results with per-strategy attribution.
+
+        Outputs a human-readable table of key performance metrics (return,
+        drawdown, Sharpe, win rate, fees) followed by a per-strategy
+        breakdown sorted by total PnL.
+
+        Args:
+            results: Pre-computed metrics dict as returned by ``run()``.
+                When ``None``, ``_compute_metrics()`` is called automatically.
+        """
         if results is None:
             results = self._compute_metrics()
 
@@ -560,7 +625,16 @@ class Backtester:
         print("=" * 60)
 
     def plot_equity_curve(self, filepath: str = "equity_curve.html") -> None:
-        """Generate an interactive HTML equity curve chart."""
+        """Generate an interactive HTML equity curve chart using Chart.js.
+
+        Creates a self-contained HTML file with an equity curve line chart
+        and a drawdown chart beneath it, along with a summary metrics grid.
+        Uses Chart.js (CDN) so no additional Python dependencies are required.
+
+        Args:
+            filepath: Output path for the HTML file. Defaults to
+                ``"equity_curve.html"`` in the current working directory.
+        """
         if not self.equity_curve:
             print("No equity data to plot")
             return

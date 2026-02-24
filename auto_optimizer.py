@@ -10,6 +10,8 @@ v2.0: Optuna TPE sampler + Hyperband pruner, SQLite persistence,
 v1.0: Random search with Pareto front tracking.
 """
 
+from __future__ import annotations
+
 import logging
 import random
 from collections import deque
@@ -44,7 +46,12 @@ class HyperparamBound:
     description: str = ""
 
     def sample(self) -> float:
-        """Random sample within bounds."""
+        """Draw a uniform random sample within [low, high].
+
+        Returns:
+            An integer cast to ``dtype`` when ``dtype`` is ``int``,
+            otherwise a float rounded to 4 decimal places.
+        """
         val = random.uniform(self.low, self.high)
         return self.dtype(val) if self.dtype == int else round(val, 4)
 
@@ -63,7 +70,13 @@ class TrialResult:
     score: float = 0.0  # Composite optimization score
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize trial result to dict."""
+        """Serialize the trial result to a JSON-compatible dict.
+
+        Returns:
+            Dict with keys ``params``, ``total_return``, ``sharpe``,
+            ``max_drawdown``, ``total_trades``, ``score``, and ``timestamp``
+            (ISO-8601 string).
+        """
         return {
             "params": self.params,
             "total_return": self.total_return,
@@ -112,6 +125,18 @@ class AutoOptimizer:
         max_trials: int = 100,
         storage_path: str | None = None,
     ) -> None:
+        """Initialise the optimizer with a parameter search space.
+
+        Args:
+            search_space: Mapping of parameter name to ``HyperparamBound``
+                defining the search range for each hyperparameter. Defaults
+                to ``DEFAULT_SEARCH_SPACE`` when ``None``.
+            max_trials: Maximum number of trials to keep in memory. Older
+                trials are discarded when this limit is reached.
+            storage_path: Optional filesystem path for an SQLite database
+                used by Optuna to persist trial history across sessions.
+                When ``None`` the study is in-memory only.
+        """
         self.search_space = search_space or DEFAULT_SEARCH_SPACE
         self.max_trials = max_trials
         self.trials: deque[TrialResult] = deque(maxlen=max_trials)
@@ -169,9 +194,14 @@ class AutoOptimizer:
         return params
 
     def suggest_params(self) -> dict[str, Any]:
-        """
-        Suggest a new parameter set to try.
-        Uses Optuna TPE sampler when available, falls back to random.
+        """Suggest a new parameter set to evaluate.
+
+        Uses the Optuna TPE sampler when Optuna is installed, otherwise
+        falls back to uniform random sampling within each parameter's bounds.
+
+        Returns:
+            Dict mapping parameter name to a suggested value. Keys match
+            the names defined in ``self.search_space``.
         """
         if _HAS_OPTUNA and self._study is not None:
             # Create a trial and get Optuna's suggestion
@@ -202,7 +232,22 @@ class AutoOptimizer:
         return params
 
     def suggest_nearby(self, base_params: dict[str, Any], spread: float = 0.2) -> dict[str, Any]:
-        """Suggest params near a known-good set (local search)."""
+        """Suggest parameters via Gaussian perturbation around a known-good set.
+
+        Useful for local exploitation after a promising region has been
+        identified.  Each parameter is perturbed by a zero-mean Gaussian
+        with standard deviation ``spread * (high - low)`` and then clipped
+        to its declared bounds.
+
+        Args:
+            base_params: Reference parameter set to perturb (e.g. from
+                ``get_best_params()``).
+            spread: Fraction of each parameter's range to use as the
+                standard deviation of the perturbation.  Defaults to 0.2.
+
+        Returns:
+            Dict of perturbed parameter values within their declared bounds.
+        """
         params = {}
         for name, bound in self.search_space.items():
             base_val = base_params.get(name, bound.current)
@@ -214,9 +259,19 @@ class AutoOptimizer:
         return params
 
     def record_result(self, params: dict[str, Any], metrics: dict[str, Any]) -> None:
-        """
-        Record the result of a trial.
-        Feeds back to Optuna study if available.
+        """Record the outcome of a completed trial.
+
+        Computes the composite score, updates the best result, refreshes the
+        Pareto front, and feeds the result back to the Optuna study when
+        available so that subsequent ``suggest_params()`` calls benefit from
+        the observed data.
+
+        Args:
+            params: Parameter dict that was evaluated (as returned by
+                ``suggest_params()`` or ``suggest_nearby()``).
+            metrics: Backtest metrics dict with at minimum the keys
+                ``sharpe_ratio``, ``total_return_pct``, ``max_drawdown_pct``,
+                and ``total_trades``.
         """
         result = TrialResult(
             params=params,
@@ -343,7 +398,16 @@ class AutoOptimizer:
             self.pareto_front = self.pareto_front[:10]
 
     def get_best_params(self) -> dict[str, Any] | None:
-        """Get the best parameter set found so far."""
+        """Return the parameter set with the highest composite score.
+
+        When Optuna is available, returns the Pareto-optimal trial with
+        the highest Sharpe ratio from the study. Otherwise returns the
+        best result from the in-memory trial log.
+
+        Returns:
+            Dict of parameter values, or ``None`` if no trials have been
+            recorded yet.
+        """
         # Optuna: get best from study (Sharpe objective)
         if _HAS_OPTUNA and self._study is not None:
             best_trials = self._study.best_trials
@@ -357,7 +421,18 @@ class AutoOptimizer:
         return None
 
     def get_pareto_front(self) -> list[dict[str, Any]]:
-        """Get all Pareto-optimal solutions."""
+        """Return all Pareto-optimal solutions found so far.
+
+        A solution is Pareto-optimal if no other trial is simultaneously
+        better on all three objectives (Sharpe, max drawdown, trade count).
+        The front is capped at 10 entries.
+
+        Returns:
+            List of dicts. When Optuna is active each dict has keys
+            ``params``, ``sharpe``, ``max_drawdown``, and ``trial_number``.
+            When using random search, each dict is the output of
+            ``TrialResult.to_dict()``.
+        """
         if _HAS_OPTUNA and self._study is not None:
             best_trials = self._study.best_trials
             if best_trials:
@@ -376,9 +451,20 @@ class AutoOptimizer:
         return [r.to_dict() for r in self.pareto_front]
 
     def run_optimization_round(self, n_trials: int = 10) -> list[dict[str, Any]]:
-        """
-        Generate n trial parameter sets for external evaluation.
-        Uses Optuna TPE suggestions when available.
+        """Generate a batch of parameter sets for external evaluation.
+
+        Each parameter set should be evaluated by running a backtest and
+        then reported back via ``record_result()``.  Uses Optuna TPE
+        suggestions when available; when using random search, the first
+        suggestion in a round is a local perturbation of the best known
+        result to mix exploitation with exploration.
+
+        Args:
+            n_trials: Number of parameter sets to generate per round.
+
+        Returns:
+            List of parameter dicts, each suitable for passing to
+            ``record_result()``.
         """
         suggestions = []
 
@@ -402,9 +488,21 @@ class AutoOptimizer:
         return suggestions
 
     def get_optimization_history(self) -> dict[str, Any]:
-        """
-        Get optimization history and importance analysis.
-        Only available with Optuna.
+        """Return optimization history and parameter importance analysis.
+
+        Parameter importance is computed via Optuna's ``get_param_importances``
+        and requires at least 10 completed trials to produce meaningful results.
+        This method is only fully populated when Optuna is available.
+
+        Returns:
+            Dict with keys:
+                ``engine`` (str): "optuna" or "random".
+                ``total_trials`` (int): Total number of Optuna trials.
+                ``completed_trials`` (int): Trials with a final result.
+                ``param_importance`` (dict): Per-objective parameter
+                    importance scores (only when Optuna is active).
+                ``history`` (list[dict]): Last 20 completed trials, each
+                    with ``trial``, ``params``, ``sharpe``, and ``drawdown``.
         """
         if not _HAS_OPTUNA or self._study is None:
             return {"engine": "random", "history": []}
@@ -441,7 +539,16 @@ class AutoOptimizer:
         }
 
     def apply_best_to_config(self) -> dict[str, Any] | None:
-        """Get best params formatted for Config application."""
+        """Return the best parameters mapped to their ``Config`` attribute names.
+
+        Translates optimizer parameter names (e.g. ``stop_loss_pct``) to
+        the corresponding ``Config`` attribute names (e.g. ``STOP_LOSS_PCT``)
+        so the result can be applied directly to the live agent configuration.
+
+        Returns:
+            Dict of ``{CONFIG_KEY: value}`` for all optimized parameters,
+            or ``None`` if no trials have been completed yet.
+        """
         params = self.get_best_params()
         if not params:
             return None
@@ -459,7 +566,15 @@ class AutoOptimizer:
         }
 
     def get_status(self) -> dict[str, Any]:
-        """Optimizer status report."""
+        """Return a summary of the optimizer's current state.
+
+        Returns:
+            Dict with keys ``engine``, ``total_trials``,
+            ``optimization_rounds``, ``best_score``, ``best_sharpe``,
+            ``best_return``, ``pareto_size``, and ``last_optimization``
+            (ISO-8601 string or ``None``).  When Optuna is active, also
+            includes ``optuna_trials`` and ``optuna_pareto_size``.
+        """
         status = {
             "engine": self.engine,
             "total_trials": len(self.trials),
@@ -478,7 +593,12 @@ class AutoOptimizer:
         return status
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for state persistence."""
+        """Serialize the optimizer state for persistence.
+
+        Returns:
+            Dict with keys ``engine``, ``optimization_count``,
+            ``best_result``, ``pareto_front``, and ``trials_count``.
+        """
         return {
             "engine": self.engine,
             "optimization_count": self.optimization_count,
@@ -488,7 +608,11 @@ class AutoOptimizer:
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
-        """Restore from state."""
+        """Restore optimizer state from a previously serialized dict.
+
+        Args:
+            data: Dict as produced by ``to_dict()``.
+        """
         self.optimization_count = data.get("optimization_count", 0)
         if data.get("best_result"):
             br = data["best_result"]
