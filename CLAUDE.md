@@ -4,6 +4,15 @@
 
 Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT, ETH/USDT, SOL/USDT on Binance. Runs 10 strategies with ML ensemble, risk management, and real-time intelligence signals. Paper and live trading modes.
 
+## Development History
+
+| Phase | Summary |
+|-------|---------|
+| v1–v6 | Core trading loop, CCXT integration, paper/live modes, basic strategies |
+| v7–v8 | Risk manager (Kelly sizing, drawdown gates), TradeDB persistence, Telegram bot, dashboard |
+| v9.1 | 10th strategy (Ichimoku), Williams %R / CCI features (24 FEATURE_COLUMNS), pair scorer, ATR trailing + breakeven stops, 935 tests |
+| Phase 4 | Code quality sweep: type hints + Google-style docstrings across all 37 production modules (37+ files, ~4,000 annotation additions, 0 ruff errors) |
+
 ## Architecture
 
 ```
@@ -25,6 +34,18 @@ dashboard/ (Next.js React app, port 3000)
     ├── app/                 → Pages (trades, equity, autonomous, etc.)
     ├── components/          → Reusable UI (charts, tables, skeletons)
     └── lib/                 → API client, WebSocket hook, types
+
+intelligence/ (10 signal modules, imported by decision_engine.py)
+    ├── aggregator.py        → Orchestrates all intelligence sources
+    ├── orderbook.py         → VPIN, CVD, spoofing detection, bid/ask walls
+    ├── whale_tracker.py     → On-chain large-transaction flow
+    ├── correlation.py       → Cross-asset correlation (yfinance optional)
+    ├── funding_oi.py        → Perpetual funding rate + open interest
+    ├── liquidation.py       → Estimated liquidation cascade levels
+    ├── llm_sentiment.py     → LLM-based sentiment (Anthropic/OpenAI)
+    ├── news_sentiment.py    → Reddit/RSS headline sentiment
+    ├── onchain.py           → On-chain metrics + ML feature extraction
+    └── cascade_predictor.py → Cascade risk score from liquidation data
 ```
 
 ## Development Commands
@@ -46,7 +67,7 @@ make help         # Show all available commands
 
 | File | Purpose |
 |------|---------|
-| `agent.py` | Main trading loop (~1.4K lines). Called by api/server.py lifespan |
+| `agent.py` | Main trading loop (~1,766 lines). Called by api/server.py lifespan |
 | `api/server.py` | FastAPI app factory, auth middleware, agent thread |
 | `config.py` | All configuration from .env |
 | `dashboard/app/page.tsx` | Dashboard home page |
@@ -63,7 +84,7 @@ make help         # Show all available commands
 
 **Important**: The test client fixture in `test_api.py` automatically includes the API auth key when `API_AUTH_KEY` is set in .env. If you add new API tests, use the existing `client` fixture.
 
-**Known env-dependent failure**: `test_config.py::TestConfigDefaults::test_default_min_confidence` fails when `.env` has `MIN_CONFIDENCE` ≠ 0.35. Not a code bug — adjust `.env` or expect 889 passing locally.
+**Known env-dependent failure**: `test_config.py::TestConfigDefaults::test_default_min_confidence` fails when `.env` has `MIN_CONFIDENCE` ≠ 0.35. Not a code bug — adjust `.env` or expect 934 passing locally.
 
 ## Key Patterns
 
@@ -106,7 +127,7 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 ## Code Quality
 
 - **Linter/Formatter**: ruff (config in `pyproject.toml`)
-- **Type hints**: All public methods are annotated (Python 3.12+ syntax)
+- **Type hints**: All public methods are annotated (Python 3.10+ union syntax with `from __future__ import annotations` for deferred evaluation)
 - **Docstrings**: Google-style on all public methods and classes
 - **Logging**: All modules use `_log = logging.getLogger(__name__)` — no stray `print()` in production code (except CLI output in backtester/agent banner)
 
