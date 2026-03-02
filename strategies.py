@@ -1235,23 +1235,25 @@ class StrategyEngine:
     REGIME_STRATEGY_MAP = {
         MarketRegime.TRENDING_UP: {
             "primary": "Momentum",
-            "secondary": ["EMACrossover", "Ichimoku", "Sentiment", "VWAP", "RSIDivergence"],
-            "weights": {"Momentum": 0.26, "EMACrossover": 0.18, "Ichimoku": 0.18, "Sentiment": 0.14, "VWAP": 0.14, "RSIDivergence": 0.10},
+            "secondary": ["Ichimoku", "EMACrossover", "OBVDivergence", "RSIDivergence"],
+            "weights": {"Momentum": 0.35, "Ichimoku": 0.25, "EMACrossover": 0.20, "OBVDivergence": 0.12, "RSIDivergence": 0.08},
         },
         MarketRegime.TRENDING_DOWN: {
             "primary": "Momentum",
-            "secondary": ["EMACrossover", "Ichimoku", "OBVDivergence", "Sentiment", "RSIDivergence"],
-            "weights": {"Momentum": 0.27, "EMACrossover": 0.16, "Ichimoku": 0.15, "OBVDivergence": 0.18, "Sentiment": 0.14, "RSIDivergence": 0.10},
+            "secondary": ["EMACrossover", "Ichimoku", "OBVDivergence", "RSIDivergence"],
+            "weights": {"Momentum": 0.35, "EMACrossover": 0.22, "Ichimoku": 0.20, "OBVDivergence": 0.15, "RSIDivergence": 0.08},
         },
         MarketRegime.RANGING: {
-            "primary": "MeanReversion",
-            "secondary": ["VWAP", "Grid", "OBVDivergence", "RSIDivergence"],
-            "weights": {"MeanReversion": 0.31, "VWAP": 0.23, "Grid": 0.18, "OBVDivergence": 0.18, "RSIDivergence": 0.10},
+            # Backtesting (2021-2026) showed MeanReversion/VWAP/Grid destroyed capital
+            # in crypto's persistent trends. OBV+RSI divergence performs across all regimes.
+            "primary": "OBVDivergence",
+            "secondary": ["RSIDivergence", "EMACrossover", "Momentum"],
+            "weights": {"OBVDivergence": 0.33, "RSIDivergence": 0.27, "EMACrossover": 0.22, "Momentum": 0.18},
         },
         MarketRegime.HIGH_VOLATILITY: {
             "primary": "Breakout",
-            "secondary": ["Scalping", "EMACrossover", "Sentiment"],
-            "weights": {"Breakout": 0.35, "Scalping": 0.25, "EMACrossover": 0.2, "Sentiment": 0.2},
+            "secondary": ["EMACrossover", "Momentum", "Scalping"],
+            "weights": {"Breakout": 0.40, "EMACrossover": 0.25, "Momentum": 0.20, "Scalping": 0.15},
         },
     }
 
