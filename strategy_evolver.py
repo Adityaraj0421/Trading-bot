@@ -96,7 +96,7 @@ PARAM_BOUNDS = {
     "Breakout": {
         "lookback": (10, 50, int),
         "volume_mult": (1.2, 3.0, float),
-        "atr_mult": (1.0, 3.0, float),
+        "atr_mult": (0.5, 1.5, float),  # bar range ≥ atr_mult×ATR; 0.5 lenient, 1.5 strict
         "confidence_base": (0.4, 0.8, float),
     },
     "Grid": {
@@ -148,7 +148,7 @@ DEFAULT_PARAMS = {
     "Breakout": {
         "lookback": 20,
         "volume_mult": 1.5,
-        "atr_mult": 2.0,
+        "atr_mult": 0.8,  # bar range must be ≥ 80% of ATR to qualify as a real breakout candle
         "confidence_base": 0.6,
     },
     "Grid": {

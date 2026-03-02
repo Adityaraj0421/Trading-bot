@@ -462,7 +462,15 @@ class Backtester:
         return results
 
     def _combine(self, strat_sig: Any, ml_signal: str, ml_conf: float) -> tuple[str, float]:
-        """Combine strategy and ML signals into a final (signal, confidence) pair."""
+        """Combine strategy and ML signals into a final (signal, confidence) pair.
+
+        Three cases:
+        - AGREE: both directional and same direction → boost (weighted blend + 0.1)
+        - ONE_HOLD: one side is HOLD (ML uncertain, not disagreeing) → mild penalty ×0.75
+          Requires strategy_conf ≥ 0.91 to clear min_confidence=0.68; lets only strong
+          strategy signals through when ML is uncertain rather than actively opposing.
+        - DISAGREE: both directional but opposite directions → strong penalty ×0.40
+        """
         s = strat_sig.signal
         sc = strat_sig.confidence
         if s == ml_signal:
@@ -470,7 +478,7 @@ class Backtester:
         elif s == "HOLD" or ml_signal == "HOLD":
             active = s if s != "HOLD" else ml_signal
             active_c = sc if s != "HOLD" else ml_conf
-            return active, active_c * 0.6
+            return active, active_c * 0.75  # ML uncertain, not opposing — 25% discount
         else:
             return s, sc * 0.4
 

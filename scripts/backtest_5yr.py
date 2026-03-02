@@ -34,7 +34,7 @@ BATCH_SIZE = 1000      # CCXT bars per request
 RATE_LIMIT_S = 0.5     # Seconds between paginated requests
 RETRAIN_EVERY = 2160   # Quarterly (2160 h = 90 days) — ~16 retrains/pair
 TRAILING_STOP_PCT = 0.025   # 2.5% — wider than default 1.5% to reduce noise exits
-MIN_CONFIDENCE = 0.65       # Slightly tighter than default 0.60 to cut false signals
+MIN_CONFIDENCE = 0.68       # Raised from 0.65 — reduces fee drag at high trade frequency
 
 
 def fetch_5yr_ohlcv(fetcher: DataFetcher, symbol: str) -> pd.DataFrame:

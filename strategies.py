@@ -302,70 +302,82 @@ class BreakoutStrategy(BaseStrategy):
         Args:
             params: Dict of evolved hyperparameters. Recognised keys:
                 ``lookback`` (default 20), ``volume_mult`` (default 1.5),
-                ``confidence_base`` (default 0.6).
+                ``confidence_base`` (default 0.6), ``atr_mult`` (default 0.8).
         """
         p = params or {}
         self.lookback = p.get("lookback", 20)
         self.volume_mult = p.get("volume_mult", 1.5)
         self.confidence_base = p.get("confidence_base", 0.6)
+        self.atr_mult = p.get("atr_mult", 0.8)
 
     def generate_signal(self, df: pd.DataFrame, sentiment: SentimentState | None = None) -> StrategySignal:
-        """Identify Bollinger Band breakouts confirmed by volume surge.
+        """Identify Bollinger Band breakouts confirmed by volume surge and ATR expansion.
 
         Args:
             df: Indicator-enriched OHLCV DataFrame. Required columns: ``bb_position``,
-                ``volume_ratio``, ``bb_width``, ``high``, ``low``, ``close``.
+                ``volume_ratio``, ``bb_width``, ``high``, ``low``, ``close``, ``atr``.
             sentiment: Ignored by this strategy.
 
         Returns:
-            StrategySignal with BUY/SELL/HOLD. HOLD confidence is 0.5.
+            StrategySignal with BUY/SELL/HOLD. HOLD confidence is 0.3.
             BUY/SELL confidence scales with volume ratio and squeeze detection.
+
+        Note:
+            Three confirmation filters required for a signal:
+            1. Price break (BB band or N-bar high/low exceeded, not merely touched).
+            2. Volume surge >= ``volume_mult`` × average (same threshold for both paths).
+            3. Bar range >= ``atr_mult`` × ATR — rejects wicks and noise spikes.
         """
         latest = df.iloc[-1]
 
         bb_pos = latest.get("bb_position", 0.5)
         vol_ratio = latest.get("volume_ratio", 1.0)
+        atr = latest.get("atr", 0.0)
 
         # Bollinger squeeze: width narrowing then expanding
         bb_widths = df["bb_width"].tail(20) if "bb_width" in df.columns else pd.Series([0])
         was_squeezed = bb_widths.iloc[-5:].mean() < bb_widths.mean() * 0.8
 
+        # ATR expansion guard — bar range must show real expansion, not a noise wick
+        bar_range = latest["high"] - latest["low"]
+        atr_confirmed = atr <= 0 or bar_range >= atr * self.atr_mult
+
         # Price breaking bands with volume — evolved params
         break_up = bb_pos > 1.0 and vol_ratio > self.volume_mult
         break_down = bb_pos < 0.0 and vol_ratio > self.volume_mult
 
-        # New high/low detection — evolved lookback
+        # New high/low detection — price must *exceed* the lookback extreme (not just touch it)
         recent_high = df["high"].tail(self.lookback).max()
         recent_low = df["low"].tail(self.lookback).min()
-        at_high = latest["close"] >= recent_high * 0.998
-        at_low = latest["close"] <= recent_low * 1.002
+        at_high = latest["close"] > recent_high  # strict: must exceed prior high
+        at_low = latest["close"] < recent_low   # strict: must undercut prior low
 
-        if (break_up or at_high) and vol_ratio > 1.2:
+        if (break_up or at_high) and vol_ratio >= self.volume_mult and atr_confirmed:
             conf = 0.5 + (vol_ratio - 1.0) * 0.2 + was_squeezed * 0.15
             return StrategySignal(
                 signal="BUY",
                 confidence=min(conf, 0.9),
                 strategy_name=self.name,
-                reason=f"Breakout UP (vol:{vol_ratio:.1f}x, squeeze:{was_squeezed})",
+                reason=f"Breakout UP (vol:{vol_ratio:.1f}x, atr_ok:{atr_confirmed}, squeeze:{was_squeezed})",
                 suggested_sl_pct=0.01,
                 suggested_tp_pct=0.04,
             )
-        elif (break_down or at_low) and vol_ratio > 1.2:
+        elif (break_down or at_low) and vol_ratio >= self.volume_mult and atr_confirmed:
             conf = 0.5 + (vol_ratio - 1.0) * 0.2 + was_squeezed * 0.15
             return StrategySignal(
                 signal="SELL",
                 confidence=min(conf, 0.9),
                 strategy_name=self.name,
-                reason=f"Breakout DOWN (vol:{vol_ratio:.1f}x, squeeze:{was_squeezed})",
+                reason=f"Breakout DOWN (vol:{vol_ratio:.1f}x, atr_ok:{atr_confirmed}, squeeze:{was_squeezed})",
                 suggested_sl_pct=0.01,
                 suggested_tp_pct=0.04,
             )
         else:
             return StrategySignal(
                 signal="HOLD",
-                confidence=0.5,
+                confidence=0.3,
                 strategy_name=self.name,
-                reason="No breakout detected",
+                reason="No confirmed breakout",
             )
 
 

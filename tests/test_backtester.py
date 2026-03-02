@@ -100,7 +100,7 @@ class TestCombine:
         strat_sig = StrategySignal("HOLD", 0.5, "Momentum", "test")
         signal, conf = bt._combine(strat_sig, "BUY", 0.8)
         assert signal == "BUY"
-        assert conf == pytest.approx(0.8 * 0.6)
+        assert conf == pytest.approx(0.8 * 0.75)  # ONE_HOLD multiplier is 0.75
 
     def test_both_hold_returns_hold(self, bt):
         strat_sig = StrategySignal("HOLD", 0.5, "Momentum", "test")

@@ -535,9 +535,11 @@ class TestStrategyEngine:
         assert config["primary"] == "Momentum"
         assert sum(config["weights"].values()) == pytest.approx(1.0)
 
-    def test_ranging_uses_mean_reversion_primary(self, engine):
+    def test_ranging_uses_obv_divergence_primary(self, engine):
+        # MeanReversion removed from RANGING (destroyed capital in backtests 2021-2026)
+        # OBVDivergence is the backtested primary for sideways crypto markets
         config = engine.REGIME_STRATEGY_MAP[MarketRegime.RANGING]
-        assert config["primary"] == "MeanReversion"
+        assert config["primary"] == "OBVDivergence"
 
     def test_run_returns_strategy_signal(self, engine):
         """Engine always returns a StrategySignal regardless of market state."""
@@ -585,7 +587,7 @@ class TestStrategyEngine:
         """If regime isn't in map, defaults to RANGING config."""
         # All regimes are in the map, but verify the .get() fallback path
         config = engine.REGIME_STRATEGY_MAP.get("NONEXISTENT", engine.REGIME_STRATEGY_MAP[MarketRegime.RANGING])
-        assert config["primary"] == "MeanReversion"
+        assert config["primary"] == "OBVDivergence"  # current RANGING primary
 
     def test_weights_sum_to_one(self, engine):
         """All regime weight configs should sum to ~1.0."""
