@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT, ETH/USDT, SOL/USDT on Binance. Runs 10 strategies with ML ensemble, risk management, and real-time intelligence signals. Paper and live trading modes.
+Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT, ETH/USDT, SOL/USDT on Binance. Runs 11 strategies with ML ensemble (XGBoost + LSTM), 10 intelligence providers, risk management, and real-time intelligence signals. Paper and live trading modes.
 
 ## Development History
 
@@ -12,6 +12,7 @@ Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT,
 | v7–v8 | Risk manager (Kelly sizing, drawdown gates), TradeDB persistence, Telegram bot, dashboard |
 | v9.1 | 10th strategy (Ichimoku), Williams %R / CCI features (24 FEATURE_COLUMNS), pair scorer, ATR trailing + breakeven stops, 935 tests |
 | Phase 4 | Code quality sweep: type hints + Google-style docstrings across all 37 production modules (37+ files, ~4,000 annotation additions, 0 ruff errors) |
+| Phase 5 | 11th strategy (RSI Divergence + Stochastic), 10th intelligence provider (Fear & Greed Index), ML feature importance pruning (opt-in via `ML_FEATURE_PRUNING`), new `/model/feature-importance` API, dashboard Model page + Fear & Greed card; 984 tests |
 
 ## Architecture
 
@@ -35,8 +36,8 @@ dashboard/ (Next.js React app, port 3000)
     ├── components/          → Reusable UI (charts, tables, skeletons)
     └── lib/                 → API client, WebSocket hook, types
 
-intelligence/ (10 signal modules, imported by decision_engine.py)
-    ├── aggregator.py        → Orchestrates all intelligence sources
+intelligence/ (11 signal modules, imported by decision_engine.py)
+    ├── aggregator.py        → Orchestrates all intelligence sources (10 providers)
     ├── orderbook.py         → VPIN, CVD, spoofing detection, bid/ask walls
     ├── whale_tracker.py     → On-chain large-transaction flow
     ├── correlation.py       → Cross-asset correlation (yfinance optional)
@@ -45,7 +46,8 @@ intelligence/ (10 signal modules, imported by decision_engine.py)
     ├── llm_sentiment.py     → LLM-based sentiment (Anthropic/OpenAI)
     ├── news_sentiment.py    → Reddit/RSS headline sentiment
     ├── onchain.py           → On-chain metrics + ML feature extraction
-    └── cascade_predictor.py → Cascade risk score from liquidation data
+    ├── cascade_predictor.py → Cascade risk score from liquidation data
+    └── fear_greed.py        → Fear & Greed Index (alternative.me, contrarian signal, 1-hour cache)
 ```
 
 ## Development Commands
@@ -72,10 +74,11 @@ make help         # Show all available commands
 | `config.py` | All configuration from .env |
 | `dashboard/app/page.tsx` | Dashboard home page |
 | `pair_scorer.py` | Dynamic pair selection by ATR×volume score; rescored every N agent cycles |
+| `api/routes/model.py` | `GET /model/feature-importance` — XGBoost feature importances + model tier/status |
 
 ## Testing
 
-- **Framework**: pytest (tests/ directory, 44 test files, 935 tests)
+- **Framework**: pytest (tests/ directory, 46 test files, 984 tests)
 - **Run**: `make test` or `./venv/bin/python -m pytest tests/ -v`
 - **Linting**: `make lint` (ruff) — should report 0 errors
 - **API tests**: `tests/test_api.py` — uses TestClient with auth header injection
@@ -148,9 +151,10 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - **Kelly fraction edge case**: `_kelly_fraction()` returns `min(0.01, MAX_POSITION_PCT)` (not `MAX_POSITION_PCT`) when a strategy has no losing trades — avoids aggressive sizing from incomplete win/loss data.
 - **Uvicorn `--reload` breaks DataStore wiring**: Hot-reload creates a new DataStore but the agent thread keeps its old reference. `set_data_store()` only runs during initial lifespan startup. After code changes, do a full `make stop && make dev` restart — don't rely on uvicorn auto-reload for changes that affect agent↔API wiring.
 - **Dashboard rendering nested API data**: Intelligence signals contain nested dicts/arrays (imbalances, bid_walls, top_headlines). Always use type checks (`typeof val === "object"`, `Array.isArray(val)`) before rendering — `String(obj)` produces `[object Object]`.
-- **LSTM model shape invalidation**: When `FEATURE_COLUMNS` count changes (e.g. adding new indicators), delete `data/agent_state_model.pkl` before restarting — LSTM input layer shape is fixed at train time and will crash on mismatch.
+- **LSTM model shape invalidation**: When `FEATURE_COLUMNS` count changes (e.g. adding new indicators), delete `data/agent_state_model.pkl` before restarting — LSTM input layer shape is fixed at train time and will crash on mismatch. **Note**: ML feature pruning (`ML_FEATURE_PRUNING=true`) is safe — `prune_and_retrain()` saves the reduced `feature_cols` in `agent_state_model.pkl`, so restarts after pruning load the correct shape automatically.
+- **ML feature pruning**: `ML_FEATURE_PRUNING=true` / `ML_TOP_FEATURES=14` in `.env` activates opt-in feature pruning after each training cycle. The agent reduces FEATURE_COLUMNS from 24 to the top-k most important XGBoost features. `feature_cols` is persisted in the model state file — deleting `data/agent_state_model.pkl` resets back to all 24 features. Pruning fires on every training cycle; floor is 5 features minimum.
 - **HOLD signal confidence**: Strategies return `confidence=0.3` for HOLD (not `0.0`). Only the data-guard (insufficient rows, e.g. `len(df) < 3`) returns `confidence=0.0`. Test assertions on HOLD should use `< 0.5`, not `== 0.0`.
-- **Test count assertions**: When adding strategies or FEATURE_COLUMNS, update count assertions in: `test_indicators.py` (feature cols), `test_strategies.py` (strategy count), `test_evolution_integration.py` (strategy count), `test_model.py` ×2 (feature cols), `test_strategy_evolver.py` (PARAM_BOUNDS count).
+- **Test count assertions**: When adding strategies or FEATURE_COLUMNS, update count assertions in: `test_indicators.py` (feature cols), `test_strategies.py` (strategy count), `test_evolution_integration.py` (strategy count), `test_model.py` ×2 (feature cols), `test_strategy_evolver.py` (PARAM_BOUNDS count), `test_intelligence.py` (provider count).
 - **ruff import sort (I001)**: After adding new imports, run `./venv/bin/python -m ruff check --fix <file>` — ruff auto-fixes import order silently.
 - **`datetime.UTC` alias (UP017)**: Use `from datetime import UTC` and `datetime.now(UTC)` — never `datetime.now(timezone.utc)`. ruff UP017 flags the latter; auto-fix with `ruff check --fix`.
 - **TYPE_CHECKING for annotation-only imports**: When `from __future__ import annotations` is present, ruff F821 still flags annotation names not in module scope. Fix: `if TYPE_CHECKING: import pandas as pd`. Used in `decision_engine.py:_fetch_fitness_data` — pandas is a deferred in-method import.
