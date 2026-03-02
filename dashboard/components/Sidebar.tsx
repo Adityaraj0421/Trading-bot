@@ -21,6 +21,7 @@ const navItems = [
   { href: "/intelligence", label: "Intelligence", icon: "I" },
   { href: "/arbitrage", label: "Arbitrage", icon: "X" },
   { href: "/risk", label: "Risk Sim", icon: "R" },
+  { href: "/model", label: "Model", icon: "M" },
 ];
 
 export default function Sidebar() {

@@ -166,6 +166,17 @@ const api = {
       cumulative_pnl: { pnl: number; timestamp: string; symbol: string }[];
       total_closed: number;
     }>("/pnl-summary"),
+
+  // v10 — ML model feature importance
+  getFeatureImportance: () =>
+    fetchAPI<{
+      status: string;
+      tier?: number;
+      n_features?: number;
+      feature_cols?: string[];
+      feature_importance?: Record<string, number>;
+      top_features?: string[];
+    }>("/model/feature-importance"),
 };
 
 export default api;

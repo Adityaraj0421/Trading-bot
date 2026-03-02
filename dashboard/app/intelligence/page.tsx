@@ -69,6 +69,58 @@ export default function IntelligencePage() {
             </div>
           ) : hasData ? (
             <>
+              {/* Fear & Greed Index — dedicated card */}
+              {(() => {
+                const fg = signals.signals.find((s: any) => s.source === "fear_greed");
+                if (!fg) return null;
+                const value: number = fg.data?.value ?? 50;
+                const classification: string = fg.data?.classification ?? "Neutral";
+                // Meter color: fear zone = green (contrarian buy), greed zone = red (contrarian sell)
+                const meterColor =
+                  value <= 44 ? "bg-green-500" : value <= 55 ? "bg-gray-500" : "bg-red-500";
+                const signalColor = biasColor[fg.signal] || "text-gray-400";
+                return (
+                  <div className="bg-gray-800 rounded-lg border border-yellow-700/50 p-4">
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <div>
+                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">
+                          Fear &amp; Greed Index
+                        </p>
+                        <div className="flex items-baseline gap-3">
+                          <span className="text-4xl font-bold font-mono">{value}</span>
+                          <span className="text-lg text-gray-300">{classification}</span>
+                        </div>
+                        <p className="text-sm mt-1">
+                          Contrarian signal:{" "}
+                          <span className={`font-semibold ${signalColor}`}>
+                            {fg.signal?.toUpperCase()}
+                          </span>{" "}
+                          <span className="text-gray-500">(str: {fg.strength?.toFixed(2)})</span>
+                        </p>
+                      </div>
+                      <div className="flex-1 min-w-[160px]">
+                        {/* Visual 0-100 meter */}
+                        <div className="flex justify-between text-xs text-gray-500 mb-1">
+                          <span>0 Fear</span>
+                          <span>100 Greed</span>
+                        </div>
+                        <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${meterColor}`}
+                            style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                          <span className="text-green-400">Buy zone</span>
+                          <span className="text-gray-400">Neutral</span>
+                          <span className="text-red-400">Sell zone</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Aggregate summary */}
               <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
                 <div className="flex items-center gap-6 flex-wrap">
