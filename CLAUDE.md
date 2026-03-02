@@ -13,6 +13,7 @@ Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT,
 | v9.1 | 10th strategy (Ichimoku), Williams %R / CCI features (24 FEATURE_COLUMNS), pair scorer, ATR trailing + breakeven stops, 935 tests |
 | Phase 4 | Code quality sweep: type hints + Google-style docstrings across all 37 production modules (37+ files, ~4,000 annotation additions, 0 ruff errors) |
 | Phase 5 | 11th strategy (RSI Divergence + Stochastic), 10th intelligence provider (Fear & Greed Index), ML feature importance pruning (opt-in via `ML_FEATURE_PRUNING`), new `/model/feature-importance` API, dashboard Model page + Fear & Greed card; 984 tests |
+| Phase 5 Tuning | 5-yr walk-forward backtest (BTC/ETH/SOL, 2021–2026, 1h bars, ~78 min); rebalanced `REGIME_STRATEGY_MAP` — removed MeanReversion/VWAP/Grid from RANGING (replaced with OBVDivergence), boosted Momentum across trending regimes; widened trailing stop 1.5%→2.5%, raised MIN_CONFIDENCE 0.60→0.65 |
 
 ## Architecture
 
@@ -74,6 +75,7 @@ make help         # Show all available commands
 | `config.py` | All configuration from .env |
 | `dashboard/app/page.tsx` | Dashboard home page |
 | `pair_scorer.py` | Dynamic pair selection by ATR×volume score; rescored every N agent cycles |
+| `scripts/backtest_5yr.py` | 5-year OHLCV backtest script — paginated CCXT fetch → Backtester (quarterly walk-forward). Run: `python scripts/backtest_5yr.py` (~78 min for BTC/ETH/SOL) |
 | `api/routes/model.py` | `GET /model/feature-importance` — XGBoost feature importances + model tier/status |
 
 ## Testing
@@ -159,3 +161,6 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - **`datetime.UTC` alias (UP017)**: Use `from datetime import UTC` and `datetime.now(UTC)` — never `datetime.now(timezone.utc)`. ruff UP017 flags the latter; auto-fix with `ruff check --fix`.
 - **TYPE_CHECKING for annotation-only imports**: When `from __future__ import annotations` is present, ruff F821 still flags annotation names not in module scope. Fix: `if TYPE_CHECKING: import pandas as pd`. Used in `decision_engine.py:_fetch_fitness_data` — pandas is a deferred in-method import.
 - **ruff UP037 + F821 interaction**: `ruff --fix` removes string quotes from annotations (UP037). If the type isn't importable at module scope, this creates F821. After any `--fix` run, re-check for F821 errors.
+- **REGIME_STRATEGY_MAP — never re-add MeanReversion to RANGING**: 5-year backtest (2021–2026) proved MeanReversion/VWAP/Grid destroy capital in crypto's persistent trending regimes. SOL alone spent $2,822 in fees on 5,274 trades (28% of capital). RANGING regime is now OBVDivergence-primary. Any weight change must pass `test_weights_sum_to_one` and show positive Sharpe on at least 1yr of walk-forward data before merging.
+- **Backtest trailing stop vs. ATR**: The 1.5% default trailing stop sits inside normal BTC/ETH hourly ATR on quiet days (0.5–1.0%) and well inside volatile days (2–4%). This generated 60%+ of exits as premature noise stops. The production `Backtester` default remains 1.5% (no change); `scripts/backtest_5yr.py` overrides to 2.5% for research. If changing the default, update both and rerun the 5yr backtest.
+- **`scripts/backtest_5yr.py` Binance rate-limits**: After a long run (~80 min), Binance may return HTTP 429. Add `time.sleep()` between pairs or use `generate_ohlcv()` from `demo_data.py` for quick validation. Do not use `n_bars=` kwarg — the signature is `generate_ohlcv(symbol, periods, ...)` (positional or keyword `periods=`).
