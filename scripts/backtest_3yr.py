@@ -32,7 +32,8 @@ SLIPPAGE_PCT = 0.0005  # 0.05% per side
 BATCH_SIZE = 1000      # CCXT bars per request
 RATE_LIMIT_S = 0.5     # Seconds between paginated requests
 RETRAIN_EVERY = 2160   # Quarterly (2160 h = 90 days) — ~12 retrains/pair
-MIN_CONFIDENCE = 0.72       # Phase 6: raised from 0.68 — reduces marginal trades, targets <900 total
+MIN_CONFIDENCE = 0.65       # Phase 6 Cycle 2: 0.72 was too tight (7 BTC trades in 3yr);
+                            # 0.65 gives effective floor 0.65/0.75=0.867 strategy conf when ML=HOLD
 # Trailing stop is now per-pair from Config.get_trailing_stop_pct()
 # (BTC/ETH=2.5%, SOL=4.0%) — no global constant needed
 
