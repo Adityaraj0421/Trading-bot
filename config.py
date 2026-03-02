@@ -45,6 +45,12 @@ class Config:
     TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "0.05"))
     TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "0.015"))
     ATR_TRAILING_MULT: float = float(os.getenv("ATR_TRAILING_MULT", "2.0"))  # v9.1: ATR × mult replaces fixed trailing %
+    # Per-pair trailing stop overrides (Phase 6: SOL needs wider stop due to ~2-3× higher ATR)
+    SYMBOL_TRAILING_STOP_PCT: dict[str, float] = {
+        "BTC/USDT": 0.025,
+        "ETH/USDT": 0.025,
+        "SOL/USDT": 0.040,
+    }
     BREAKEVEN_TRIGGER_PCT: float = float(os.getenv("BREAKEVEN_TRIGGER_PCT", "0.6"))  # v9.1: move SL to entry at 60% of TP dist
     MAX_DAILY_LOSS_PCT: float = 0.05
     MAX_OPEN_POSITIONS: int = int(os.getenv("MAX_OPEN_POSITIONS", "3"))
@@ -219,6 +225,21 @@ class Config:
             True when TRADING_MODE is set to ``"paper"`` (case-insensitive).
         """
         return cls.TRADING_MODE.lower() == "paper"
+
+    @classmethod
+    def get_trailing_stop_pct(cls, symbol: str) -> float:
+        """Return the trailing stop percentage for a given symbol.
+
+        Uses per-pair overrides from ``SYMBOL_TRAILING_STOP_PCT`` when
+        available, falling back to the global ``TRAILING_STOP_PCT``.
+
+        Args:
+            symbol: Trading pair symbol (e.g. ``"SOL/USDT"``).
+
+        Returns:
+            Trailing stop as a decimal fraction (e.g. ``0.040`` for 4%).
+        """
+        return cls.SYMBOL_TRAILING_STOP_PCT.get(symbol, cls.TRAILING_STOP_PCT)
 
     @classmethod
     def validate(cls) -> None:

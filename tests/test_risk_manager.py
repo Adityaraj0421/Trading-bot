@@ -42,12 +42,12 @@ class TestPosition:
 
     def test_trailing_stop_initialized_long(self):
         pos = self._make_pos(side="long", entry_price=50000.0)
-        expected = 50000.0 * (1 - Config.TRAILING_STOP_PCT)
+        expected = 50000.0 * (1 - Config.get_trailing_stop_pct(pos.symbol))
         assert pos.trailing_stop == expected
 
     def test_trailing_stop_initialized_short(self):
         pos = self._make_pos(side="short", entry_price=50000.0, stop_loss=51000.0, take_profit=47500.0)
-        expected = 50000.0 * (1 + Config.TRAILING_STOP_PCT)
+        expected = 50000.0 * (1 + Config.get_trailing_stop_pct(pos.symbol))
         assert pos.trailing_stop == expected
 
     # --- Trailing stop update ---

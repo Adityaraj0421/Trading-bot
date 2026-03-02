@@ -281,6 +281,21 @@ class TestValidateSoftWarnings:
 # ---------------------------------------------------------------------------
 
 
+class TestGetTrailingStopPct:
+    def test_known_symbols_return_overrides(self) -> None:
+        assert Config.get_trailing_stop_pct("BTC/USDT") == 0.025
+        assert Config.get_trailing_stop_pct("ETH/USDT") == 0.025
+        assert Config.get_trailing_stop_pct("SOL/USDT") == 0.040
+
+    def test_unknown_symbol_falls_back_to_global(self, monkeypatch) -> None:
+        monkeypatch.setattr(Config, "TRAILING_STOP_PCT", 0.015)
+        result = Config.get_trailing_stop_pct("XRP/USDT")
+        assert result == 0.015
+
+    def test_sol_wider_than_btc(self) -> None:
+        assert Config.get_trailing_stop_pct("SOL/USDT") > Config.get_trailing_stop_pct("BTC/USDT")
+
+
 class TestResolvePaths:
     def test_resolve_uses_data_dir(self, monkeypatch):
         monkeypatch.setattr(Config, "DATA_DIR", "/tmp/data")

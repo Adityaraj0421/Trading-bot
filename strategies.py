@@ -1258,9 +1258,11 @@ class StrategyEngine:
         MarketRegime.RANGING: {
             # Backtesting (2021-2026) showed MeanReversion/VWAP/Grid destroyed capital
             # in crypto's persistent trends. OBV+RSI divergence performs across all regimes.
+            # Phase 6: Removed Momentum from secondaries — trend-follower in non-trending
+            # regime was the largest losing ensemble (OBVDiv+EMA+Momentum, 3yr backtest).
             "primary": "OBVDivergence",
-            "secondary": ["RSIDivergence", "EMACrossover", "Momentum"],
-            "weights": {"OBVDivergence": 0.33, "RSIDivergence": 0.27, "EMACrossover": 0.22, "Momentum": 0.18},
+            "secondary": ["RSIDivergence", "EMACrossover"],
+            "weights": {"OBVDivergence": 0.40, "RSIDivergence": 0.35, "EMACrossover": 0.25},
         },
         MarketRegime.HIGH_VOLATILITY: {
             "primary": "Breakout",

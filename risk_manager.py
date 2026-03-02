@@ -56,7 +56,7 @@ class Position:
         if self.lowest_price == 0.0:
             self.lowest_price = self.entry_price
         if self.trailing_stop == 0.0:
-            trail_pct = Config.TRAILING_STOP_PCT
+            trail_pct = Config.get_trailing_stop_pct(self.symbol)
             if self.side == "long":
                 self.trailing_stop = self.entry_price * (1 - trail_pct)
             else:

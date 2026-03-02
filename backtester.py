@@ -128,7 +128,7 @@ class Backtester:
         initial_capital: float | None = None,
         fee_pct: float = 0.001,  # 0.1% maker/taker fee (Binance default)
         slippage_pct: float = 0.0005,  # 0.05% slippage estimate
-        trailing_stop_pct: float = 0.015,  # 1.5% trailing stop activation
+        trailing_stop_pct: float | None = None,  # None → resolved per-pair from Config
         max_hold_bars: int = 100,  # Force close after 100 bars
         min_confidence: float | None = None,
         symbol: str | None = None,  # v7.0: explicit symbol for multi-pair
@@ -141,7 +141,8 @@ class Backtester:
             fee_pct: Maker/taker fee as a decimal fraction (e.g. 0.001 = 0.1%).
             slippage_pct: Estimated slippage per side as a decimal fraction.
             trailing_stop_pct: Trailing stop activation distance as a decimal
-                fraction of the current price.
+                fraction of the current price. When ``None`` (default), resolved
+                per-pair from ``Config.get_trailing_stop_pct(symbol)``.
             max_hold_bars: Maximum number of bars a position may be held before
                 forced closure.
             min_confidence: Minimum signal confidence to open a position.
@@ -152,10 +153,15 @@ class Backtester:
         self.initial_capital = initial_capital or Config.INITIAL_CAPITAL
         self.fee_pct = fee_pct
         self.slippage_pct = slippage_pct
-        self.trailing_stop_pct = trailing_stop_pct
+        self.symbol = symbol or Config.TRADING_PAIR
+        # Resolve trailing stop: explicit arg > per-pair config > global default
+        self.trailing_stop_pct = (
+            trailing_stop_pct
+            if trailing_stop_pct is not None
+            else Config.get_trailing_stop_pct(self.symbol)
+        )
         self.max_hold_bars = max_hold_bars
         self.min_confidence = min_confidence or Config.MIN_CONFIDENCE
-        self.symbol = symbol or Config.TRADING_PAIR
 
         # State
         self.capital = self.initial_capital
