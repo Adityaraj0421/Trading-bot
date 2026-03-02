@@ -91,6 +91,9 @@ def set_data_store(store: Any, agent: Any = None) -> None:
     # Wire DataStore to Notifier for /notifications API
     if agent is not None and hasattr(agent, "notifier"):
         agent.notifier.set_data_store(store)
+    # Wire TradingModel so /model/feature-importance endpoint has live access
+    if agent is not None and hasattr(agent, "model"):
+        store.set_model(agent.model)
 
 
 class TradingAgent:
@@ -343,6 +346,17 @@ class TradingAgent:
                 self.log.log_model_train(acc, metrics.get("samples", 0))
                 self.decision.healer.record_model_train()
                 self.decision.healer.record_success("model")
+                # Optional: prune feature set to top-K after first successful train
+                if Config.ML_FEATURE_PRUNING and self.model.is_trained:
+                    _log.info("[Agent] Feature pruning enabled — retraining with top %d features", Config.ML_TOP_FEATURES)
+                    prune_result = self.model.prune_and_retrain(df=df_ind, k=Config.ML_TOP_FEATURES)
+                    if "error" in prune_result:
+                        _log.warning("[Agent] Feature pruning failed: %s — keeping full feature set", prune_result["error"])
+                    else:
+                        _log.info(
+                            "[Agent] Feature pruning complete — accuracy: %.2f%%",
+                            prune_result.get("cv_accuracy", 0) * 100,
+                        )
                 return True
             return False
         except Exception as e:

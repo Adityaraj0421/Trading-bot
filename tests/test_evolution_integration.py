@@ -96,8 +96,8 @@ class TestStrategyEngineEvolution:
     def test_apply_evolved_params_ignores_unknown(self):
         engine = StrategyEngine()
         engine.apply_evolved_params({"NonExistent": {"foo": 1}})
-        # v9.1: 10 strategies (was 9) — added Ichimoku
-        assert len(engine.strategies) == 10  # unchanged
+        # v10: 11 strategies (was 10) — added RSIDivergence
+        assert len(engine.strategies) == 11  # unchanged
 
 
 # ---------------------------------------------------------------------------

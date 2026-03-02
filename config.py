@@ -64,6 +64,8 @@ class Config:
     MIN_CONFIDENCE: float = float(os.getenv("MIN_CONFIDENCE", "0.6"))
     DRIFT_THRESHOLD: float = float(os.getenv("DRIFT_THRESHOLD", "0.15"))
     ML_LABEL_THRESHOLD: float = float(os.getenv("ML_LABEL_THRESHOLD", "0.005"))
+    ML_FEATURE_PRUNING: bool = os.getenv("ML_FEATURE_PRUNING", "false").lower() == "true"
+    ML_TOP_FEATURES: int = int(os.getenv("ML_TOP_FEATURES", "14"))
 
     # State persistence
     STATE_FILE: str = os.getenv("STATE_FILE", "")

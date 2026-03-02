@@ -14,6 +14,7 @@ from typing import Any
 
 from intelligence.cascade_predictor import CascadePredictor
 from intelligence.correlation import CorrelationAnalyzer
+from intelligence.fear_greed import FearGreedProvider
 from intelligence.funding_oi import FundingOIAnalyzer
 from intelligence.liquidation import LiquidationAnalyzer
 from intelligence.llm_sentiment import LLMSentimentProvider
@@ -55,6 +56,7 @@ class IntelligenceAggregator:
             FundingOIAnalyzer(symbols=binance_symbols),
             LiquidationAnalyzer(symbols=binance_symbols),
             CascadePredictor(symbols=binance_symbols),
+            FearGreedProvider(),
         ]
         self._last_signals: list[dict[str, Any]] = []
 

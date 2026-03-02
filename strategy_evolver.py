@@ -122,6 +122,11 @@ PARAM_BOUNDS = {
         "adx_threshold": (15, 35, int),
         "confidence_base": (0.4, 0.8, float),
     },
+    # v10: RSI Divergence + Stochastic strategy
+    "RSIDivergence": {
+        "lookback": (15, 30, int),
+        "stoch_threshold": (25.0, 40.0, float),
+    },
 }
 
 # Default parameters (current v4 values)
@@ -168,6 +173,11 @@ DEFAULT_PARAMS = {
     "Ichimoku": {
         "adx_threshold": 20,
         "confidence_base": 0.6,
+    },
+    # v10: RSI Divergence + Stochastic strategy
+    "RSIDivergence": {
+        "lookback": 20,
+        "stoch_threshold": 35.0,
     },
 }
 

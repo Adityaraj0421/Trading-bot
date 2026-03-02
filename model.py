@@ -870,6 +870,84 @@ class TradingModel:
             return dict(sorted(zip(self.feature_cols, importance), key=lambda x: x[1], reverse=True))
         return {}
 
+    def get_top_features(self, k: int = 14) -> list[str]:
+        """Return the top-k feature names ranked by XGBoost importance.
+
+        Delegates to ``get_feature_importance()`` which is already sorted
+        descending. Returns the current ``feature_cols`` slice unchanged
+        when fewer than ``k`` features are available.
+
+        Args:
+            k: Number of top features to return.  Clamped to the number
+               of features available in ``get_feature_importance()``.
+
+        Returns:
+            List of at most ``k`` feature name strings sorted by importance
+            descending.  Returns an empty list when the model is untrained.
+        """
+        importance = self.get_feature_importance()
+        if not importance:
+            return []
+        k = min(k, len(importance))
+        return list(importance.keys())[:k]
+
+    def prune_and_retrain(self, df: pd.DataFrame, k: int = 14) -> dict[str, Any]:
+        """Prune feature set to top-k and retrain the model.
+
+        Retrieves the top-k features by XGBoost importance, updates
+        ``feature_cols`` to the pruned list, rebuilds the LSTM input layer
+        (tier 1 only), and retrains.  The original ``feature_cols`` is
+        restored if retraining fails so the model remains usable.
+
+        Args:
+            df: Indicator-enriched DataFrame to retrain on.
+            k: Number of top features to retain.  Clamped to a minimum
+               of 5 to prevent degenerate models.
+
+        Returns:
+            Result dict from ``train()`` on success (contains
+            ``cv_accuracy``, ``samples``, etc.).  Returns
+            ``{"error": "not_trained"}`` when called before training,
+            ``{"error": "no_feature_importance"}`` when importance data is
+            unavailable, or ``{"error": <message>}`` on retraining failure.
+        """
+        if not self.is_trained:
+            return {"error": "not_trained"}
+
+        k = max(k, 5)
+        top_k = self.get_top_features(k)
+        if not top_k:
+            return {"error": "no_feature_importance"}
+
+        original_feature_cols = self.feature_cols
+        try:
+            self.feature_cols = top_k
+
+            if self._tier == 1:
+                self.lstm_model = None  # Force rebuild with new input shape
+
+            # Invalidate prediction cache — feature set changed
+            self._pred_cache_key = None
+            self._pred_cache_result = None
+
+            _log.info(
+                "[Model] Pruning features: %d → %d. Top features: %s",
+                len(original_feature_cols),
+                len(top_k),
+                top_k[:5],
+            )
+            return self.train(df=df)
+
+        except Exception as e:
+            _log.warning(
+                "[Model] prune_and_retrain failed (%s) — restoring original features", e
+            )
+            self.feature_cols = original_feature_cols
+            if self._tier == 1:
+                self.lstm_model = None
+            return {"error": str(e)}
+
+
     # ── v9.0: Model State Serialization ──────────────────────────────
 
     def save_model_state(self) -> dict[str, Any]:
@@ -890,6 +968,7 @@ class TradingModel:
             "lookback": self.lookback,
             "scaler_mean": self.scaler.mean_.tolist() if self.is_trained else None,
             "scaler_scale": self.scaler.scale_.tolist() if self.is_trained else None,
+            "feature_cols": self.feature_cols,
         }
 
         if self._tier == 1 and self.lstm_model is not None:
@@ -905,6 +984,7 @@ class TradingModel:
             state: Dict previously returned by :meth:`save_model_state`.
         """
         self._tier = state.get("tier", self._tier)
+        self.feature_cols = state.get("feature_cols", FEATURE_COLUMNS)
         self.is_trained = state.get("is_trained", False)
         self.last_train_accuracy = state.get("last_train_accuracy", 0.0)
         self.lookback = state.get("lookback", 30)

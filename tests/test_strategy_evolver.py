@@ -94,9 +94,9 @@ class TestGenome:
 
 class TestParamBounds:
     def test_all_strategies_have_bounds(self):
-        # v9.1: 7 strategy param sets (added Ichimoku)
-        assert len(PARAM_BOUNDS) == 7
-        for name in ["Momentum", "MeanReversion", "Breakout", "Grid", "Scalping", "Sentiment", "Ichimoku"]:
+        # v10: 8 strategy param sets (added RSIDivergence)
+        assert len(PARAM_BOUNDS) == 8
+        for name in ["Momentum", "MeanReversion", "Breakout", "Grid", "Scalping", "Sentiment", "Ichimoku", "RSIDivergence"]:
             assert name in PARAM_BOUNDS
 
     def test_defaults_within_bounds(self):

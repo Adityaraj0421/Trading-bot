@@ -50,6 +50,7 @@ class DataStore:
         self._system_modules: dict = {}
         self._rate_limiter_stats: dict = {}
         self._trade_db = None  # Reference to TradeDB instance
+        self._model: Any | None = None  # Reference to TradingModel instance
 
         # v7.1: WebSocket broadcast callback (set by server.py)
         self._broadcast: Callable[[str, dict], None] | None = None
@@ -361,3 +362,21 @@ class DataStore:
             (e.g. ``ENABLE_TRADE_DB=false`` or agent not yet started).
         """
         return self._trade_db
+
+    def set_model(self, model: Any) -> None:
+        """Store a reference to the live TradingModel instance.
+
+        Args:
+            model: The ``TradingModel`` instance from the agent thread.
+        """
+        with self._lock:
+            self._model = model
+
+    def get_model(self) -> Any | None:
+        """Return the stored TradingModel reference.
+
+        Returns:
+            The ``TradingModel`` instance, or ``None`` if not set.
+        """
+        with self._lock:
+            return self._model

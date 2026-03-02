@@ -509,8 +509,8 @@ class TestStrategyEngine:
         return StrategyEngine()
 
     def test_has_all_ten_strategies(self, engine):
-        """v9.1: 10 strategies (was 9; added Ichimoku)."""
-        assert len(engine.strategies) == 10
+        """v10: 11 strategies (was 10; added RSIDivergence)."""
+        assert len(engine.strategies) == 11
         expected = {
             "Momentum",
             "MeanReversion",
@@ -522,6 +522,7 @@ class TestStrategyEngine:
             "OBVDivergence",
             "EMACrossover",
             "Ichimoku",
+            "RSIDivergence",
         }
         assert set(engine.strategies.keys()) == expected
 

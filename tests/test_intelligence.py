@@ -88,7 +88,7 @@ class TestAggregator:
             agg = IntelligenceAggregator()
 
         if signals is None:
-            signals = [_make_neutral_signal() for _ in range(9)]
+            signals = [_make_neutral_signal() for _ in range(10)]
         for i, provider in enumerate(agg.providers):
             provider.get_signal = MagicMock(return_value=signals[i] if i < len(signals) else _make_neutral_signal())
         return agg
@@ -98,8 +98,8 @@ class TestAggregator:
         result = agg.get_signals()
         assert result["adjustment_factor"] == 1.0
         assert result["bias"] == "neutral"
-        # v9.0: 9 providers (was 5)
-        assert len(result["signals"]) == 9
+        # v9.0: now 10 providers (was 9)
+        assert len(result["signals"]) == 10
 
     def test_adjustment_factor_range(self):
         """Adjustment factor should always be between 0.5 and 1.5."""

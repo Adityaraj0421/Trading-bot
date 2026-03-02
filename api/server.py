@@ -25,6 +25,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.data_store import DataStore
 from api.routes import arbitrage, autonomous, backtest, intelligence, risk, status, telegram, trading
+from api.routes import model as model_route
 from api.routes import websocket as ws_route
 from api.websocket_manager import WebSocketManager
 from config import Config
@@ -139,6 +140,7 @@ def create_app(lifespan: Any = None) -> FastAPI:
     app.include_router(intelligence.create_router(data_store))
     app.include_router(arbitrage.create_router(data_store))
     app.include_router(risk.create_router(data_store))
+    app.include_router(model_route.create_router(data_store))
     app.include_router(telegram.create_router(telegram_bot))
     app.include_router(ws_route.create_router(ws_manager))
 

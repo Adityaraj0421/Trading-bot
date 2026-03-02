@@ -1,5 +1,5 @@
 """
-Strategy Library — 10 strategies that activate based on market regime.
+Strategy Library — 11 strategies that activate based on market regime.
 
 Each strategy takes OHLCV data with indicators and returns a StrategySignal with
 action (BUY/SELL/HOLD) and confidence (0.0–1.0).  The StrategyEngine selects which
@@ -17,6 +17,7 @@ Strategies:
   8. OBVDivergenceStrategy  — Price/OBV divergence leading reversals (TRENDING_UP/DOWN, RANGING)
   9. EMACrossoverStrategy   — EMA 9/21 golden/death cross with ADX filter (TRENDING_UP/DOWN)
  10. IchimokuStrategy       — TK-cross + cloud position + ADX filter (TRENDING_UP/DOWN)
+ 11. RSIDivergenceStrategy  — RSI divergence + Stochastic crossover (RANGING, TRENDING_UP/DOWN)
 
 Inspired by: QuantInsti, Freqtrade, 3Commas, Renaissance Technologies research
 """
@@ -1044,6 +1045,174 @@ class IchimokuStrategy(BaseStrategy):
         )
 
 
+
+class RSIDivergenceStrategy(BaseStrategy):
+    """RSI divergence + Stochastic crossover strategy (v10).
+
+    Detects hidden momentum by comparing price direction against RSI direction
+    over a lookback window. Requires a Stochastic crossover in the appropriate
+    zone to confirm entry.
+
+    Signal logic:
+
+    - Bullish divergence: price makes a lower low but RSI makes a higher low
+      over the last ``lookback`` bars, confirmed when ``stoch_k`` crosses
+      above ``stoch_d`` in the oversold zone (``stoch_k < stoch_threshold``).
+    - Bearish divergence: price makes a higher high but RSI makes a lower high
+      over the last ``lookback`` bars, confirmed when ``stoch_k`` crosses
+      below ``stoch_d`` in the overbought zone (``stoch_k > 100 - stoch_threshold``).
+
+    Confidence is 0.65 for strong divergence (RSI delta > 10 points) or 0.55
+    for weak divergence.  HOLD uses 0.3 (data-guard returns 0.0).
+    """
+
+    name = "RSIDivergence"
+    best_regimes = [MarketRegime.RANGING, MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN]
+
+    def __init__(self, params: dict[str, float] | None = None) -> None:
+        """Initialise with optional evolved parameters.
+
+        Args:
+            params: Dict of evolved hyperparameters.  Recognised keys:
+                ``lookback`` (default 20, range 15–30) and
+                ``stoch_threshold`` (default 35.0, range 25–40).
+        """
+        p = params or {}
+        self.lookback: int = int(p.get("lookback", 20))
+        self.stoch_threshold: float = float(p.get("stoch_threshold", 35.0))
+
+    def generate_signal(
+        self,
+        df: pd.DataFrame,
+        sentiment: SentimentState | None = None,
+    ) -> StrategySignal:
+        """Detect RSI divergence confirmed by Stochastic crossover.
+
+        Args:
+            df: Indicator-enriched OHLCV DataFrame.  Required columns:
+                ``close``, ``rsi``, ``stoch_k``, ``stoch_d``, ``atr_pct``.
+            sentiment: Unused by this strategy.
+
+        Returns:
+            StrategySignal with BUY, SELL, or HOLD.  Confidence is 0.65 for
+            strong divergence (RSI delta > 10) or 0.55 for weak.  HOLD
+            returns confidence=0.3; data-guard returns confidence=0.0.
+        """
+        if len(df) < self.lookback + 1:
+            return StrategySignal(
+                signal="HOLD",
+                confidence=0.0,
+                strategy_name=self.name,
+                reason="Not enough data for divergence detection",
+            )
+
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        stoch_k = float(latest.get("stoch_k", 50))
+        stoch_d = float(latest.get("stoch_d", 50))
+        prev_stoch_k = float(prev.get("stoch_k", 50))
+        prev_stoch_d = float(prev.get("stoch_d", 50))
+
+        bull_div, bull_rsi_delta = self._detect_bullish_divergence(df)
+        bear_div, bear_rsi_delta = self._detect_bearish_divergence(df)
+
+        stoch_cross_up = (prev_stoch_k <= prev_stoch_d) and (stoch_k > stoch_d)
+        stoch_cross_down = (prev_stoch_k >= prev_stoch_d) and (stoch_k < stoch_d)
+        stoch_oversold = stoch_k < self.stoch_threshold
+        stoch_overbought = stoch_k > (100.0 - self.stoch_threshold)
+
+        atr_pct = float(latest.get("atr_pct", 0.02))
+
+        if bull_div and stoch_cross_up and stoch_oversold:
+            conf = 0.65 if bull_rsi_delta > 10.0 else 0.55
+            return StrategySignal(
+                signal="BUY",
+                confidence=conf,
+                strategy_name=self.name,
+                reason=f"Bullish RSI div + stoch cross up (rsi_delta:{bull_rsi_delta:.1f}, stoch_k:{stoch_k:.1f})",
+                suggested_sl_pct=atr_pct * 2.0,
+                suggested_tp_pct=atr_pct * 3.5,
+            )
+
+        if bear_div and stoch_cross_down and stoch_overbought:
+            conf = 0.65 if bear_rsi_delta > 10.0 else 0.55
+            return StrategySignal(
+                signal="SELL",
+                confidence=conf,
+                strategy_name=self.name,
+                reason=f"Bearish RSI div + stoch cross down (rsi_delta:{bear_rsi_delta:.1f}, stoch_k:{stoch_k:.1f})",
+                suggested_sl_pct=atr_pct * 2.0,
+                suggested_tp_pct=atr_pct * 3.5,
+            )
+
+        return StrategySignal(
+            signal="HOLD",
+            confidence=0.3,
+            strategy_name=self.name,
+            reason="No RSI divergence or stochastic confirmation",
+        )
+
+    def _detect_bullish_divergence(self, df: pd.DataFrame) -> tuple[bool, float]:
+        """Detect bullish RSI divergence over the lookback window.
+
+        Bullish divergence: price forms a lower low while RSI forms a higher
+        low — suggesting weakening downward momentum.
+
+        Args:
+            df: Full indicator DataFrame (at least ``lookback + 1`` rows).
+
+        Returns:
+            Tuple of (divergence_detected, rsi_delta) where
+            ``divergence_detected`` is True when current close is below the
+            lookback window's minimum close but current RSI is above the RSI
+            at that price low, and ``rsi_delta`` is the absolute RSI point
+            difference used for confidence scoring.
+        """
+        window = df.iloc[-(self.lookback + 1) : -1]
+        current_close = float(df["close"].iloc[-1])
+        current_rsi = float(df["rsi"].iloc[-1])
+
+        window_price_low = float(window["close"].min())
+        low_idx = window["close"].idxmin()
+        window_rsi_at_low = float(df.loc[low_idx, "rsi"])
+
+        price_lower_low = current_close < window_price_low
+        rsi_higher_low = current_rsi > window_rsi_at_low
+        rsi_delta = abs(current_rsi - window_rsi_at_low)
+
+        return (price_lower_low and rsi_higher_low), rsi_delta
+
+    def _detect_bearish_divergence(self, df: pd.DataFrame) -> tuple[bool, float]:
+        """Detect bearish RSI divergence over the lookback window.
+
+        Bearish divergence: price forms a higher high while RSI forms a lower
+        high — suggesting weakening upward momentum.
+
+        Args:
+            df: Full indicator DataFrame (at least ``lookback + 1`` rows).
+
+        Returns:
+            Tuple of (divergence_detected, rsi_delta) where
+            ``divergence_detected`` is True when current close is above the
+            lookback window's maximum close but current RSI is below the RSI
+            at that price high, and ``rsi_delta`` is the absolute RSI point
+            difference.
+        """
+        window = df.iloc[-(self.lookback + 1) : -1]
+        current_close = float(df["close"].iloc[-1])
+        current_rsi = float(df["rsi"].iloc[-1])
+
+        window_price_high = float(window["close"].max())
+        high_idx = window["close"].idxmax()
+        window_rsi_at_high = float(df.loc[high_idx, "rsi"])
+
+        price_higher_high = current_close > window_price_high
+        rsi_lower_high = current_rsi < window_rsi_at_high
+        rsi_delta = abs(current_rsi - window_rsi_at_high)
+
+        return (price_higher_high and rsi_lower_high), rsi_delta
+
 # ────────────────────────────────────────────────────────────
 #  STRATEGY ENGINE — Adaptive strategy selection
 # ────────────────────────────────────────────────────────────
@@ -1066,18 +1235,18 @@ class StrategyEngine:
     REGIME_STRATEGY_MAP = {
         MarketRegime.TRENDING_UP: {
             "primary": "Momentum",
-            "secondary": ["EMACrossover", "Ichimoku", "Sentiment", "VWAP"],
-            "weights": {"Momentum": 0.30, "EMACrossover": 0.20, "Ichimoku": 0.20, "Sentiment": 0.15, "VWAP": 0.15},
+            "secondary": ["EMACrossover", "Ichimoku", "Sentiment", "VWAP", "RSIDivergence"],
+            "weights": {"Momentum": 0.26, "EMACrossover": 0.18, "Ichimoku": 0.18, "Sentiment": 0.14, "VWAP": 0.14, "RSIDivergence": 0.10},
         },
         MarketRegime.TRENDING_DOWN: {
             "primary": "Momentum",
-            "secondary": ["EMACrossover", "Ichimoku", "OBVDivergence", "Sentiment"],
-            "weights": {"Momentum": 0.30, "EMACrossover": 0.18, "Ichimoku": 0.17, "OBVDivergence": 0.20, "Sentiment": 0.15},
+            "secondary": ["EMACrossover", "Ichimoku", "OBVDivergence", "Sentiment", "RSIDivergence"],
+            "weights": {"Momentum": 0.27, "EMACrossover": 0.16, "Ichimoku": 0.15, "OBVDivergence": 0.18, "Sentiment": 0.14, "RSIDivergence": 0.10},
         },
         MarketRegime.RANGING: {
             "primary": "MeanReversion",
-            "secondary": ["VWAP", "Grid", "OBVDivergence"],
-            "weights": {"MeanReversion": 0.35, "VWAP": 0.25, "Grid": 0.2, "OBVDivergence": 0.2},
+            "secondary": ["VWAP", "Grid", "OBVDivergence", "RSIDivergence"],
+            "weights": {"MeanReversion": 0.31, "VWAP": 0.23, "Grid": 0.18, "OBVDivergence": 0.18, "RSIDivergence": 0.10},
         },
         MarketRegime.HIGH_VOLATILITY: {
             "primary": "Breakout",
@@ -1108,6 +1277,8 @@ class StrategyEngine:
             "EMACrossover": EMACrossoverStrategy(params=ep.get("EMACrossover")),
             # v9.1: Ichimoku Cloud strategy
             "Ichimoku": IchimokuStrategy(params=ep.get("Ichimoku")),
+            # v10: RSI Divergence + Stochastic strategy
+            "RSIDivergence": RSIDivergenceStrategy(params=ep.get("RSIDivergence")),
         }
         self.last_signals: dict[str, StrategySignal] = {}
 
@@ -1123,6 +1294,7 @@ class StrategyEngine:
         "OBVDivergence": OBVDivergenceStrategy,
         "EMACrossover": EMACrossoverStrategy,
         "Ichimoku": IchimokuStrategy,
+        "RSIDivergence": RSIDivergenceStrategy,
     }
 
     def apply_evolved_params(self, evolved_params: dict[str, dict[str, float]]) -> None:
