@@ -30,7 +30,7 @@ export default function ArbitragePage() {
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-8 text-center text-gray-500">
           <p className="text-lg">Arbitrage is disabled</p>
           <p className="text-sm mt-2">
-            Set ARBITRAGE_ENABLED=true in .env and configure exchange API keys
+            {data?.message ?? "Set ARBITRAGE_ENABLED=true in .env to enable cross-exchange scanning."}
           </p>
         </div>
       ) : (

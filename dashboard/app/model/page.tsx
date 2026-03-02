@@ -39,10 +39,37 @@ export default function ModelPage() {
           <CardListSkeleton count={6} />
         </div>
       ) : isNotTrained ? (
-        <div className="bg-gray-800 rounded-lg border border-gray-700 p-8 text-center text-gray-500">
-          <p className="text-lg">Model not yet trained</p>
-          <p className="text-sm mt-2">Start the agent to begin training.</p>
-        </div>
+        <>
+          <div className="bg-gray-800 rounded-lg border border-gray-700 p-6 text-center text-gray-500">
+            <p className="text-lg">Model not yet trained</p>
+            <p className="text-sm mt-2">
+              {data?.message ?? "Waiting for first training cycle..."}
+            </p>
+            {data?.n_features != null && (
+              <p className="text-xs mt-1 text-gray-600">
+                {data.n_features} features configured
+              </p>
+            )}
+          </div>
+          {/* Show configured feature columns even before training */}
+          {data?.feature_cols && data.feature_cols.length > 0 && (
+            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
+              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                Configured Feature Columns ({data.feature_cols.length})
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {data.feature_cols.map((col) => (
+                  <span
+                    key={col}
+                    className="px-2 py-1 rounded text-xs font-mono bg-gray-700 text-gray-400"
+                  >
+                    {col}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       ) : !hasImportance ? (
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-8 text-center text-gray-500">
           <p>Feature importance data unavailable</p>
