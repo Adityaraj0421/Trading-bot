@@ -1,7 +1,7 @@
 """Tests for the intelligence module.
 
-v9.0: Aggregator expanded from 5 to 9 providers (added LLM, FundingOI,
-Liquidation, Cascade). New providers don't have ENABLE_* flags — they
+v10.0: Aggregator expanded from 5 to 10 providers (added LLM, FundingOI,
+Liquidation, Cascade, FearGreed). New providers don't have ENABLE_* flags — they
 use network calls and catch exceptions. Aggregator tests now mock all
 provider get_signal() calls to test aggregation logic in isolation.
 """

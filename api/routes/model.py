@@ -62,7 +62,7 @@ def create_router(store: DataStore) -> APIRouter:
             }
 
         importance = trading_model.get_feature_importance()
-        top_features = list(importance.keys())[:14]
+        top_features = trading_model.get_top_features()
 
         return {
             "status": "ok",

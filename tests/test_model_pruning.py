@@ -82,7 +82,7 @@ class TestPruneAndRetrain:
     def test_k_minimum_floor_is_5(self) -> None:
         m = _make_trained_model()
         m.train = MagicMock(return_value={"cv_accuracy": 0.55, "samples": 100})
-        m.prune_and_retrain(m.feature_cols, k=2)  # k=2 should be floored to 5
+        m.prune_and_retrain(None, k=2)  # k=2 should be floored to 5
         assert len(m.feature_cols) >= 5
 
     def test_prediction_cache_invalidated(self) -> None:

@@ -13,7 +13,6 @@ export default function ModelPage() {
   );
 
   const isNotTrained = data?.status === "not_trained";
-  const isNotAvailable = !data && !isLoading && !error;
   const hasImportance =
     data?.feature_importance && Object.keys(data.feature_importance).length > 0;
 
