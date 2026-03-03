@@ -1384,8 +1384,24 @@ class StrategyEngine:
                 reason=f"Regime:{regime.value} | RANGING skipped — no-trade zone (fee drag > edge)",
             )
 
+        # Cycle 6: TRENDING_DOWN no-trade zone.
+        # Cycle 3 direction gates already suppress BUY in TRENDING_DOWN, so only SELL
+        # (short) signals remain. Backtests C1-C5 show the same lagging MA pairs that
+        # lose in TRENDING_UP also fire late on shorts in TRENDING_DOWN — confirmed
+        # downtrends are already near local bounce zones when Momentum+Ichimoku agree.
+        # Treating TRENDING_DOWN as a no-trade zone (long-biased regime filter) reduces
+        # fee drag without meaningful edge loss.
+        if regime == MarketRegime.TRENDING_DOWN:
+            self.last_signals = {}
+            return StrategySignal(
+                signal="HOLD",
+                confidence=0.4,
+                strategy_name="Ensemble",
+                reason=f"Regime:{regime.value} | TRENDING_DOWN skipped — no-trade zone (late short signals)",
+            )
+
         # Cycle 4: ATR volatility floor for TRENDING_UP and TRENDING_DOWN.
-        # When hourly ATR/close < 0.6%, the market is in a quiet consolidation even within
+        # When hourly ATR/close < 0.8%, the market is in a quiet consolidation even within
         # a trend. Lagging MA indicators (Momentum, Ichimoku, EMACrossover) cannot
         # distinguish real trend continuation from micro-pauses at this resolution.
         # 3yr backtest: Ensemble(Momentum,Ichimoku,EMACrossover) in TRENDING_UP was the

@@ -601,18 +601,16 @@ class TestStrategyEngine:
         assert len(engine.last_signals) == 1
 
     def test_trending_down_buy_suppressed(self, engine):
-        """TRENDING_DOWN: BUY signals are suppressed to HOLD — no longs in a confirmed downtrend.
+        """TRENDING_DOWN: all signals return HOLD (no-trade zone, Cycle 6).
 
-        Cycle 3: Even when short-term momentum is temporarily bullish (dead-cat bounce),
-        the direction gate prevents long entries when the regime is TRENDING_DOWN.
-        Data produces Momentum BUY at confidence 0.95 (triggers short-circuit path too)
-        → direction gate catches it on both paths → HOLD.
+        Cycle 3 direction gate + Cycle 6 no-trade zone both prevent any entry.
+        The no-trade zone gate fires first, returning HOLD before any strategy runs.
         """
         df = make_df(
             close=51000.0,
             sma_20=50500.0,
             sma_50=50000.0,
-            macd=1.0,       # macd_signal stays 0.0 → bullish + cross_up (prev row = 0/0)
+            macd=1.0,
             rsi=55.0,
             volume_ratio=1.5,
         )
@@ -620,8 +618,8 @@ class TestStrategyEngine:
 
         assert sig.signal == "HOLD"
         assert sig.strategy_name == "Ensemble"
-        assert "BUY suppressed" in sig.reason
-        assert "trending_down" in sig.reason
+        assert "TRENDING_DOWN skipped" in sig.reason  # No-trade zone fires first
+        assert engine.last_signals == {}
 
     def test_trending_up_sell_suppressed(self, engine):
         """TRENDING_UP: SELL signals are suppressed to HOLD — no shorts in a confirmed uptrend.
@@ -686,20 +684,34 @@ class TestStrategyEngine:
         assert engine.last_signals == {}  # No strategies ran
 
     def test_trending_down_low_atr_skipped(self, engine):
-        """TRENDING_DOWN: entries skipped when ATR < ATR_FLOOR.
+        """TRENDING_DOWN: returns HOLD (no-trade zone, gate fires before ATR check).
 
-        Cycle 4: Same gate applies to TRENDING_DOWN — prevents entering shorts
-        during quiet micro-consolidations in a downtrend, where lagging indicators
-        still read 'bearish' but price isn't moving enough for profitability.
+        Cycle 6: TRENDING_DOWN is now a no-trade zone — the gate fires before ATR
+        check. Low ATR still results in HOLD but via the no-trade-zone reason, not
+        the ATR gate reason.
         """
-        df = make_df(atr_pct=0.004)  # Below ATR_FLOOR=0.006
+        df = make_df(atr_pct=0.004)  # Below ATR_FLOOR=0.008
         sig = engine.run(df, MarketRegime.TRENDING_DOWN)
 
         assert sig.signal == "HOLD"
         assert sig.strategy_name == "Ensemble"
-        assert "ATR" in sig.reason
-        assert "low-volatility" in sig.reason
+        assert "TRENDING_DOWN skipped" in sig.reason  # No-trade zone fires first
         assert engine.last_signals == {}
+
+    def test_trending_down_is_no_trade_zone(self, engine):
+        """Cycle 6: TRENDING_DOWN always returns HOLD — no strategies run."""
+        df = make_df(
+            close=49000.0, sma_20=49500.0, sma_50=50000.0,
+            macd=-1.0, rsi=45.0, volume_ratio=1.5,
+            atr_pct=0.015,  # above ATR floor — no ATR gate interference
+        )
+        sig = engine.run(df, MarketRegime.TRENDING_DOWN)
+
+        assert sig.signal == "HOLD"
+        assert sig.strategy_name == "Ensemble"
+        assert "TRENDING_DOWN skipped" in sig.reason
+        assert "no-trade zone" in sig.reason
+        assert engine.last_signals == {}  # No strategies ran
 
     def test_atr_gate_does_not_apply_to_high_volatility(self, engine):
         """HIGH_VOLATILITY regime is not affected by ATR_FLOOR — it has its own Breakout gate."""
