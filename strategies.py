@@ -1256,17 +1256,12 @@ class StrategyEngine:
             "weights": {"Momentum": 0.35, "EMACrossover": 0.22, "Ichimoku": 0.20, "OBVDivergence": 0.15, "RSIDivergence": 0.08},
         },
         MarketRegime.RANGING: {
-            # Backtesting (2021-2026) showed MeanReversion/VWAP/Grid destroyed capital
-            # in crypto's persistent trends. OBV+RSI divergence performs across all regimes.
-            # Phase 6 Cycle 1: Removed Momentum from secondaries (trend-follower in ranging).
-            # Phase 6 Cycle 4: Restored EMACrossover — removing it (Cycle 3) caused trade count
-            # to triple. Cycle 4 added an OBVDiv confidence gate (>=0.55) in StrategyEngine.run().
-            # Phase 6 Cycle 5: Removed EMACrossover again. Cycle 4 backtest showed
-            # Ensemble(OBVDiv, EMACrossover) was the #1 RANGING loser for all 3 pairs
-            # (117/115/168 trades, all negative PnL). EMA agrees with OBV in RANGING
-            # "false trend start" conditions, amplifying bad signals. Gate raised 0.55→0.68
-            # to only allow very confident OBV divergence signals through.
-            # Gate+no-EMA together replace EMA's filtering role more cleanly.
+            # Phase 7: RANGING is a no-trade zone — StrategyEngine.run() returns HOLD
+            # immediately for RANGING before any strategy runs. 6 phases of backtesting
+            # (3yr walk-forward, BTC/ETH/SOL) showed every RANGING strategy combination
+            # produces negative returns: fee drag (0.15% round-trip) reliably exceeds any
+            # signal edge in sideways markets. This entry is kept for reference and as the
+            # default fallback in REGIME_STRATEGY_MAP.get() for unknown regimes.
             "primary": "OBVDivergence",
             "secondary": ["RSIDivergence"],
             "weights": {"OBVDivergence": 0.60, "RSIDivergence": 0.40},
@@ -1357,6 +1352,19 @@ class StrategyEngine:
             A StrategySignal representing the ensemble consensus. BUY/SELL confidence
             is capped at 0.95. HOLD confidence reflects the weighted hold score ratio.
         """
+        # Phase 7: RANGING is a no-trade zone. 6 phases of walk-forward backtesting
+        # showed every strategy combination produces negative 3yr returns in RANGING —
+        # fee drag (0.15% round-trip) consistently exceeds signal edge in sideways markets.
+        # Returning HOLD here before any strategy runs is both cheaper and safer.
+        if regime == MarketRegime.RANGING:
+            self.last_signals = {}
+            return StrategySignal(
+                signal="HOLD",
+                confidence=0.4,
+                strategy_name="Ensemble",
+                reason=f"Regime:{regime.value} | RANGING skipped — no-trade zone (fee drag > edge)",
+            )
+
         config = self.REGIME_STRATEGY_MAP.get(regime, self.REGIME_STRATEGY_MAP[MarketRegime.RANGING])
         weights = config["weights"]
         signals = {}
@@ -1366,20 +1374,6 @@ class StrategyEngine:
         primary_strat = self.strategies[primary_name]
         primary_sig = primary_strat.generate_signal(df, sentiment)
         signals[primary_name] = primary_sig
-
-        # RANGING confidence gate: OBVDivergence primary must reach conf >= 0.68 before
-        # the ensemble runs. In sideways markets, weak OBV signals are noise — the gate
-        # prevents marginal signals from being amplified by the ensemble into bad trades.
-        # Threshold raised 0.55→0.68 in Cycle 5: empirical backtest showed even moderate-
-        # confidence OBV signals (0.55–0.68) lose money in RANGING due to fee drag.
-        if regime == MarketRegime.RANGING and primary_sig.confidence < 0.68:
-            self.last_signals = signals
-            return StrategySignal(
-                signal="HOLD",
-                confidence=0.4,
-                strategy_name="Ensemble",
-                reason=f"Regime:{regime.value} | RANGING gate: OBVDiv conf {primary_sig.confidence:.2f} < 0.68",
-            )
 
         # SHORT-CIRCUIT: if primary has strong signal (>0.8), skip secondaries
         if primary_sig.signal != "HOLD" and primary_sig.confidence > 0.8:
