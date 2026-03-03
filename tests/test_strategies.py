@@ -583,6 +583,23 @@ class TestStrategyEngine:
         sig = engine.run(df, MarketRegime.RANGING)
         assert sig.signal == "HOLD"
 
+    def test_high_volatility_breakout_hold_gate(self, engine):
+        """HIGH_VOLATILITY: if Breakout returns HOLD, no trade fires regardless of secondaries.
+
+        Cycle 2: When Breakout (primary in HIGH_VOLATILITY) returns HOLD, EMACrossover and
+        Momentum could still win the weighted vote (combined weight 0.45). The gate prevents
+        this — secondaries never run when the volatility-expansion primary doesn't confirm.
+        """
+        df = make_df()  # Neutral defaults → Breakout will return HOLD
+        sig = engine.run(df, MarketRegime.HIGH_VOLATILITY)
+
+        assert sig.signal == "HOLD"
+        assert sig.strategy_name == "Ensemble"
+        assert "Breakout HOLD" in sig.reason
+        # Only primary (Breakout) ran — one signal recorded
+        assert "Breakout" in engine.last_signals
+        assert len(engine.last_signals) == 1
+
     def test_ranging_is_no_trade_zone(self, engine):
         """RANGING regime always returns HOLD — no strategies run, no signals recorded.
 

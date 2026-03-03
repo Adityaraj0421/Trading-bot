@@ -1271,6 +1271,12 @@ class StrategyEngine:
             "weights": {"OBVDivergence": 0.60, "RSIDivergence": 0.40},
         },
         MarketRegime.HIGH_VOLATILITY: {
+            # Cycle 2 (revised): The original EMACrossover removal backfired — it lowered
+            # the consensus threshold and created more 2-strategy (Breakout+Momentum)
+            # signals with poor win rates. Instead, a Breakout-required gate is added in
+            # run() below: if Breakout returns HOLD in HIGH_VOLATILITY, no trade fires.
+            # This prevents EMACrossover+Momentum from generating signals when the primary
+            # volatility-expansion strategy doesn't confirm.
             "primary": "Breakout",
             "secondary": ["EMACrossover", "Momentum", "Scalping"],
             "weights": {"Breakout": 0.40, "EMACrossover": 0.25, "Momentum": 0.20, "Scalping": 0.15},
@@ -1378,6 +1384,21 @@ class StrategyEngine:
         primary_strat = self.strategies[primary_name]
         primary_sig = primary_strat.generate_signal(df, sentiment)
         signals[primary_name] = primary_sig
+
+        # Cycle 2: HIGH_VOLATILITY Breakout-required gate.
+        # When Breakout returns HOLD, EMACrossover+Momentum can still win the weighted
+        # vote (their combined weight 0.45 > hold_score in typical conditions), generating
+        # signals with no volatility-expansion confirmation. 3yr backtest: this pattern
+        # alone caused 106 SOL trades at −$136.69. Gate: if primary=Breakout returns HOLD
+        # in HIGH_VOLATILITY, return HOLD immediately — secondaries never run.
+        if regime == MarketRegime.HIGH_VOLATILITY and primary_sig.signal == "HOLD":
+            self.last_signals = {primary_name: primary_sig}
+            return StrategySignal(
+                signal="HOLD",
+                confidence=primary_sig.confidence,
+                strategy_name="Ensemble",
+                reason=f"Regime:{regime.value} | Breakout HOLD — no volatility expansion confirmed",
+            )
 
         # SHORT-CIRCUIT: if primary has strong signal (>0.8), skip secondaries
         if primary_sig.signal != "HOLD" and primary_sig.confidence > 0.8:
