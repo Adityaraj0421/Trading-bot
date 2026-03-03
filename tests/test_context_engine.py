@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from context_engine import ContextEngine
 from data_snapshot import DataSnapshot
