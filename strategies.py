@@ -1260,13 +1260,16 @@ class StrategyEngine:
             # in crypto's persistent trends. OBV+RSI divergence performs across all regimes.
             # Phase 6 Cycle 1: Removed Momentum from secondaries (trend-follower in ranging).
             # Phase 6 Cycle 4: Restored EMACrossover — removing it (Cycle 3) caused trade count
-            # to triple because OBV+RSI agree more often without EMA's disagreement veto.
-            # Cycle 4 adds an OBVDivergence confidence gate (>=0.55) in StrategyEngine.run()
-            # to filter weak primary signals before the ensemble runs. This preserves EMA's
-            # filtering role while adding an explicit quality bar on the primary signal.
+            # to triple. Cycle 4 added an OBVDiv confidence gate (>=0.55) in StrategyEngine.run().
+            # Phase 6 Cycle 5: Removed EMACrossover again. Cycle 4 backtest showed
+            # Ensemble(OBVDiv, EMACrossover) was the #1 RANGING loser for all 3 pairs
+            # (117/115/168 trades, all negative PnL). EMA agrees with OBV in RANGING
+            # "false trend start" conditions, amplifying bad signals. Gate raised 0.55→0.68
+            # to only allow very confident OBV divergence signals through.
+            # Gate+no-EMA together replace EMA's filtering role more cleanly.
             "primary": "OBVDivergence",
-            "secondary": ["RSIDivergence", "EMACrossover"],
-            "weights": {"OBVDivergence": 0.40, "RSIDivergence": 0.35, "EMACrossover": 0.25},
+            "secondary": ["RSIDivergence"],
+            "weights": {"OBVDivergence": 0.60, "RSIDivergence": 0.40},
         },
         MarketRegime.HIGH_VOLATILITY: {
             "primary": "Breakout",
@@ -1364,16 +1367,18 @@ class StrategyEngine:
         primary_sig = primary_strat.generate_signal(df, sentiment)
         signals[primary_name] = primary_sig
 
-        # RANGING confidence gate: OBVDivergence primary must reach conf >= 0.55 before
+        # RANGING confidence gate: OBVDivergence primary must reach conf >= 0.68 before
         # the ensemble runs. In sideways markets, weak OBV signals are noise — the gate
         # prevents marginal signals from being amplified by the ensemble into bad trades.
-        if regime == MarketRegime.RANGING and primary_sig.confidence < 0.55:
+        # Threshold raised 0.55→0.68 in Cycle 5: empirical backtest showed even moderate-
+        # confidence OBV signals (0.55–0.68) lose money in RANGING due to fee drag.
+        if regime == MarketRegime.RANGING and primary_sig.confidence < 0.68:
             self.last_signals = signals
             return StrategySignal(
                 signal="HOLD",
                 confidence=0.4,
                 strategy_name="Ensemble",
-                reason=f"Regime:{regime.value} | RANGING gate: OBVDiv conf {primary_sig.confidence:.2f} < 0.55",
+                reason=f"Regime:{regime.value} | RANGING gate: OBVDiv conf {primary_sig.confidence:.2f} < 0.68",
             )
 
         # SHORT-CIRCUIT: if primary has strong signal (>0.8), skip secondaries

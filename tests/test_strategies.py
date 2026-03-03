@@ -584,10 +584,10 @@ class TestStrategyEngine:
         assert sig.signal == "HOLD"
 
     def test_ranging_gate_blocks_weak_obv_signal(self, engine):
-        """RANGING gate: OBVDivergence conf < 0.55 returns HOLD without running ensemble."""
+        """RANGING gate: OBVDivergence conf < 0.68 returns HOLD without running ensemble."""
         from unittest.mock import patch
 
-        weak_sig = StrategySignal(signal="BUY", confidence=0.45, strategy_name="OBVDivergence", reason="weak")
+        weak_sig = StrategySignal(signal="BUY", confidence=0.55, strategy_name="OBVDivergence", reason="weak")
         with patch.object(engine.strategies["OBVDivergence"], "generate_signal", return_value=weak_sig):
             sig = engine.run(df=make_df(), regime=MarketRegime.RANGING)
 
@@ -598,10 +598,10 @@ class TestStrategyEngine:
         assert "OBVDivergence" in engine.last_signals
 
     def test_ranging_gate_passes_strong_obv_signal(self, engine):
-        """RANGING gate: OBVDivergence conf >= 0.55 allows ensemble to run normally."""
+        """RANGING gate: OBVDivergence conf >= 0.68 allows ensemble to run normally."""
         from unittest.mock import patch
 
-        strong_sig = StrategySignal(signal="BUY", confidence=0.70, strategy_name="OBVDivergence", reason="strong")
+        strong_sig = StrategySignal(signal="BUY", confidence=0.75, strategy_name="OBVDivergence", reason="strong")
         with patch.object(engine.strategies["OBVDivergence"], "generate_signal", return_value=strong_sig):
             sig = engine.run(df=make_df(), regime=MarketRegime.RANGING)
 
