@@ -1251,9 +1251,13 @@ class StrategyEngine:
             "weights": {"Momentum": 0.35, "Ichimoku": 0.25, "EMACrossover": 0.20, "OBVDivergence": 0.12, "RSIDivergence": 0.08},
         },
         MarketRegime.TRENDING_DOWN: {
+            # Cycle 1: Removed EMACrossover (generates false BUY on dead-cat EMA bounces)
+            # and OBVDivergence (bullish divergence = reversal signal, harmful in sustained
+            # downtrend). Added Breakout (detects downside BB/N-bar breaks = SELL confirms).
+            # Boosted Momentum and Ichimoku weights — both are trend-confirming bearish.
             "primary": "Momentum",
-            "secondary": ["EMACrossover", "Ichimoku", "OBVDivergence", "RSIDivergence"],
-            "weights": {"Momentum": 0.35, "EMACrossover": 0.22, "Ichimoku": 0.20, "OBVDivergence": 0.15, "RSIDivergence": 0.08},
+            "secondary": ["Ichimoku", "Breakout", "RSIDivergence"],
+            "weights": {"Momentum": 0.45, "Ichimoku": 0.35, "Breakout": 0.12, "RSIDivergence": 0.08},
         },
         MarketRegime.RANGING: {
             # Phase 7: RANGING is a no-trade zone — StrategyEngine.run() returns HOLD
