@@ -78,6 +78,7 @@ class TestSwingAnalyzer:
         result = analyzer.analyze(make_trending_up_df())
         assert "support" in result["key_levels"]
         assert "resistance" in result["key_levels"]
+        assert "poc" in result["key_levels"]
         assert result["key_levels"]["support"] > 0
 
     def test_returns_allowed_directions(self):
@@ -91,3 +92,4 @@ class TestSwingAnalyzer:
         result = analyzer.analyze(df)
         assert result["swing_bias"] == "neutral"
         assert result["allowed_directions"] == []
+        assert result["confidence"] == 0.0
