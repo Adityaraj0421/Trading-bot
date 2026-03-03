@@ -1403,6 +1403,23 @@ class StrategyEngine:
         # SHORT-CIRCUIT: if primary has strong signal (>0.8), skip secondaries
         if primary_sig.signal != "HOLD" and primary_sig.confidence > 0.8:
             self.last_signals = signals
+            # Cycle 3: Direction gate must apply on the short-circuit path too.
+            # Without this, a Momentum BUY at confidence 0.95 in TRENDING_DOWN would
+            # bypass the post-voting gate below and fire a countertrend long.
+            if primary_sig.signal == "BUY" and regime == MarketRegime.TRENDING_DOWN:
+                return StrategySignal(
+                    signal="HOLD",
+                    confidence=0.4,
+                    strategy_name="Ensemble",
+                    reason=f"Regime:{regime.value} | BUY suppressed — no longs in confirmed downtrend",
+                )
+            if primary_sig.signal == "SELL" and regime == MarketRegime.TRENDING_UP:
+                return StrategySignal(
+                    signal="HOLD",
+                    confidence=0.4,
+                    strategy_name="Ensemble",
+                    reason=f"Regime:{regime.value} | SELL suppressed — no shorts in confirmed uptrend",
+                )
             return StrategySignal(
                 signal=primary_sig.signal,
                 confidence=min(primary_sig.confidence * weights[primary_name] / 0.5 + 0.1, 0.95),
@@ -1455,6 +1472,16 @@ class StrategyEngine:
             )
 
         if buy_score > sell_score and buy_score > hold_score and best_buy_sig:
+            # Cycle 3: Direction gate — TRENDING_DOWN must not go long.
+            # A BUY signal in a confirmed downtrend is countertrend; regime will reclassify
+            # to RANGING or TRENDING_UP when the recovery is real. Suppress here.
+            if regime == MarketRegime.TRENDING_DOWN:
+                return StrategySignal(
+                    signal="HOLD",
+                    confidence=hold_score / total if total > 0 else 0.4,
+                    strategy_name="Ensemble",
+                    reason=f"Regime:{regime.value} | BUY suppressed — no longs in confirmed downtrend",
+                )
             return StrategySignal(
                 signal="BUY",
                 confidence=min(buy_score / total + 0.1, 0.95),
@@ -1464,6 +1491,15 @@ class StrategyEngine:
                 suggested_tp_pct=best_buy_sig.suggested_tp_pct,
             )
         elif sell_score > buy_score and sell_score > hold_score and best_sell_sig:
+            # Cycle 3: Direction gate — TRENDING_UP must not go short.
+            # A SELL signal in a confirmed uptrend is countertrend; suppress to HOLD.
+            if regime == MarketRegime.TRENDING_UP:
+                return StrategySignal(
+                    signal="HOLD",
+                    confidence=hold_score / total if total > 0 else 0.4,
+                    strategy_name="Ensemble",
+                    reason=f"Regime:{regime.value} | SELL suppressed — no shorts in confirmed uptrend",
+                )
             return StrategySignal(
                 signal="SELL",
                 confidence=min(sell_score / total + 0.1, 0.95),

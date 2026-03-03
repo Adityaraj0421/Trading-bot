@@ -600,6 +600,52 @@ class TestStrategyEngine:
         assert "Breakout" in engine.last_signals
         assert len(engine.last_signals) == 1
 
+    def test_trending_down_buy_suppressed(self, engine):
+        """TRENDING_DOWN: BUY signals are suppressed to HOLD — no longs in a confirmed downtrend.
+
+        Cycle 3: Even when short-term momentum is temporarily bullish (dead-cat bounce),
+        the direction gate prevents long entries when the regime is TRENDING_DOWN.
+        Data produces Momentum BUY at confidence 0.95 (triggers short-circuit path too)
+        → direction gate catches it on both paths → HOLD.
+        """
+        df = make_df(
+            close=51000.0,
+            sma_20=50500.0,
+            sma_50=50000.0,
+            macd=1.0,       # macd_signal stays 0.0 → bullish + cross_up (prev row = 0/0)
+            rsi=55.0,
+            volume_ratio=1.5,
+        )
+        sig = engine.run(df, MarketRegime.TRENDING_DOWN)
+
+        assert sig.signal == "HOLD"
+        assert sig.strategy_name == "Ensemble"
+        assert "BUY suppressed" in sig.reason
+        assert "trending_down" in sig.reason
+
+    def test_trending_up_sell_suppressed(self, engine):
+        """TRENDING_UP: SELL signals are suppressed to HOLD — no shorts in a confirmed uptrend.
+
+        Cycle 3: Even when short-term momentum is temporarily bearish (minor pullback),
+        the direction gate prevents short entries when the regime is TRENDING_UP.
+        Data produces Momentum SELL at confidence 0.95 (triggers short-circuit path too)
+        → direction gate catches it on both paths → HOLD.
+        """
+        df = make_df(
+            close=49000.0,
+            sma_20=49500.0,
+            sma_50=50000.0,
+            macd=-1.0,      # macd_signal stays 0.0 → bearish + cross_down (prev row = 0/0)
+            rsi=45.0,
+            volume_ratio=1.5,
+        )
+        sig = engine.run(df, MarketRegime.TRENDING_UP)
+
+        assert sig.signal == "HOLD"
+        assert sig.strategy_name == "Ensemble"
+        assert "SELL suppressed" in sig.reason
+        assert "trending_up" in sig.reason
+
     def test_ranging_is_no_trade_zone(self, engine):
         """RANGING regime always returns HOLD — no strategies run, no signals recorded.
 
