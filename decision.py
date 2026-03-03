@@ -189,10 +189,19 @@ def evaluate(context: ContextState, triggers: list[TriggerSignal]) -> Decision:
     if not context.allowed_directions:
         return Decision(action="reject", reason="no_allowed_directions")
 
+    # Step 1.5: Funding extreme gate — block trading the crowded side
+    effective_allowed = list(context.allowed_directions)
+    if context.funding_pressure == "long_crowded_extreme":
+        effective_allowed = [d for d in effective_allowed if d != "long"]
+    if context.funding_pressure == "short_crowded_extreme":
+        effective_allowed = [d for d in effective_allowed if d != "short"]
+    if not effective_allowed:
+        return Decision(action="reject", reason="funding_extreme_blocks_direction")
+
     # Step 2: Filter to allowed directions + non-expired triggers
     valid = [
         t for t in triggers
-        if t.direction in context.allowed_directions and not t.is_expired()
+        if t.direction in effective_allowed and not t.is_expired()
     ]
 
     if not valid:
