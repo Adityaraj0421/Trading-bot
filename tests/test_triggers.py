@@ -118,3 +118,79 @@ class TestMomentumTrigger:
         trigger = MomentumTrigger(symbol="BTC/USDT")
         signals = trigger.evaluate(make_bullish_1h_df(n=5))
         assert signals == []
+
+
+# ---------------------------------------------------------------------------
+# TestLiquidationTrigger
+# ---------------------------------------------------------------------------
+
+
+class TestLiquidationTrigger:
+    def test_long_liquidation_cascade_produces_short_signal(self):
+        from triggers.liquidation import LiquidationTrigger
+
+        trigger = LiquidationTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate({"liq_volume_usd": 50_000_000, "direction": "long"})
+        assert any(s.direction == "short" for s in signals)
+
+    def test_short_liquidation_cascade_produces_long_signal(self):
+        from triggers.liquidation import LiquidationTrigger
+
+        trigger = LiquidationTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate({"liq_volume_usd": 50_000_000, "direction": "short"})
+        assert any(s.direction == "long" for s in signals)
+
+    def test_small_liquidation_ignored(self):
+        from triggers.liquidation import LiquidationTrigger
+
+        trigger = LiquidationTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate({"liq_volume_usd": 100_000, "direction": "long"})
+        assert signals == []
+
+    def test_signals_have_high_urgency(self):
+        from triggers.liquidation import LiquidationTrigger
+
+        trigger = LiquidationTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate({"liq_volume_usd": 50_000_000, "direction": "long"})
+        assert all(s.urgency == "high" for s in signals)
+
+    def test_none_data_returns_empty(self):
+        from triggers.liquidation import LiquidationTrigger
+
+        trigger = LiquidationTrigger(symbol="BTC/USDT")
+        assert trigger.evaluate(None) == []
+
+
+# ---------------------------------------------------------------------------
+# TestFundingExtremeTrigger
+# ---------------------------------------------------------------------------
+
+
+class TestFundingExtremeTrigger:
+    def test_extreme_positive_funding_produces_short(self):
+        from triggers.funding_extreme import FundingExtremeTrigger
+
+        trigger = FundingExtremeTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(funding_rate=0.0012)
+        assert any(s.direction == "short" for s in signals)
+
+    def test_extreme_negative_funding_produces_long(self):
+        from triggers.funding_extreme import FundingExtremeTrigger
+
+        trigger = FundingExtremeTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(funding_rate=-0.0006)
+        assert any(s.direction == "long" for s in signals)
+
+    def test_normal_funding_produces_no_signal(self):
+        from triggers.funding_extreme import FundingExtremeTrigger
+
+        trigger = FundingExtremeTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(funding_rate=0.0001)
+        assert signals == []
+
+    def test_signals_have_high_urgency(self):
+        from triggers.funding_extreme import FundingExtremeTrigger
+
+        trigger = FundingExtremeTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(funding_rate=0.0012)
+        assert all(s.urgency == "high" for s in signals)

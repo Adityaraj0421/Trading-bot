@@ -3,7 +3,9 @@
 Maintains a TTL-aware signal buffer. Callers:
   1. Call on_1h_close() after each 1h candle close → runs MomentumTrigger.
   2. Call on_orderflow_update() on each orderbook snapshot → runs OrderFlowTrigger.
-  3. Call valid_signals() to get all non-expired signals for the Decision Layer.
+  3. Optionally: on_liquidation_event() / on_funding_update() when
+     ``USE_PHASE9_PERP=true`` — runs LiquidationTrigger / FundingExtremeTrigger.
+  4. Call valid_signals() to get all non-expired signals for the Decision Layer.
 
 The buffer is capped at max_buffer to prevent unbounded growth. Old signals
 expire naturally via their expires_at field; the buffer is pruned on each write.
@@ -12,8 +14,10 @@ expire naturally via their expires_at field; the buffer is pruned on each write.
 from __future__ import annotations
 
 import logging
+import os
 from collections import deque
 from datetime import UTC, datetime
+from typing import Any
 
 import pandas as pd
 
@@ -43,6 +47,15 @@ class TriggerEngine:
         self._momentum = MomentumTrigger(symbol=symbol)
         self._orderflow = OrderFlowTrigger(symbol=symbol)
         self._buffer: deque[TriggerSignal] = deque(maxlen=max_buffer)
+
+        # Phase 9 perp triggers — enabled via USE_PHASE9_PERP=true
+        self._use_perp = os.getenv("USE_PHASE9_PERP", "false").lower() == "true"
+        if self._use_perp:
+            from triggers.funding_extreme import FundingExtremeTrigger
+            from triggers.liquidation import LiquidationTrigger
+
+            self._liquidation: Any = LiquidationTrigger(symbol=symbol)
+            self._funding_extreme: Any = FundingExtremeTrigger(symbol=symbol)
 
     def on_1h_close(self, df: pd.DataFrame) -> list[TriggerSignal]:
         """Run per-candle triggers on 1h OHLCV data.
@@ -86,6 +99,52 @@ class TriggerEngine:
         if new_signals:
             _log.info(
                 "TriggerEngine[%s] on_orderflow_update: %d new signal(s)",
+                self.symbol,
+                len(new_signals),
+            )
+        return new_signals
+
+    def on_liquidation_event(self, liq_data: dict[str, Any] | None) -> list[TriggerSignal]:
+        """Run LiquidationTrigger on a liquidation event (perp only).
+
+        No-op when ``USE_PHASE9_PERP`` is not set.
+
+        Args:
+            liq_data: Dict with ``liq_volume_usd`` and ``direction``, or ``None``.
+
+        Returns:
+            Newly generated TriggerSignals (may be empty).
+        """
+        if not self._use_perp:
+            return []
+        new_signals = self._liquidation.evaluate(liq_data)
+        self._extend(new_signals)
+        if new_signals:
+            _log.info(
+                "TriggerEngine[%s] liquidation: %d signal(s)",
+                self.symbol,
+                len(new_signals),
+            )
+        return new_signals
+
+    def on_funding_update(self, funding_rate: float | None) -> list[TriggerSignal]:
+        """Run FundingExtremeTrigger on the latest funding rate (perp only).
+
+        No-op when ``USE_PHASE9_PERP`` is not set.
+
+        Args:
+            funding_rate: Current 8h funding rate as a decimal, or ``None``.
+
+        Returns:
+            Newly generated TriggerSignals (may be empty).
+        """
+        if not self._use_perp:
+            return []
+        new_signals = self._funding_extreme.evaluate(funding_rate)
+        self._extend(new_signals)
+        if new_signals:
+            _log.info(
+                "TriggerEngine[%s] funding_extreme: %d signal(s)",
                 self.symbol,
                 len(new_signals),
             )
