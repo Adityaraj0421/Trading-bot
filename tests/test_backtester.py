@@ -242,7 +242,7 @@ class TestCheckPositions:
         initial_trail = pos.trailing_stop
 
         # Push price up — keep low ABOVE trailing stop level to avoid trigger
-        # Trailing after ratchet: 54000*(1-0.015)=53190, so low must be > 53190
+        # Cycle 7: trending_up trailing = 2.5%, so 54000*(1-0.025)=52650, low must be > 52650
         high_row = pd.Series(
             {
                 "close": 53500.0,
@@ -254,6 +254,31 @@ class TestCheckPositions:
         assert len(bt.positions) == 1  # Still open (within SL/TP)
         assert pos.trailing_stop > initial_trail
         assert pos.highest_price == 54000.0
+
+    def test_regime_adaptive_trailing_stop(self, bt):
+        """Cycle 7: TRENDING_UP uses wider trailing stop than HIGH_VOLATILITY."""
+        strat = StrategySignal("BUY", 0.8, "Test", "test", suggested_sl_pct=0.10, suggested_tp_pct=0.20)
+        ts = datetime.now()
+
+        # TRENDING_UP: should use 2.5% stop (applied to actual_entry after slippage)
+        bt._open_position(0, ts, 50000.0, "BUY", 0.8, strat, "trending_up")
+        pos_up = bt.positions[0]
+        # Initial trailing = actual_entry * (1 - 0.025) — verify using actual_entry_price
+        assert abs(pos_up.trailing_stop - pos_up.entry_price_actual * (1 - 0.025)) < 0.01
+
+        # HIGH_VOLATILITY: should use 2.0% stop
+        bt._open_position(0, ts, 50000.0, "BUY", 0.8, strat, "high_volatility")
+        pos_hv = bt.positions[1]
+        # Initial trailing = actual_entry * (1 - 0.020)
+        assert abs(pos_hv.trailing_stop - pos_hv.entry_price_actual * (1 - 0.020)) < 0.01
+
+        # TRENDING_UP stop is wider (lower absolute value) than HIGH_VOLATILITY
+        assert pos_up.trailing_stop < pos_hv.trailing_stop
+
+    def test_get_trailing_stop_pct_fallback(self, bt):
+        """Unknown regime falls back to self.trailing_stop_pct."""
+        assert bt._get_trailing_stop_pct("unknown_regime") == bt.trailing_stop_pct
+        assert bt._get_trailing_stop_pct("trending_up") == 0.025
 
 
 # ---------------------------------------------------------------------------

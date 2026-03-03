@@ -123,6 +123,18 @@ class Backtester:
     and per-strategy performance attribution.
     """
 
+    # Cycle 7: Regime-adaptive trailing stops.
+    # TRENDING_UP gets a wider stop (2.5%) so trend trades can breathe — the 1.5%
+    # default sits inside normal hourly ATR and prematurely exits winning trend positions.
+    # HIGH_VOLATILITY gets 2.0% — breakout trades need room but less than slow trend rides.
+    # TRENDING_DOWN and RANGING are no-trade zones; values kept as safe defaults.
+    REGIME_TRAILING_STOPS: dict[str, float] = {
+        "trending_up": 0.025,     # 2.5% — wider for trend continuation
+        "high_volatility": 0.020, # 2.0% — breakout room, tighter than trend
+        "trending_down": 0.020,   # 2.0% — no-trade zone, fallback
+        "ranging": 0.020,         # 2.0% — no-trade zone, fallback
+    }
+
     def __init__(
         self,
         initial_capital: float | None = None,
@@ -143,6 +155,7 @@ class Backtester:
             trailing_stop_pct: Trailing stop activation distance as a decimal
                 fraction of the current price. When ``None`` (default), resolved
                 per-pair from ``Config.get_trailing_stop_pct(symbol)``.
+                Used as fallback when regime isn't in ``REGIME_TRAILING_STOPS``.
             max_hold_bars: Maximum number of bars a position may be held before
                 forced closure.
             min_confidence: Minimum signal confidence to open a position.
@@ -179,6 +192,20 @@ class Backtester:
         self.regime_detector = RegimeDetector()
         self.sentiment = SentimentAnalyzer()
         self.strategy_engine = StrategyEngine()
+
+    def _get_trailing_stop_pct(self, regime: str) -> float:
+        """Return the trailing stop percentage for a given regime.
+
+        Cycle 7: Uses ``REGIME_TRAILING_STOPS`` map for per-regime adaptive stops.
+        Falls back to ``self.trailing_stop_pct`` (Config default) for unknown regimes.
+
+        Args:
+            regime: Lowercase regime string (e.g. ``"trending_up"``).
+
+        Returns:
+            Trailing stop fraction (e.g. 0.025 = 2.5%).
+        """
+        return self.REGIME_TRAILING_STOPS.get(regime, self.trailing_stop_pct)
 
     def _apply_slippage(self, price: float, side: str, is_entry: bool) -> float:
         """Simulate slippage: worse fill for entries, better for exits."""
@@ -221,14 +248,15 @@ class Backtester:
 
         sl_pct = strat_sig.suggested_sl_pct
         tp_pct = strat_sig.suggested_tp_pct
+        regime_ts_pct = self._get_trailing_stop_pct(regime_name)
         if side == "long":
             sl = actual_entry * (1 - sl_pct)
             tp = actual_entry * (1 + tp_pct)
-            trailing = actual_entry * (1 - self.trailing_stop_pct)
+            trailing = actual_entry * (1 - regime_ts_pct)
         else:
             sl = actual_entry * (1 + sl_pct)
             tp = actual_entry * (1 - tp_pct)
-            trailing = actual_entry * (1 + self.trailing_stop_pct)
+            trailing = actual_entry * (1 + regime_ts_pct)
 
         pos = BacktestPosition(
             symbol=self.symbol,
@@ -297,11 +325,13 @@ class Backtester:
         low = row["low"]
 
         for pos in list(self.positions):
+            # Cycle 7: Use regime-adaptive trailing stop for this position
+            regime_ts_pct = self._get_trailing_stop_pct(pos.regime)
             # Update trailing stop
             if pos.side == "long":
                 if high > pos.highest_price:
                     pos.highest_price = high
-                    pos.trailing_stop = max(pos.trailing_stop, high * (1 - self.trailing_stop_pct))
+                    pos.trailing_stop = max(pos.trailing_stop, high * (1 - regime_ts_pct))
                 # Check exits: SL, TP, trailing, max duration
                 if low <= pos.stop_loss:
                     self._close_position(pos, bar_idx, timestamp, pos.stop_loss, "stop_loss")
@@ -314,7 +344,7 @@ class Backtester:
             else:  # short
                 if low < pos.lowest_price:
                     pos.lowest_price = low
-                    pos.trailing_stop = min(pos.trailing_stop, low * (1 + self.trailing_stop_pct))
+                    pos.trailing_stop = min(pos.trailing_stop, low * (1 + regime_ts_pct))
                 if high >= pos.stop_loss:
                     self._close_position(pos, bar_idx, timestamp, pos.stop_loss, "stop_loss")
                 elif low <= pos.take_profit:
