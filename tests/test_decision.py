@@ -45,7 +45,7 @@ class TestFundingExtremeGate:
         triggers = [make_trigger("long"), make_trigger("long")]
         decision = evaluate(ctx, triggers)
         assert decision.action == "reject"
-        assert "funding_extreme" in decision.reason
+        assert decision.reason == "funding_extreme_blocks_direction"
 
     def test_short_crowded_extreme_blocks_short_entry(self):
         ctx = make_context(
@@ -56,7 +56,7 @@ class TestFundingExtremeGate:
         triggers = [make_trigger("short"), make_trigger("short")]
         decision = evaluate(ctx, triggers)
         assert decision.action == "reject"
-        assert "funding_extreme" in decision.reason
+        assert decision.reason == "funding_extreme_blocks_direction"
 
     def test_long_crowded_extreme_allows_short_entry(self):
         # Extreme long funding -> only blocks longs, not shorts
