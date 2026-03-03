@@ -170,6 +170,26 @@ class Config:
     AB_MAX_TRADES = int(os.getenv("AB_MAX_TRADES", "150"))
     AB_SIGNIFICANCE_LEVEL = float(os.getenv("AB_SIGNIFICANCE_LEVEL", "0.05"))
 
+    # -------------------------------------------------------------------------
+    # Phase 9 — Context + Trigger Architecture
+    # -------------------------------------------------------------------------
+    # Feature gate: set to true to activate the Phase 9 pipeline instead of the
+    # legacy strategy ensemble. Both pipelines coexist during the transition.
+    USE_PHASE9_PIPELINE: bool = os.getenv("USE_PHASE9_PIPELINE", "false").lower() == "true"
+
+    # RiskSupervisor thresholds
+    PHASE9_DAILY_DRAWDOWN_LIMIT: float = float(os.getenv("PHASE9_DAILY_DRAWDOWN_LIMIT", "0.03"))
+    PHASE9_CONSECUTIVE_LOSS_LIMIT: int = int(os.getenv("PHASE9_CONSECUTIVE_LOSS_LIMIT", "4"))
+    PHASE9_ATR_SIGMA_THRESHOLD: float = float(os.getenv("PHASE9_ATR_SIGMA_THRESHOLD", "3.0"))
+    PHASE9_API_ERROR_RATE_THRESHOLD: float = float(os.getenv("PHASE9_API_ERROR_RATE_THRESHOLD", "0.5"))
+    PHASE9_RISK_COOLDOWN_MINUTES: int = int(os.getenv("PHASE9_RISK_COOLDOWN_MINUTES", "120"))
+
+    # ContextEngine cadence
+    PHASE9_CONTEXT_INTERVAL_MINUTES: int = int(os.getenv("PHASE9_CONTEXT_INTERVAL_MINUTES", "15"))
+
+    # DecisionLogger output path (empty = log to agent.log only)
+    PHASE9_DECISION_LOG_PATH: str = os.getenv("PHASE9_DECISION_LOG_PATH", "")
+
     @classmethod
     def any_intelligence_enabled(cls) -> bool:
         """Return True if at least one intelligence module is enabled.
