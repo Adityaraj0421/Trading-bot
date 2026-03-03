@@ -12,7 +12,9 @@ from datetime import UTC, datetime, timedelta
 
 from context.funding import FundingAnalyzer
 from context.oi_trend import OITrendAnalyzer
+from context.session import SessionAnalyzer
 from context.swing import SwingAnalyzer
+from context.volatility import VolatilityAnalyzer
 from context.whale_flow import WhaleFlowAnalyzer
 from data_snapshot import DataSnapshot
 from decision import ContextState
@@ -20,6 +22,7 @@ from decision import ContextState
 _log = logging.getLogger(__name__)
 
 _CONTEXT_WINDOW_MINUTES = 15
+_TRADEABLE_CONFIDENCE_FLOOR = 0.30
 
 _NEUTRAL_FALLBACK: dict = {
     "swing_bias": "neutral",
@@ -41,6 +44,8 @@ class ContextEngine:
         self._funding = FundingAnalyzer()
         self._whale = WhaleFlowAnalyzer()
         self._oi = OITrendAnalyzer()
+        self._vol = VolatilityAnalyzer()
+        self._session = SessionAnalyzer()
         self._risk_mode: str = "normal"
 
     def set_risk_mode(self, mode: str) -> None:
@@ -58,6 +63,7 @@ class ContextEngine:
         net_whale_flow: float | None,
         oi_change_pct: float | None,
         price_change_pct: float | None,
+        _now: datetime | None = None,
     ) -> ContextState:
         """Build a ContextState from current market data.
 
@@ -67,11 +73,12 @@ class ContextEngine:
             net_whale_flow: Net whale USD flow (positive = accumulation).
             oi_change_pct: % change in open interest over last 4h.
             price_change_pct: % change in price over last 4h.
+            _now: Override current UTC time (used in tests). Defaults to datetime.now(UTC).
 
         Returns:
             A new ContextState valid for the next 15 minutes.
         """
-        now = datetime.now(UTC)
+        now = _now if _now is not None else datetime.now(UTC)
         context_id = now.strftime("%Y-%m-%dT%H:%MZ")
 
         # Use 4h data for swing; fall back to 1h if 4h unavailable
@@ -85,18 +92,20 @@ class ContextEngine:
         funding = self._funding.analyze(funding_rate)
         whale = self._whale.analyze(net_whale_flow)
         oi = self._oi.analyze(oi_change_pct, price_change_pct)
+        vol = self._vol.analyze(snapshot.df_1h)
+        session = self._session.analyze(now=now)
+
+        # Scale swing confidence by session liquidity multiplier
+        confidence = round(swing["confidence"] * session["confidence_multiplier"], 3)
 
         allowed_directions = swing["allowed_directions"]
-        tradeable = len(allowed_directions) > 0
-
-        # Overall confidence = swing confidence (primary structural signal)
-        confidence = swing["confidence"]
+        tradeable = bool(len(allowed_directions) > 0 and confidence >= _TRADEABLE_CONFIDENCE_FLOOR)
 
         return ContextState(
             context_id=context_id,
             swing_bias=swing["swing_bias"],
             allowed_directions=allowed_directions,
-            volatility_regime="normal",  # TODO: add VolatilityAnalyzer in future extension
+            volatility_regime=vol["volatility_regime"],
             funding_pressure=funding["funding_pressure"],
             whale_flow=whale["whale_flow"],
             oi_trend=oi["oi_trend"],

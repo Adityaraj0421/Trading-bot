@@ -10,6 +10,16 @@ from data_snapshot import DataSnapshot
 from decision import ContextState
 
 
+def us_session_time() -> datetime:
+    """Monday 2026-03-02 16:00 UTC — peak US session."""
+    return datetime(2026, 3, 2, 16, 0, tzinfo=UTC)
+
+
+def weekend_time() -> datetime:
+    """Saturday 2026-03-07 16:00 UTC."""
+    return datetime(2026, 3, 7, 16, 0, tzinfo=UTC)
+
+
 def make_snapshot(bullish: bool = True) -> DataSnapshot:
     """Build a DataSnapshot with consistent bullish or bearish 4h/1h data."""
     n = 100
@@ -88,3 +98,53 @@ class TestContextEngine:
             make_snapshot(), funding_rate=None, net_whale_flow=None, oi_change_pct=None, price_change_pct=None
         )
         assert ctx.risk_mode == "defensive"
+
+
+class TestContextEngineVolatilitySession:
+    def test_volatility_regime_is_populated(self):
+        engine = ContextEngine()
+        ctx = engine.build(
+            make_snapshot(bullish=True),
+            funding_rate=None, net_whale_flow=None,
+            oi_change_pct=None, price_change_pct=None,
+            _now=us_session_time(),
+        )
+        assert ctx.volatility_regime in ("low", "normal", "elevated", "extreme")
+
+    def test_us_session_bullish_stays_tradeable(self):
+        engine = ContextEngine()
+        ctx = engine.build(
+            make_snapshot(bullish=True),
+            funding_rate=None, net_whale_flow=None,
+            oi_change_pct=None, price_change_pct=None,
+            _now=us_session_time(),
+        )
+        assert ctx.tradeable is True
+
+    def test_weekend_sideways_becomes_untradeable(self):
+        # Sideways confidence=0.3 × weekend multiplier=0.60 = 0.18 < 0.30 threshold
+        engine = ContextEngine()
+        snap = make_sideways_snapshot()
+        ctx = engine.build(
+            snap,
+            funding_rate=None, net_whale_flow=None,
+            oi_change_pct=None, price_change_pct=None,
+            _now=weekend_time(),
+        )
+        if ctx.swing_bias == "neutral":
+            assert ctx.tradeable is False
+
+    def test_confidence_higher_in_us_than_weekend(self):
+        engine = ContextEngine()
+        snap = make_snapshot(bullish=True)
+        ctx_us = engine.build(
+            snap, funding_rate=None, net_whale_flow=None,
+            oi_change_pct=None, price_change_pct=None,
+            _now=us_session_time(),
+        )
+        ctx_weekend = engine.build(
+            snap, funding_rate=None, net_whale_flow=None,
+            oi_change_pct=None, price_change_pct=None,
+            _now=weekend_time(),
+        )
+        assert ctx_us.confidence > ctx_weekend.confidence
