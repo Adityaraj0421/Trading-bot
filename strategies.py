@@ -1246,9 +1246,13 @@ class StrategyEngine:
 
     REGIME_STRATEGY_MAP = {
         MarketRegime.TRENDING_UP: {
+            # Cycle 5: EMACrossover weight 0.20→0.10 (lagging 9/21 EMA vote reduced),
+            # RSIDivergence 0.08→0.18 (forward-looking divergence confirmation boosted).
+            # Sum = 0.35+0.25+0.10+0.12+0.18 = 1.0. Reduces power of the
+            # Ensemble(Momentum,Ichimoku,EMACrossover) loser cluster in TRENDING_UP.
             "primary": "Momentum",
             "secondary": ["Ichimoku", "EMACrossover", "OBVDivergence", "RSIDivergence"],
-            "weights": {"Momentum": 0.35, "Ichimoku": 0.25, "EMACrossover": 0.20, "OBVDivergence": 0.12, "RSIDivergence": 0.08},
+            "weights": {"Momentum": 0.35, "Ichimoku": 0.25, "EMACrossover": 0.10, "OBVDivergence": 0.12, "RSIDivergence": 0.18},
         },
         MarketRegime.TRENDING_DOWN: {
             # Cycle 1: Removed EMACrossover (generates false BUY on dead-cat EMA bounces)
@@ -1284,10 +1288,9 @@ class StrategyEngine:
     }
 
     # Cycle 4: Minimum ATR/close ratio for TRENDING_UP and TRENDING_DOWN entries.
-    # Bars with atr_pct < 0.6% are tight consolidations where lagging MA indicators
-    # (Momentum, Ichimoku, EMACrossover) fire but the market isn't actually moving
-    # enough to overcome 0.15% round-trip fee drag.
-    ATR_FLOOR: float = 0.006  # 0.6% hourly ATR/close — rejects the quietest ~10-15% of bars
+    # Cycle 5: Raised from 0.6% to 0.8% — deeper cut of low-momentum bars catches
+    # more of the mid-trend quiet zones where lagging MA indicators over-fire.
+    ATR_FLOOR: float = 0.008  # 0.8% hourly ATR/close — rejects quiet consolidation bars
 
     def __init__(self, evolved_params: dict[str, dict[str, float]] | None = None) -> None:
         """Initialise all strategy instances with optional evolved parameters.
