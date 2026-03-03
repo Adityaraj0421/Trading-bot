@@ -4,7 +4,10 @@ import math
 import numpy as np
 import pandas as pd
 
+from context.funding import FundingAnalyzer
+from context.oi_trend import OITrendAnalyzer
 from context.swing import SwingAnalyzer
+from context.whale_flow import WhaleFlowAnalyzer
 
 
 def make_trending_up_df(n=100):
@@ -93,3 +96,74 @@ class TestSwingAnalyzer:
         assert result["swing_bias"] == "neutral"
         assert result["allowed_directions"] == []
         assert result["confidence"] == 0.0
+
+
+class TestFundingAnalyzer:
+    def test_positive_funding_is_long_crowded(self):
+        analyzer = FundingAnalyzer()
+        result = analyzer.analyze(funding_rate=0.0005)  # 0.05%
+        assert "long_crowded" in result["funding_pressure"]
+
+    def test_negative_funding_is_short_crowded(self):
+        analyzer = FundingAnalyzer()
+        result = analyzer.analyze(funding_rate=-0.0006)
+        assert "short_crowded" in result["funding_pressure"]
+
+    def test_near_zero_is_neutral(self):
+        analyzer = FundingAnalyzer()
+        result = analyzer.analyze(funding_rate=0.0001)
+        assert result["funding_pressure"] == "neutral"
+
+    def test_extreme_positive_funding(self):
+        analyzer = FundingAnalyzer()
+        result = analyzer.analyze(funding_rate=0.0012)  # > 0.10%
+        assert result["funding_pressure"] == "long_crowded_extreme"
+
+    def test_none_funding_returns_neutral(self):
+        analyzer = FundingAnalyzer()
+        result = analyzer.analyze(funding_rate=None)
+        assert result["funding_pressure"] == "neutral"
+
+
+class TestWhaleFlowAnalyzer:
+    def test_positive_net_flow_is_accumulating(self):
+        analyzer = WhaleFlowAnalyzer()
+        result = analyzer.analyze(net_flow=500_000.0)
+        assert result["whale_flow"] == "accumulating"
+
+    def test_negative_net_flow_is_distributing(self):
+        analyzer = WhaleFlowAnalyzer()
+        result = analyzer.analyze(net_flow=-500_000.0)
+        assert result["whale_flow"] == "distributing"
+
+    def test_small_flow_is_neutral(self):
+        analyzer = WhaleFlowAnalyzer()
+        result = analyzer.analyze(net_flow=1000.0)
+        assert result["whale_flow"] == "neutral"
+
+    def test_none_flow_is_neutral(self):
+        analyzer = WhaleFlowAnalyzer()
+        result = analyzer.analyze(net_flow=None)
+        assert result["whale_flow"] == "neutral"
+
+
+class TestOITrendAnalyzer:
+    def test_oi_up_price_up_is_expanding_up(self):
+        analyzer = OITrendAnalyzer()
+        result = analyzer.analyze(oi_change_pct=5.0, price_change_pct=3.0)
+        assert result["oi_trend"] == "expanding_up"
+
+    def test_oi_down_price_down_is_expanding_down(self):
+        analyzer = OITrendAnalyzer()
+        result = analyzer.analyze(oi_change_pct=-5.0, price_change_pct=-3.0)
+        assert result["oi_trend"] == "expanding_down"
+
+    def test_oi_down_price_up_is_contracting(self):
+        analyzer = OITrendAnalyzer()
+        result = analyzer.analyze(oi_change_pct=-3.0, price_change_pct=2.0)
+        assert result["oi_trend"] == "contracting"
+
+    def test_small_changes_is_neutral(self):
+        analyzer = OITrendAnalyzer()
+        result = analyzer.analyze(oi_change_pct=0.5, price_change_pct=0.3)
+        assert result["oi_trend"] == "neutral"
