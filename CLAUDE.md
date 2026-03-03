@@ -15,7 +15,7 @@ Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT,
 | Phase 5 | 11th strategy (RSI Divergence + Stochastic), 10th intelligence provider (Fear & Greed Index), ML feature importance pruning (opt-in via `ML_FEATURE_PRUNING`), new `/model/feature-importance` API, dashboard Model page + Fear & Greed card; 984 tests |
 | Phase 5 Tuning | 5-yr walk-forward backtest (BTC/ETH/SOL, 2021–2026, 1h bars, ~78 min); rebalanced `REGIME_STRATEGY_MAP` — removed MeanReversion/VWAP/Grid from RANGING (replaced with OBVDivergence), boosted Momentum across trending regimes; widened trailing stop 1.5%→2.5% |
 | Phase 5 Tuning v2 | 3-yr BTC backtests diagnosed ML HOLD dominance (100% HOLD on sampled bars) + `_combine` math ceiling (0.60×conf ≤ 0.57 < threshold). Fix: `_combine` ONE_HOLD multiplier 0.60→0.75 (Option C), MIN_CONFIDENCE 0.65→0.68. `BreakoutStrategy` triple-confirmation filter (strict price exceed + volume ≥ 1.5× + bar range ≥ 0.8×ATR) reduced Breakout false positives 96%. Synthetic 3yr: 2198 trades/−10.7% → 1397 trades/−7.2% (−36% trades, −35% fee drag) |
-| Phase 6 | 5-cycle RANGING regime optimization using 3-yr walk-forward backtests (`scripts/backtest_3yr.py`). Added per-pair trailing stop to `Config` (BTC/ETH=2.5%, SOL=4.0%); `risk_manager.py` now calls `Config.get_trailing_stop_pct(symbol)`. Added RANGING confidence gate in `StrategyEngine.run()` — OBVDiv primary must reach conf ≥ 0.68 or ensemble short-circuits to HOLD. Best-ever cycle results: BTC −0.08% (Cycle 5), ETH −0.88% (Cycle 2), SOL −2.15% (Cycle 4). Key finding: 2-strategy RANGING (OBV 0.60 / RSI 0.40 + gate 0.68) creates mathematical RSI-veto impossibility — RSI max veto score 0.40 × 1.0 = 0.40 < OBV min pass score 0.60 × 0.68 = 0.408. 964 tests. |
+| Phase 6 | 5-cycle RANGING regime optimization using 3-yr walk-forward backtests (`scripts/backtest_3yr.py`). Added per-pair trailing stop to `Config` (BTC/ETH=2.5%, SOL=4.0%); `risk_manager.py` now calls `Config.get_trailing_stop_pct(symbol)`. Added RANGING confidence gate in `StrategyEngine.run()` — OBVDiv primary must reach conf ≥ 0.68 or ensemble short-circuits to HOLD. Best-ever cycle results: BTC −0.08% (Cycle 5), ETH −0.88% (Cycle 2), SOL −2.15% (Cycle 4). Key finding: 2-strategy RANGING (OBV 0.60 / RSI 0.40 + gate 0.68) creates mathematical RSI-veto impossibility — RSI max veto score 0.40 × 1.0 = 0.40 < OBV min pass score 0.60 × 0.68 = 0.408. 989 tests. |
 
 ## Architecture
 
@@ -83,7 +83,7 @@ make help         # Show all available commands
 
 ## Testing
 
-- **Framework**: pytest (tests/ directory, 46 test files, 984 tests)
+- **Framework**: pytest (tests/ directory, 46 test files, 989 tests)
 - **Run**: `make test` or `./venv/bin/python -m pytest tests/ -v`
 - **Linting**: `make lint` (ruff) — should report 0 errors
 - **API tests**: `tests/test_api.py` — uses TestClient with auth header injection
