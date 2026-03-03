@@ -89,9 +89,27 @@ class SwingAnalyzer:
         resistance = float(recent["high"].max())
         poc = float(recent["close"].median())
 
+        key_levels: dict[str, float] = {
+            "support": support,
+            "resistance": resistance,
+            "poc": poc,
+        }
+
+        # Prev-day high/low — only available when df has a DatetimeIndex
+        try:
+            dates = pd.DatetimeIndex(df.index).normalize()
+            unique_dates = sorted(dates.unique())
+            if len(unique_dates) >= 2:
+                yesterday = unique_dates[-2]
+                mask = dates == yesterday
+                key_levels["pdh"] = float(df.loc[mask, "high"].max())
+                key_levels["pdl"] = float(df.loc[mask, "low"].min())
+        except Exception:
+            pass  # Integer index or other non-datetime index — pdh/pdl omitted
+
         return {
             "swing_bias": bias,
             "allowed_directions": allowed,
-            "key_levels": {"support": support, "resistance": resistance, "poc": poc},
+            "key_levels": key_levels,
             "confidence": round(confidence, 3),
         }
