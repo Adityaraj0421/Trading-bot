@@ -58,6 +58,15 @@ class TestMultiTimeframeFetcher:
         for col in ("open", "high", "low", "close", "volume"):
             assert col in snap.df_1h.columns
 
+    def test_fetch_uses_correct_bar_limits(self):
+        exchange = make_mock_exchange()
+        fetcher = MultiTimeframeFetcher(exchange=exchange)
+        fetcher.fetch("BTC/USDT")
+        calls = {call.args[1]: call.kwargs["limit"] for call in exchange.fetch_ohlcv.call_args_list}
+        assert calls["4h"] == 200
+        assert calls["1h"] == 200
+        assert calls["15m"] == 100
+
     def test_dataframes_are_readonly(self):
         fetcher = MultiTimeframeFetcher(exchange=make_mock_exchange())
         snap = fetcher.fetch("BTC/USDT")
