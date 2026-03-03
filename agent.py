@@ -35,8 +35,11 @@ from arbitrage.execution_engine import ArbitrageExecutor
 # v5.0 Autonomous modules
 from arbitrage.opportunity_detector import ArbitrageDetector
 from config import Config
+from context_engine import ContextEngine
 from data_fetcher import DataFetcher
+from decision import evaluate as phase9_evaluate
 from decision_engine import DecisionEngine
+from decision_logger import DecisionLogger
 from drift_detector import DriftDetector
 from executor import LiveExecutor, PaperExecutor
 
@@ -47,17 +50,20 @@ from intelligence.aggregator import IntelligenceAggregator
 from logger import StructuredLogger
 from model import TradingModel
 from multi_timeframe import MultiTimeframeConfirmer
+from multi_timeframe_fetcher import MultiTimeframeFetcher
 from notifier import Notifier
 from pair_scorer import PairScorer
 from portfolio import PortfolioManager
 from regime_detector import MarketRegime, RegimeDetector
 from risk_manager import RiskManager
+from risk_supervisor import RiskSupervisor
 from rl_ensemble import RLEnsemble
 from self_healer import ErrorSeverity
 from sentiment import SentimentAnalyzer
 from state_manager import StateManager
 from strategies import StrategyEngine, StrategySignal
 from trade_db import TradeDB
+from trigger_engine import TriggerEngine
 from websocket_streamer import WebSocketStreamer
 
 _log = logging.getLogger(__name__)
@@ -212,6 +218,29 @@ class TradingAgent:
                 )
             except Exception as e:
                 _log.warning("WebSocket init failed: %s", e)
+
+        # Phase 9: Context + Trigger pipeline (enabled via USE_PHASE9_PIPELINE=true)
+        if Config.USE_PHASE9_PIPELINE:
+            log_path = Config.PHASE9_DECISION_LOG_PATH or None
+            self._phase9_context_engine = ContextEngine()
+            self._phase9_risk_supervisor = RiskSupervisor(
+                context_engine=self._phase9_context_engine,
+                daily_drawdown_limit=Config.PHASE9_DAILY_DRAWDOWN_LIMIT,
+                consecutive_loss_limit=Config.PHASE9_CONSECUTIVE_LOSS_LIMIT,
+                atr_sigma_threshold=Config.PHASE9_ATR_SIGMA_THRESHOLD,
+                api_error_rate_threshold=Config.PHASE9_API_ERROR_RATE_THRESHOLD,
+                cooldown_minutes=Config.PHASE9_RISK_COOLDOWN_MINUTES,
+            )
+            self._phase9_trigger_engines: dict[str, TriggerEngine] = {
+                pair: TriggerEngine(symbol=pair) for pair in Config.TRADING_PAIRS
+            }
+            self._phase9_mtf_fetcher = MultiTimeframeFetcher(
+                exchange=self.fetcher.exchange
+            )
+            self._phase9_decision_logger = DecisionLogger(log_path=log_path)
+            self._phase9_last_context_time: dict[str, float] = {}
+            self._phase9_context: dict[str, Any] = {}
+            _log.info("Phase 9 Context+Trigger pipeline enabled.")
 
         # Graceful shutdown (must be after all modules are initialized)
         self.shutdown_handler = GracefulShutdown()
@@ -568,6 +597,12 @@ class TradingAgent:
                 intel_bias=intel_bias,
                 arb_result=arb_result,
             )
+            # Phase 9 observation pass (runs alongside old pipeline, no execution)
+            if Config.USE_PHASE9_PIPELINE:
+                try:
+                    self._run_phase9_cycle(pair)
+                except Exception as e:
+                    _log.error("Phase 9 cycle error for %s: %s", pair, e)
 
         # Rebalance portfolio weights every 20 cycles
         if self.multi_pair and self.cycle_count % 20 == 0:
@@ -619,6 +654,133 @@ class TradingAgent:
         # v7.0: Check if shutdown was requested
         if self.shutdown_handler.shutdown_requested:
             raise KeyboardInterrupt("Graceful shutdown requested")
+
+    # ------------------------------------------------------------------
+    # Phase 9: Context + Trigger pipeline
+    # ------------------------------------------------------------------
+
+    def _run_phase9_cycle(self, symbol: str) -> None:
+        """Run one Phase 9 context+trigger evaluation cycle for a symbol.
+
+        Fetches multi-timeframe data, refreshes the ContextState every
+        ``PHASE9_CONTEXT_INTERVAL_MINUTES`` minutes, collects TriggerSignals
+        from momentum and orderflow triggers, calls ``evaluate()``, and logs
+        every decision (trade or reject) via ``DecisionLogger``.
+
+        Trade execution is NOT wired here yet — Phase 9 runs in observation
+        mode until ``USE_PHASE9_EXECUTE=true`` is set in the environment.
+
+        Args:
+            symbol: Trading pair to evaluate, e.g. ``"BTC/USDT"``.
+        """
+        import time as _time
+
+        now = _time.monotonic()
+        interval_secs = Config.PHASE9_CONTEXT_INTERVAL_MINUTES * 60
+
+        # ── 1. Fetch multi-timeframe snapshot ──────────────────────────
+        try:
+            snapshot = self._phase9_mtf_fetcher.fetch(symbol)
+        except Exception as e:
+            _log.warning("Phase 9 MTF fetch failed for %s: %s", symbol, e)
+            return
+
+        # ── 2. Refresh ContextState if interval elapsed ─────────────────
+        last_ctx_time = self._phase9_last_context_time.get(symbol, 0.0)
+        if now - last_ctx_time >= interval_secs:
+            funding_rate: float | None = None
+            net_whale_flow: float | None = None
+            oi_change_pct: float | None = None
+            price_change_pct: float | None = None
+
+            try:
+                intel = self._last_intelligence
+                if intel:
+                    for sig in intel.get("signals", []):
+                        src = sig.get("source", "")
+                        data = sig.get("data") or {}
+                        if src == "funding_oi":
+                            funding_rate = data.get("funding_rate")
+                            oi_change_pct = data.get("oi_change_pct")
+                        elif src == "whale_tracker":
+                            net_whale_flow = data.get("net_flow_usd")
+            except Exception as e:
+                _log.debug("Phase 9 context data extraction failed: %s", e)
+
+            try:
+                ctx = self._phase9_context_engine.build(
+                    snapshot,
+                    funding_rate=funding_rate,
+                    net_whale_flow=net_whale_flow,
+                    oi_change_pct=oi_change_pct,
+                    price_change_pct=price_change_pct,
+                )
+                self._phase9_context[symbol] = ctx
+                self._phase9_last_context_time[symbol] = now
+                _log.debug(
+                    "Phase 9 context [%s]: bias=%s tradeable=%s confidence=%.2f",
+                    symbol,
+                    ctx.swing_bias,
+                    ctx.tradeable,
+                    ctx.confidence,
+                )
+            except Exception as e:
+                _log.warning("Phase 9 context build failed for %s: %s", symbol, e)
+
+        context = self._phase9_context.get(symbol)
+        if context is None:
+            return  # no valid context yet — skip evaluation
+
+        # ── 3. Collect triggers ─────────────────────────────────────────
+        trigger_eng = self._phase9_trigger_engines[symbol]
+        try:
+            if snapshot.df_1h is not None:
+                trigger_eng.on_1h_close(snapshot.df_1h)
+        except Exception as e:
+            _log.warning("Phase 9 momentum trigger failed for %s: %s", symbol, e)
+
+        try:
+            intel = self._last_intelligence
+            if intel:
+                for sig in intel.get("signals", []):
+                    if sig.get("source") == "order_book":
+                        ob = sig.get("data") or {}
+                        prices = ob.get("prices") or []
+                        cvd = ob.get("cvd") or []
+                        ratio = ob.get("imbalance_ratio", 1.0)
+                        history = ob.get("ratio_history") or []
+                        if prices and cvd:
+                            trigger_eng.on_orderflow_update(
+                                prices=prices,
+                                cvd=cvd,
+                                imbalance_ratio=ratio,
+                                ratio_history=history,
+                            )
+                        break
+        except Exception as e:
+            _log.debug("Phase 9 orderflow trigger failed for %s: %s", symbol, e)
+
+        triggers = trigger_eng.valid_signals()
+
+        # ── 4. Evaluate + log ───────────────────────────────────────────
+        try:
+            decision = phase9_evaluate(context, triggers)
+            self._phase9_decision_logger.log(
+                context=context,
+                triggers=triggers,
+                decision=decision,
+                symbol=symbol,
+            )
+            _log.info(
+                "Phase 9 [%s]: %s/%s (score=%s, triggers=%d)",
+                symbol,
+                decision.action,
+                decision.reason,
+                f"{decision.score:.2f}" if decision.score is not None else "n/a",
+                len(triggers),
+            )
+        except Exception as e:
+            _log.warning("Phase 9 evaluate/log failed for %s: %s", symbol, e)
 
     def _run_pair_cycle(
         self,

@@ -98,6 +98,8 @@ class DecisionLogger:
         context: ContextState,
         triggers: list[TriggerSignal],
         decision: Decision,
+        *,
+        symbol: str | None = None,
     ) -> None:
         """Record one evaluate() call.
 
@@ -105,13 +107,17 @@ class DecisionLogger:
             context: The ContextState passed to evaluate().
             triggers: The trigger list passed to evaluate().
             decision: The Decision returned by evaluate().
+            symbol: Optional trading pair (e.g. ``"BTC/USDT"``). Added to the
+                record when provided.
         """
-        record = {
+        record: dict = {
             "ts": datetime.now(UTC).isoformat(),
             "decision": _serialise_decision(decision),
             "context": _serialise_context(context),
             "triggers": [_serialise_trigger(t) for t in triggers],
         }
+        if symbol is not None:
+            record["symbol"] = symbol
 
         # Python log (always)
         _log.info(
