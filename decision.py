@@ -157,6 +157,10 @@ class Decision:
     route: str | None = None
     score: float | None = None
 
+    def __post_init__(self) -> None:
+        if self.action == "trade" and (self.direction is None or self.route is None):
+            raise ValueError("trade Decision must have direction and route")
+
 
 # --- Score threshold (module-level constant, not buried in evaluate()) ---
 SCORE_THRESHOLD: float = 0.50
@@ -199,7 +203,10 @@ def evaluate(context: ContextState, triggers: list[TriggerSignal]) -> Decision:
     for t in valid:
         by_dir.setdefault(t.direction, []).append(t)
 
-    best_dir, agreeing = max(by_dir.items(), key=lambda g: len(g[1]))
+    best_dir, agreeing = max(
+        by_dir.items(),
+        key=lambda g: (len(g[1]), sum(t.strength for t in g[1])),
+    )
     if len(agreeing) < 2:
         return Decision(action="reject", reason="insufficient_directional_agreement")
 

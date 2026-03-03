@@ -1,7 +1,9 @@
 # tests/test_decision_schemas.py
 from datetime import UTC, datetime, timedelta
-from decision import ContextState, Decision, TriggerSignal
+
 import pytest
+
+from decision import ContextState, Decision, TriggerSignal
 
 
 def make_context(**overrides):
