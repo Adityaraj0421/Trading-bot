@@ -219,28 +219,28 @@ class TradingAgent:
             except Exception as e:
                 _log.warning("WebSocket init failed: %s", e)
 
-        # Phase 9: Context + Trigger pipeline (enabled via USE_PHASE9_PIPELINE=true)
-        if Config.USE_PHASE9_PIPELINE:
-            log_path = Config.PHASE9_DECISION_LOG_PATH or None
-            self._phase9_context_engine = ContextEngine()
-            self._phase9_risk_supervisor = RiskSupervisor(
-                context_engine=self._phase9_context_engine,
-                daily_drawdown_limit=Config.PHASE9_DAILY_DRAWDOWN_LIMIT,
-                consecutive_loss_limit=Config.PHASE9_CONSECUTIVE_LOSS_LIMIT,
-                atr_sigma_threshold=Config.PHASE9_ATR_SIGMA_THRESHOLD,
-                api_error_rate_threshold=Config.PHASE9_API_ERROR_RATE_THRESHOLD,
-                cooldown_minutes=Config.PHASE9_RISK_COOLDOWN_MINUTES,
-            )
-            self._phase9_trigger_engines: dict[str, TriggerEngine] = {
-                pair: TriggerEngine(symbol=pair) for pair in Config.TRADING_PAIRS
-            }
-            self._phase9_mtf_fetcher = MultiTimeframeFetcher(
-                exchange=self.fetcher.exchange
-            )
-            self._phase9_decision_logger = DecisionLogger(log_path=log_path)
-            self._phase9_last_context_time: dict[str, float] = {}
-            self._phase9_context: dict[str, Any] = {}
-            _log.info("Phase 9 Context+Trigger pipeline enabled.")
+        # Phase 9: Context + Trigger pipeline (primary execution pipeline)
+        log_path = Config.PHASE9_DECISION_LOG_PATH or None
+        self._phase9_context_engine = ContextEngine()
+        self._phase9_risk_supervisor = RiskSupervisor(
+            context_engine=self._phase9_context_engine,
+            daily_drawdown_limit=Config.PHASE9_DAILY_DRAWDOWN_LIMIT,
+            consecutive_loss_limit=Config.PHASE9_CONSECUTIVE_LOSS_LIMIT,
+            atr_sigma_threshold=Config.PHASE9_ATR_SIGMA_THRESHOLD,
+            api_error_rate_threshold=Config.PHASE9_API_ERROR_RATE_THRESHOLD,
+            cooldown_minutes=Config.PHASE9_RISK_COOLDOWN_MINUTES,
+        )
+        self._phase9_trigger_engines: dict[str, TriggerEngine] = {
+            pair: TriggerEngine(symbol=pair) for pair in Config.TRADING_PAIRS
+        }
+        self._phase9_mtf_fetcher = MultiTimeframeFetcher(
+            exchange=self.fetcher.exchange
+        )
+        self._phase9_decision_logger = DecisionLogger(log_path=log_path)
+        self._phase9_last_context_time: dict[str, float] = {}
+        self._phase9_context: dict[str, Any] = {}
+        self._last_df_ind: dict[str, Any] = {}
+        _log.info("Phase 9 Context+Trigger pipeline active (primary execution).")
 
         # Graceful shutdown (must be after all modules are initialized)
         self.shutdown_handler = GracefulShutdown()
@@ -557,18 +557,11 @@ class TradingAgent:
             self.decision.print_autonomous_summary()
             return
 
-        # Shared intelligence + arbitrage (fetched once per cycle, not per pair)
-        intel_result = self._fetch_intelligence()
-        intel_adjustment = 1.0
-        intel_bias = "neutral"
-        if intel_result:
-            intel_adjustment = intel_result["adjustment_factor"]
-            intel_bias = intel_result["bias"]
-
-        arb_result = self._scan_arbitrage()
-
-        # v5.0: Position multiplier from decision engine
-        position_mult = instructions.get("position_multiplier", 1.0)
+        # Shared intelligence + arbitrage (fetched once per cycle, not per pair).
+        # _fetch_intelligence() updates self._last_intelligence (read by _run_phase9_cycle).
+        # _scan_arbitrage() may execute arb trades as a side-effect.
+        self._fetch_intelligence()
+        self._scan_arbitrage()
 
         # === Multi-pair loop ===
         # v9.1: Dynamic pair scoring — rescore every PAIR_SCORER_INTERVAL_CYCLES cycles
@@ -589,20 +582,11 @@ class TradingAgent:
                 self._active_pairs = self.pair_scorer.select_top_pairs(pool_data)
         pairs = self._active_pairs if self.multi_pair else [Config.TRADING_PAIR]
         for pair in pairs:
-            self._run_pair_cycle(
-                pair,
-                position_mult,
-                intel_result=intel_result,
-                intel_adjustment=intel_adjustment,
-                intel_bias=intel_bias,
-                arb_result=arb_result,
-            )
-            # Phase 9 observation pass (runs alongside old pipeline, no execution)
-            if Config.USE_PHASE9_PIPELINE:
-                try:
-                    self._run_phase9_cycle(pair)
-                except Exception as e:
-                    _log.error("Phase 9 cycle error for %s: %s", pair, e)
+            self._run_pair_cycle(pair)
+            try:
+                self._run_phase9_cycle(pair)
+            except Exception as e:
+                _log.error("Phase 9 cycle error for %s: %s", pair, e)
 
         # Rebalance portfolio weights every 20 cycles
         if self.multi_pair and self.cycle_count % 20 == 0:
@@ -664,11 +648,9 @@ class TradingAgent:
 
         Fetches multi-timeframe data, refreshes the ContextState every
         ``PHASE9_CONTEXT_INTERVAL_MINUTES`` minutes, collects TriggerSignals
-        from momentum and orderflow triggers, calls ``evaluate()``, and logs
-        every decision (trade or reject) via ``DecisionLogger``.
-
-        Trade execution is NOT wired here yet — Phase 9 runs in observation
-        mode until ``USE_PHASE9_EXECUTE=true`` is set in the environment.
+        from momentum and orderflow triggers, calls ``evaluate()``, logs every
+        decision via ``DecisionLogger``, and executes trades when the decision
+        action is ``"trade"``.
 
         Args:
             symbol: Trading pair to evaluate, e.g. ``"BTC/USDT"``.
@@ -781,42 +763,50 @@ class TradingAgent:
             )
         except Exception as e:
             _log.warning("Phase 9 evaluate/log failed for %s: %s", symbol, e)
+            return
 
-    def _run_pair_cycle(
-        self,
-        pair: str,
-        position_mult: float,
-        intel_result: dict[str, Any] | None = None,
-        intel_adjustment: float = 1.0,
-        intel_bias: str = "neutral",
-        arb_result: dict[str, Any] | None = None,
-    ) -> None:
-        """Run the full analysis and execution pipeline for a single trading pair.
+        # ── 5. Execute if Decision says trade ──────────────────────────
+        if decision.action == "trade" and snapshot.df_1h is not None:
+            current_price = float(snapshot.df_1h.iloc[-1]["close"])
+            df_ind = self._last_df_ind.get(symbol)
+            if df_ind is not None and current_price > 0:
+                trade_signal = "BUY" if decision.direction == "long" else "SELL"
+                strat_sig = StrategySignal(
+                    signal=trade_signal,
+                    confidence=decision.score or 0.5,
+                    strategy_name="phase9",
+                    reason=decision.reason,
+                    suggested_sl_pct=Config.STOP_LOSS_PCT,
+                    suggested_tp_pct=Config.TAKE_PROFIT_PCT,
+                )
+                try:
+                    self._execute_trade(
+                        trade_signal,
+                        decision.score or 0.5,
+                        current_price,
+                        df_ind,
+                        strat_sig,
+                        pair=symbol,
+                    )
+                except Exception as e:
+                    _log.error("Phase 9 trade execution failed for %s: %s", symbol, e)
 
-        Steps per pair:
-        1. Fetch OHLCV data with self-healing on failure.
-        2. Compute technical indicators.
-        3. Retrain the ML model if needed (primary pair only).
-        4. Check open positions for exits (symbol-filtered to prevent
-           cross-pair price contamination).
-        5. Skip to portfolio print if at max positions with no new closes.
-        6. Detect market regime and sentiment.
-        7. Run strategy ensemble and ML model.
-        8. Combine signals (strategy + ML + RL + intelligence).
-        9. Apply multi-timeframe confirmation and decision-engine override.
-        10. Execute trade if signal is BUY or SELL.
-        11. Print portfolio summary.
+    def _run_pair_cycle(self, pair: str) -> None:
+        """Fetch data, compute indicators, manage exits, and update regime state.
+
+        Phase 8 signal generation has been removed.  This method now only:
+        1. Fetches OHLCV data with self-healing on failure.
+        2. Computes technical indicators (ATR needed for exit management).
+        3. Caches ``df_ind`` so ``_run_phase9_cycle`` can read ATR for sizing.
+        4. Checks open positions for exits (trailing stop / take-profit).
+        5. Short-circuits to portfolio print if at max positions.
+        6. Detects and records the current market regime.
+        7. Prints the portfolio summary.
+
+        Trade entry is handled exclusively by ``_run_phase9_cycle``.
 
         Args:
             pair: Trading pair symbol to process, e.g. ``"BTC/USDT"``.
-            position_mult: Scalar applied to position sizes from the decision
-                engine (1.0 = normal, <1.0 = cautious/defensive).
-            intel_result: Latest intelligence signal dict or ``None``.
-            intel_adjustment: Confidence adjustment factor from intelligence
-                (default ``1.0`` = neutral).
-            intel_bias: Intelligence directional bias — ``"bullish"``,
-                ``"bearish"``, or ``"neutral"``.
-            arb_result: Latest arbitrage scan result dict or ``None``.
         """
         if self.multi_pair:
             print(f"\n  --- {pair} ---")
@@ -845,19 +835,17 @@ class TradingAgent:
 
         self.log.log_cycle_start(self.cycle_count, current_price, pair)
 
-        # 2. Compute indicators ONCE
+        # 2. Compute indicators ONCE (ATR needed for exit management)
         try:
             df_ind = Indicators.add_all(df)
         except Exception as e:
             self.decision.healer.record_error("indicators", e, ErrorSeverity.MEDIUM)
             return
 
-        # 3. Retrain if needed (only on primary pair to avoid excess retraining)
-        if pair == Config.TRADING_PAIR:
-            data_hash = (len(df), float(current_price))
-            if self._should_retrain(data_hash):
-                self.train_model(df_ind=df_ind)
-                self._last_data_hash = data_hash
+        # Cache for Phase 9 to read ATR when sizing entry trades
+        self._last_df_ind[pair] = df_ind
+
+        # 3. (Phase 8 retrain removed — model is no longer called in the agent loop)
 
         # 4. Check positions for THIS pair only (prevents cross-pair price contamination)
         # v9.1: Pass atr_pct for ATR-adaptive trailing stop
@@ -881,28 +869,6 @@ class TradingAgent:
             if trade.side == "short":
                 ret = -ret
             self.drift.record_outcome(ret)
-
-            # v8.0: Feed reward to RL ensemble
-            try:
-                rl_reward = trade.pnl_net / max(1, Config.INITIAL_CAPITAL * 0.01)
-                self.rl_ensemble.update_reward(
-                    reward=rl_reward,
-                    next_df_ind=df_ind,
-                    regime=self._last_regime.value if self._last_regime else "",
-                )
-            except Exception as e:
-                _log.debug("RL reward update failed: %s", e)
-
-            # v5.0: Feed trade result to meta-learner
-            self.decision.record_trade_result(
-                pnl=trade.pnl_net,
-                strategy_signal=self._last_strategy_signal or "HOLD",
-                ml_signal=self._last_ml_signal or "HOLD",
-                final_signal="BUY" if trade.side == "long" else "SELL",
-                strategy_confidence=self._last_strategy_conf,
-                ml_confidence=self._last_ml_conf,
-                regime=self._last_regime.value if self._last_regime else "unknown",
-            )
 
             # v7.0: Record to trade DB
             if self.trade_db:
@@ -946,7 +912,8 @@ class TradingAgent:
             self._print_portfolio(summary, current_price)
             return
 
-        # 6. Full analysis pipeline
+        # 5. Detect market regime (keeps self._last_regime current for Phase 9 context
+        #    and for calculate_position_size which reads self._last_regime)
         try:
             regime_state = self.regime_detector.detect(df, df_ind=df_ind)
         except Exception as e:
@@ -965,105 +932,7 @@ class TradingAgent:
             )
         self._last_regime = regime_state.regime
 
-        try:
-            sentiment_state = self.sentiment.analyze(df, df_ind=df_ind)
-        except Exception as e:
-            self.decision.healer.record_error("sentiment", e, ErrorSeverity.LOW)
-            sentiment_state = self.sentiment._default_state()
-
-        try:
-            strategy_signal = self.strategy_engine.run(df_ind, regime_state.regime, sentiment_state)
-        except Exception as e:
-            self.decision.healer.record_error("strategy_engine", e, ErrorSeverity.MEDIUM)
-            strategy_signal = StrategySignal(
-                signal="HOLD",
-                confidence=0.0,
-                strategy_name="Error",
-                reason="strategy error",
-                suggested_sl_pct=0.02,
-                suggested_tp_pct=0.03,
-            )
-
-        try:
-            ml_signal, ml_confidence = self.model.predict(df_ind=df_ind)
-        except Exception as e:
-            self.decision.healer.record_error("model", e, ErrorSeverity.MEDIUM)
-            ml_signal, ml_confidence = "HOLD", 0.0
-
-        # Track signal sources for meta-learner
-        self._last_strategy_signal = strategy_signal.signal
-        self._last_ml_signal = ml_signal
-        self._last_strategy_conf = strategy_signal.confidence
-        self._last_ml_conf = ml_confidence
-
-        self.drift.record_prediction(ml_signal, ml_confidence)
-
-        # v8.0: RL ensemble vote
-        try:
-            rl_signal, rl_confidence = self.rl_ensemble.predict(df_ind, regime=regime_state.regime.value)
-        except Exception as e:
-            _log.debug("RL ensemble error: %s", e)
-            rl_signal, rl_confidence = "HOLD", 0.0
-
-        # 7. Combine signals (v5.0: learned weights, v6.0: + intelligence, v8.0: + RL)
-        final_signal, final_confidence = self._combine_signals(
-            strategy_signal,
-            ml_signal,
-            ml_confidence,
-            regime=regime_state.regime.value,
-            intel_adjustment=intel_adjustment,
-            intel_bias=intel_bias,
-            rl_signal=rl_signal,
-            rl_confidence=rl_confidence,
-        )
-
-        # 8. Multi-timeframe confirmation
-        htf_bias = self.mtf.get_htf_bias(df, Config.CONFIRMATION_TIMEFRAME)
-        pre_mtf_signal = final_signal
-        pre_mtf_conf = final_confidence
-        final_signal, final_confidence = self.mtf.confirm_signal(
-            final_signal,
-            final_confidence,
-            htf_bias,
-        )
-
-        # v5.0: Decision engine override (safety governance)
-        final_signal, final_confidence = self.decision.should_override_signal(final_signal, final_confidence)
-
-        self.log.log_signal(final_signal, final_confidence, "final", regime_state.regime.value)
-
-        # Print status
-        self._print_status(
-            current_price,
-            regime_state,
-            sentiment_state,
-            strategy_signal,
-            ml_signal,
-            ml_confidence,
-            final_signal,
-            final_confidence,
-            htf_bias,
-            pre_mtf_signal,
-            pre_mtf_conf,
-            intel_result=intel_result,
-            arb_result=arb_result,
-            pair=pair,
-        )
-
-        # 9. Execute if actionable (with portfolio-aware sizing)
-        if final_signal in ("BUY", "SELL"):
-            self._execute_trade(
-                final_signal,
-                final_confidence,
-                current_price,
-                df_ind,
-                strategy_signal,
-                position_mult=position_mult,
-                intel_adjustment=intel_adjustment,
-                pair=pair,
-            )
-
-        # 10. Portfolio summary
+        # 6. Portfolio summary (trade entry handled by _run_phase9_cycle)
         self._print_portfolio(self.risk.get_summary(), current_price)
 
     def _combine_signals(

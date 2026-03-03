@@ -173,9 +173,9 @@ class Config:
     # -------------------------------------------------------------------------
     # Phase 9 — Context + Trigger Architecture
     # -------------------------------------------------------------------------
-    # Feature gate: set to true to activate the Phase 9 pipeline instead of the
-    # legacy strategy ensemble. Both pipelines coexist during the transition.
-    USE_PHASE9_PIPELINE: bool = os.getenv("USE_PHASE9_PIPELINE", "false").lower() == "true"
+    # Phase 9 is the primary pipeline — this flag defaults on.
+    # Set USE_PHASE9_PIPELINE=false in .env only to run Phase 8 backtest scripts.
+    USE_PHASE9_PIPELINE: bool = os.getenv("USE_PHASE9_PIPELINE", "true").lower() == "true"
 
     # RiskSupervisor thresholds
     PHASE9_DAILY_DRAWDOWN_LIMIT: float = float(os.getenv("PHASE9_DAILY_DRAWDOWN_LIMIT", "0.03"))

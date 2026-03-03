@@ -18,17 +18,37 @@ Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT,
 | Phase 6 | 5-cycle RANGING regime optimization using 3-yr walk-forward backtests (`scripts/backtest_3yr.py`). Added per-pair trailing stop to `Config` (BTC/ETH=2.5%, SOL=4.0%); `risk_manager.py` now calls `Config.get_trailing_stop_pct(symbol)`. Added RANGING confidence gate in `StrategyEngine.run()` — OBVDiv primary must reach conf ≥ 0.68 or ensemble short-circuits to HOLD. Best-ever cycle results: BTC −0.08% (Cycle 5), ETH −0.88% (Cycle 2), SOL −2.15% (Cycle 4). Key finding: 2-strategy RANGING (OBV 0.60 / RSI 0.40 + gate 0.68) creates mathematical RSI-veto impossibility — RSI max veto score 0.40 × 1.0 = 0.40 < OBV min pass score 0.60 × 0.68 = 0.408. 989 tests. |
 | Phase 7 | RANGING made unconditional no-trade zone in `StrategyEngine.run()` — returns HOLD before any strategy runs. 3-yr walk-forward: BTC −0.53%, ETH −1.26%, SOL **−0.97%** (SOL +1.50pp vs baseline, trade counts halved: 670/578/429→255/199/185). New dominant loser: `Ensemble(EMACrossover, Momentum)` in TRENDING_DOWN (105 SOL trades/−$108; 47 ETH trades/−$57). 988 tests. |
 | Phase 8 | 10-cycle improvement loop using 3-yr walk-forward backtest (BTC/ETH/SOL). Baseline C1: −0.53%/−1.26%/−0.97%. Final C8: −0.12%/−0.54%/−0.47% (**+0.54pp avg vs baseline**). Cycles: C1 TRENDING_DOWN revamp, C2 HIGH_VOL Breakout gate, C3 direction gates + MIN_CONF 0.68, C4 ATR floor 0.6%, C5 EMA weight cut + ATR 0.8%, C6 TRENDING_DOWN no-trade zone, C7 regime-adaptive trailing stop (TRENDING_UP 2.5%/HIGH_VOL 2.0%), C8 EMACrossover removed from TRENDING_UP entirely. 963 tests. |
+| Phase 9 | Context + Trigger architecture — `ContextEngine` (SwingAnalyzer/FundingAnalyzer/WhaleAnalyzer/OITrendAnalyzer) → `TriggerEngine` (MomentumTrigger/OrderFlowTrigger + optional LiquidationTrigger/FundingExtremeTrigger) → `evaluate()` → `Decision`. **Phase 9 is now the primary execution pipeline**: `_run_pair_cycle()` stripped to exit management only; `_run_phase9_cycle()` drives all trade entry via `_execute_trade()`. Phase 8 code (strategies.py, decision_engine.py, ML, RL) kept for backtest scripts, never called from agent loop. Phase 9 backtest (1yr BTC/ETH/SOL): avg −0.03% (7/9/6 trades). Decision log: `data/phase9_decisions.jsonl`. |
 
 ## Architecture
 
 ```
 agent.py (main loop, runs in background thread)
-    ├── data_fetcher.py      → CCXT/Binance market data
-    ├── indicators.py        → 15+ technical indicators (24 FEATURE_COLUMNS for ML)
-    ├── decision_engine.py   → Strategy ensemble + ML signals
-    ├── risk_manager.py      → Position sizing, stop-loss, daily limits
-    ├── executor.py          → Paper/live trade execution
-    └── notifier.py          → Telegram/Discord alerts
+    ├── data_fetcher.py           → CCXT/Binance market data
+    ├── indicators.py             → 15+ technical indicators (24 FEATURE_COLUMNS for ML)
+    ├── risk_manager.py           → Position sizing, stop-loss, daily limits
+    ├── executor.py               → Paper/live trade execution
+    ├── notifier.py               → Telegram/Discord alerts
+    │
+    ├── [Phase 9 — primary execution pipeline]
+    ├── context_engine.py         → Builds ContextState from snapshot + intel feeds
+    ├── context/swing.py          → 4h EMA 21/50/200 structure → swing_bias
+    ├── context/funding.py        → Funding rate → crowding pressure
+    ├── context/whale.py          → Net whale flow → sentiment
+    ├── context/oi_trend.py       → OI vs price → conviction
+    ├── trigger_engine.py         → Manages TriggerSignal TTL + consensus
+    ├── triggers/momentum.py      → 1h RSI + MACD zero-cross + volume
+    ├── triggers/orderflow.py     → CVD divergence + order imbalance
+    ├── decision.py               → evaluate() → Decision(action, direction, score)
+    ├── decision_logger.py        → JSONL audit log (data/phase9_decisions.jsonl)
+    ├── multi_timeframe_fetcher.py→ Fetches 1h/4h/15m DataSnapshot per symbol
+    ├── risk_supervisor.py        → Kill switch (drawdown/loss streak/API errors)
+    │
+    └── [Phase 8 — backtest only, not called from agent loop]
+        ├── decision_engine.py    → Strategy ensemble + ML signals
+        ├── strategies.py         → 11 strategies + REGIME_STRATEGY_MAP
+        ├── backtester.py         → Walk-forward backtester
+        └── regime_detector.py   → MarketRegime classification
 
 api/server.py (FastAPI, hosts agent in lifespan)
     ├── api/data_store.py    → Thread-safe agent↔API bridge
@@ -182,3 +202,10 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - **Regime-adaptive trailing stop (Phase 8, Cycle 7)**: `Backtester.REGIME_TRAILING_STOPS` class constant in `backtester.py` maps regime strings to trailing stop percentages: `trending_up=0.025` (2.5%), `high_volatility=0.020` (2.0%), others default to `self.trailing_stop_pct` (Config value, 1.5%). TRENDING_UP gets a wider stop so trend trades can breathe past normal hourly ATR (0.6-1.0%). `_get_trailing_stop_pct(regime)` helper is called from both `_open_position` (initial trailing level) and `_check_positions` (trailing ratchet update). The live agent uses `Config.get_trailing_stop_pct(symbol)` independently — backtester adaptive stops do not affect live trading.
 - **ATR_FLOOR in StrategyEngine (Phase 8, Cycles 4-5)**: `StrategyEngine.ATR_FLOOR = 0.008` (0.8%). Gate fires before strategies run in TRENDING_UP only (TRENDING_DOWN is now a no-trade zone). Uses `df.iloc[-1].get("atr_pct", 1.0)` — defaults to 1.0 (pass) when `atr_pct` column is absent. Do not lower below 0.6% — 3yr backtest showed no improvement below this value for BTC/ETH.
 - **Phase 8 3yr backtest final**: `scripts/backtest_3yr.py` with `MIN_CONFIDENCE=0.68`. C1 baseline (Phase 7 state): BTC −0.53%, ETH −1.26%, SOL −0.97%. C8 final: BTC −0.12%, ETH −0.54%, SOL −0.47% (+0.54pp avg improvement, 963 tests). Persistent loser (Ensemble(M,I,E)) eliminated. Dominant winner: `Ensemble(Breakout, EMACrossover, Momentum)` = HIGH_VOLATILITY regime Breakout-primary combo.
+- **Phase 9 is now the primary pipeline**: `_run_pair_cycle()` no longer calls strategy_engine/ML/RL/combine/MTF. It only fetches data, computes indicators, manages position exits, detects regime, and caches `_last_df_ind[pair]`. All trade entry comes from `_run_phase9_cycle()`. Phase 8 code stays in repo for `scripts/backtest_3yr.py` and `scripts/backtest_5yr.py` — never call it from agent.py.
+- **Phase 9 execution bridge**: `_run_phase9_cycle()` calls `_execute_trade()` when `decision.action == "trade"` using a stub `StrategySignal(strategy_name="phase9", suggested_sl_pct=Config.STOP_LOSS_PCT, suggested_tp_pct=Config.TAKE_PROFIT_PCT)`. ATR for position sizing comes from `self._last_df_ind.get(symbol)` (cached by `_run_pair_cycle`). All risk management (Kelly sizing, trailing stop, Telegram confirmation, TradeDB) is unchanged.
+- **Phase 9 decision log**: `PHASE9_DECISION_LOG_PATH=data/phase9_decisions.jsonl` in `.env` enables JSONL audit log (every evaluate call, trade or reject). Unset = Python `_log.info()` only. `DecisionLogger` creates the file on first write.
+- **Phase 9 fires selectively**: `evaluate()` requires ≥2 agreeing TriggerSignals or 1 high-urgency signal. `MomentumTrigger` fires only on RSI/MACD zero-crossings — not every bar. Normal market (no crossover) = `reject/no_valid_triggers`. This is correct behaviour; Phase 8 was firing on every small signal.
+- **Phase 9 context.build() signature**: `ContextEngine.build(snapshot, funding_rate, net_whale_flow, oi_change_pct, price_change_pct)` — all four market-data args are required (pass `None` when unavailable). SwingAnalyzer uses `snapshot.df_4h`; other analyzers use the scalar args.
+- **USE_PHASE9_PIPELINE flag**: Config default changed to `"true"`. The `.env` line `USE_PHASE9_PIPELINE=true` was removed (redundant). To disable Phase 9 for debugging, add `USE_PHASE9_PIPELINE=false` to `.env`.
+- **Phase 9 1yr backtest**: `scripts/backtest_phase9_1yr.py` — fetches 1yr 1h+4h OHLCV, bar-by-bar simulation with 75min trigger TTL carry. Results: BTC −0.25% (7 trades), ETH −0.45% (9 trades), SOL +0.62% (6 trades), avg −0.03%. Trade counts will increase as more trigger types fire with live perp data.
