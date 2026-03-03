@@ -1259,13 +1259,14 @@ class StrategyEngine:
             # Backtesting (2021-2026) showed MeanReversion/VWAP/Grid destroyed capital
             # in crypto's persistent trends. OBV+RSI divergence performs across all regimes.
             # Phase 6 Cycle 1: Removed Momentum from secondaries (trend-follower in ranging).
-            # Phase 6 Cycle 3: Removed EMACrossover from secondaries — OBV+EMA ensemble was
-            # the new dominant loser (119 BTC trades, −$84) after Momentum removal. Only
-            # RSIDivergence remains as secondary — both OBV and RSI are divergence-based
-            # and appropriate for sideways price action.
+            # Phase 6 Cycle 4: Restored EMACrossover — removing it (Cycle 3) caused trade count
+            # to triple because OBV+RSI agree more often without EMA's disagreement veto.
+            # Cycle 4 adds an OBVDivergence confidence gate (>=0.55) in StrategyEngine.run()
+            # to filter weak primary signals before the ensemble runs. This preserves EMA's
+            # filtering role while adding an explicit quality bar on the primary signal.
             "primary": "OBVDivergence",
-            "secondary": ["RSIDivergence"],
-            "weights": {"OBVDivergence": 0.60, "RSIDivergence": 0.40},
+            "secondary": ["RSIDivergence", "EMACrossover"],
+            "weights": {"OBVDivergence": 0.40, "RSIDivergence": 0.35, "EMACrossover": 0.25},
         },
         MarketRegime.HIGH_VOLATILITY: {
             "primary": "Breakout",
@@ -1362,6 +1363,18 @@ class StrategyEngine:
         primary_strat = self.strategies[primary_name]
         primary_sig = primary_strat.generate_signal(df, sentiment)
         signals[primary_name] = primary_sig
+
+        # RANGING confidence gate: OBVDivergence primary must reach conf >= 0.55 before
+        # the ensemble runs. In sideways markets, weak OBV signals are noise — the gate
+        # prevents marginal signals from being amplified by the ensemble into bad trades.
+        if regime == MarketRegime.RANGING and primary_sig.confidence < 0.55:
+            self.last_signals = signals
+            return StrategySignal(
+                signal="HOLD",
+                confidence=0.4,
+                strategy_name="Ensemble",
+                reason=f"Regime:{regime.value} | RANGING gate: OBVDiv conf {primary_sig.confidence:.2f} < 0.55",
+            )
 
         # SHORT-CIRCUIT: if primary has strong signal (>0.8), skip secondaries
         if primary_sig.signal != "HOLD" and primary_sig.confidence > 0.8:

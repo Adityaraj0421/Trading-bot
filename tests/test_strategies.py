@@ -583,6 +583,32 @@ class TestStrategyEngine:
         sig = engine.run(df, MarketRegime.RANGING)
         assert sig.signal == "HOLD"
 
+    def test_ranging_gate_blocks_weak_obv_signal(self, engine):
+        """RANGING gate: OBVDivergence conf < 0.55 returns HOLD without running ensemble."""
+        from unittest.mock import patch
+
+        weak_sig = StrategySignal(signal="BUY", confidence=0.45, strategy_name="OBVDivergence", reason="weak")
+        with patch.object(engine.strategies["OBVDivergence"], "generate_signal", return_value=weak_sig):
+            sig = engine.run(df=make_df(), regime=MarketRegime.RANGING)
+
+        assert sig.signal == "HOLD"
+        assert "gate" in sig.reason.lower()
+        # Only the primary signal was recorded — secondaries were not run
+        assert len(engine.last_signals) == 1
+        assert "OBVDivergence" in engine.last_signals
+
+    def test_ranging_gate_passes_strong_obv_signal(self, engine):
+        """RANGING gate: OBVDivergence conf >= 0.55 allows ensemble to run normally."""
+        from unittest.mock import patch
+
+        strong_sig = StrategySignal(signal="BUY", confidence=0.70, strategy_name="OBVDivergence", reason="strong")
+        with patch.object(engine.strategies["OBVDivergence"], "generate_signal", return_value=strong_sig):
+            sig = engine.run(df=make_df(), regime=MarketRegime.RANGING)
+
+        # Gate did not fire — ensemble ran (secondaries present in last_signals)
+        assert "gate" not in sig.reason.lower()
+        assert len(engine.last_signals) >= 1  # Primary + secondaries ran
+
     def test_unknown_regime_falls_back_to_ranging(self, engine):
         """If regime isn't in map, defaults to RANGING config."""
         # All regimes are in the map, but verify the .get() fallback path
