@@ -264,6 +264,13 @@ class TestLiquiditySweepTrigger:
         signals = trigger.evaluate(make_no_sweep_df().head(10))
         assert signals == []
 
+    def test_insufficient_data_boundary_returns_empty(self):
+        from triggers.liquidity_sweep import LiquiditySweepTrigger
+        trigger = LiquiditySweepTrigger(symbol="BTC/USDT")
+        # Exactly _MIN_BARS - 1 = 20 rows — must still be empty
+        signals = trigger.evaluate(make_no_sweep_df().head(20))
+        assert signals == []
+
     def test_signal_not_expired(self):
         from datetime import UTC, datetime
 
