@@ -661,6 +661,55 @@ class TestStrategyEngine:
         # No strategies run — last_signals is empty
         assert engine.last_signals == {}
 
+    def test_trending_up_low_atr_skipped(self, engine):
+        """TRENDING_UP: entries skipped when ATR < ATR_FLOOR (quiet consolidation).
+
+        Cycle 4: Even with bullish MA alignment, if the hourly ATR is very low
+        (market pausing within a trend), lagging indicators fire but the move has
+        no momentum to overcome fee drag. Gate fires before any strategy runs.
+        """
+        df = make_df(
+            close=51000.0,
+            sma_20=50500.0,
+            sma_50=50000.0,
+            macd=1.0,
+            rsi=55.0,
+            volume_ratio=1.5,
+            atr_pct=0.004,  # 0.4% — below the 0.6% floor
+        )
+        sig = engine.run(df, MarketRegime.TRENDING_UP)
+
+        assert sig.signal == "HOLD"
+        assert sig.strategy_name == "Ensemble"
+        assert "ATR" in sig.reason
+        assert "low-volatility" in sig.reason
+        assert engine.last_signals == {}  # No strategies ran
+
+    def test_trending_down_low_atr_skipped(self, engine):
+        """TRENDING_DOWN: entries skipped when ATR < ATR_FLOOR.
+
+        Cycle 4: Same gate applies to TRENDING_DOWN — prevents entering shorts
+        during quiet micro-consolidations in a downtrend, where lagging indicators
+        still read 'bearish' but price isn't moving enough for profitability.
+        """
+        df = make_df(atr_pct=0.004)  # Below ATR_FLOOR=0.006
+        sig = engine.run(df, MarketRegime.TRENDING_DOWN)
+
+        assert sig.signal == "HOLD"
+        assert sig.strategy_name == "Ensemble"
+        assert "ATR" in sig.reason
+        assert "low-volatility" in sig.reason
+        assert engine.last_signals == {}
+
+    def test_atr_gate_does_not_apply_to_high_volatility(self, engine):
+        """HIGH_VOLATILITY regime is not affected by ATR_FLOOR — it has its own Breakout gate."""
+        # Low ATR + HIGH_VOLATILITY: only the Breakout gate matters (Breakout returns HOLD)
+        df = make_df(atr_pct=0.004)
+        sig = engine.run(df, MarketRegime.HIGH_VOLATILITY)
+
+        assert sig.signal == "HOLD"
+        assert "Breakout HOLD" in sig.reason  # Breakout gate, not ATR gate
+
     def test_unknown_regime_falls_back_to_ranging(self, engine):
         """If regime isn't in map, defaults to RANGING config."""
         # All regimes are in the map, but verify the .get() fallback path

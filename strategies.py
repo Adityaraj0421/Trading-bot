@@ -1283,6 +1283,12 @@ class StrategyEngine:
         },
     }
 
+    # Cycle 4: Minimum ATR/close ratio for TRENDING_UP and TRENDING_DOWN entries.
+    # Bars with atr_pct < 0.6% are tight consolidations where lagging MA indicators
+    # (Momentum, Ichimoku, EMACrossover) fire but the market isn't actually moving
+    # enough to overcome 0.15% round-trip fee drag.
+    ATR_FLOOR: float = 0.006  # 0.6% hourly ATR/close — rejects the quietest ~10-15% of bars
+
     def __init__(self, evolved_params: dict[str, dict[str, float]] | None = None) -> None:
         """Initialise all strategy instances with optional evolved parameters.
 
@@ -1374,6 +1380,23 @@ class StrategyEngine:
                 strategy_name="Ensemble",
                 reason=f"Regime:{regime.value} | RANGING skipped — no-trade zone (fee drag > edge)",
             )
+
+        # Cycle 4: ATR volatility floor for TRENDING_UP and TRENDING_DOWN.
+        # When hourly ATR/close < 0.6%, the market is in a quiet consolidation even within
+        # a trend. Lagging MA indicators (Momentum, Ichimoku, EMACrossover) cannot
+        # distinguish real trend continuation from micro-pauses at this resolution.
+        # 3yr backtest: Ensemble(Momentum,Ichimoku,EMACrossover) in TRENDING_UP was the
+        # dominant loser at 27-39% WR after Cycles 1-3. ATR gate targets these entries.
+        if regime in (MarketRegime.TRENDING_UP, MarketRegime.TRENDING_DOWN):
+            latest_atr_pct = float(df.iloc[-1].get("atr_pct", 1.0))
+            if latest_atr_pct < self.ATR_FLOOR:
+                self.last_signals = {}
+                return StrategySignal(
+                    signal="HOLD",
+                    confidence=0.4,
+                    strategy_name="Ensemble",
+                    reason=f"Regime:{regime.value} | ATR {latest_atr_pct:.3f} < floor {self.ATR_FLOOR:.3f} — low-volatility skip",
+                )
 
         config = self.REGIME_STRATEGY_MAP.get(regime, self.REGIME_STRATEGY_MAP[MarketRegime.RANGING])
         weights = config["weights"]
