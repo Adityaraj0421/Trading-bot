@@ -194,3 +194,81 @@ class TestFundingExtremeTrigger:
         trigger = FundingExtremeTrigger(symbol="BTC/USDT")
         signals = trigger.evaluate(funding_rate=0.0012)
         assert all(s.urgency == "high" for s in signals)
+
+
+# --- LiquiditySweepTrigger tests ---
+
+
+def make_sweep_long_df() -> pd.DataFrame:
+    """21-bar 1h DataFrame: equal lows cluster then sweep bar wicks below and closes above."""
+    n = 21
+    closes = [90000.0] * 10 + [89000.0] * 10 + [89500.0]  # recovery close on last bar
+    lows   = [88100.0] * 10 + [88050.0] * 10 + [87500.0]  # last bar wicks below zone
+    highs  = [91000.0] * 10 + [90000.0] * 10 + [90000.0]
+    opens  = [c * 0.999 for c in closes]
+    return pd.DataFrame({
+        "open": opens, "high": highs, "low": lows,
+        "close": closes, "volume": [1000.0] * n,
+    })
+
+
+def make_sweep_short_df() -> pd.DataFrame:
+    """21-bar 1h DataFrame: equal highs cluster then sweep bar wicks above and closes below."""
+    n = 21
+    closes = [95000.0] * 10 + [96000.0] * 10 + [95500.0]  # rejection close
+    highs  = [97100.0] * 10 + [97050.0] * 10 + [97600.0]  # last bar wicks above zone
+    lows   = [94000.0] * 10 + [95000.0] * 10 + [94000.0]
+    opens  = [c * 1.001 for c in closes]
+    return pd.DataFrame({
+        "open": opens, "high": highs, "low": lows,
+        "close": closes, "volume": [1000.0] * n,
+    })
+
+
+def make_no_sweep_df() -> pd.DataFrame:
+    """Trending up bars — no equal highs/lows cluster."""
+    closes = np.linspace(88000.0, 96000.0, 21)
+    return pd.DataFrame({
+        "open": closes * 0.999, "high": closes * 1.005,
+        "low": closes * 0.995, "close": closes,
+        "volume": [1000.0] * 21,
+    })
+
+
+class TestLiquiditySweepTrigger:
+    def test_bullish_sweep_fires_long_signal(self):
+        from triggers.liquidity_sweep import LiquiditySweepTrigger
+        trigger = LiquiditySweepTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_sweep_long_df())
+        assert len(signals) == 1
+        assert signals[0].direction == "long"
+        assert signals[0].source == "liquidity_sweep"
+        assert signals[0].strength == 0.65
+
+    def test_bearish_sweep_fires_short_signal(self):
+        from triggers.liquidity_sweep import LiquiditySweepTrigger
+        trigger = LiquiditySweepTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_sweep_short_df())
+        assert len(signals) == 1
+        assert signals[0].direction == "short"
+
+    def test_no_sweep_returns_empty(self):
+        from triggers.liquidity_sweep import LiquiditySweepTrigger
+        trigger = LiquiditySweepTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_no_sweep_df())
+        assert signals == []
+
+    def test_insufficient_data_returns_empty(self):
+        from triggers.liquidity_sweep import LiquiditySweepTrigger
+        trigger = LiquiditySweepTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_no_sweep_df().head(10))
+        assert signals == []
+
+    def test_signal_not_expired(self):
+        from datetime import UTC, datetime
+
+        from triggers.liquidity_sweep import LiquiditySweepTrigger
+        trigger = LiquiditySweepTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_sweep_long_df())
+        assert len(signals) == 1
+        assert signals[0].expires_at > datetime.now(UTC)
