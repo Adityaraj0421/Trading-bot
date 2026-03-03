@@ -1246,13 +1246,16 @@ class StrategyEngine:
 
     REGIME_STRATEGY_MAP = {
         MarketRegime.TRENDING_UP: {
-            # Cycle 5: EMACrossover weight 0.20→0.10 (lagging 9/21 EMA vote reduced),
-            # RSIDivergence 0.08→0.18 (forward-looking divergence confirmation boosted).
-            # Sum = 0.35+0.25+0.10+0.12+0.18 = 1.0. Reduces power of the
-            # Ensemble(Momentum,Ichimoku,EMACrossover) loser cluster in TRENDING_UP.
+            # Cycle 5: EMACrossover weight 0.20→0.10 (reduced lagging EMA vote).
+            # Cycle 8: Removed EMACrossover entirely from TRENDING_UP.
+            # Rationale: Ensemble(Momentum,Ichimoku,EMACrossover) was the top loser in
+            # every backtest cycle (20-40% WR). All three are lagging MA indicators —
+            # triple-MA confirmation fires after the move is nearly complete. EMACrossover
+            # stays in HIGH_VOLATILITY (Breakout combo is the top winner there).
+            # Redistributed 0.10 weight: M+0.03→0.38, I+0.02→0.27, OBV+0.03→0.15, RSI+0.02→0.20
             "primary": "Momentum",
-            "secondary": ["Ichimoku", "EMACrossover", "OBVDivergence", "RSIDivergence"],
-            "weights": {"Momentum": 0.35, "Ichimoku": 0.25, "EMACrossover": 0.10, "OBVDivergence": 0.12, "RSIDivergence": 0.18},
+            "secondary": ["Ichimoku", "OBVDivergence", "RSIDivergence"],
+            "weights": {"Momentum": 0.38, "Ichimoku": 0.27, "OBVDivergence": 0.15, "RSIDivergence": 0.20},
         },
         MarketRegime.TRENDING_DOWN: {
             # Cycle 1: Removed EMACrossover (generates false BUY on dead-cat EMA bounces)
