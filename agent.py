@@ -239,6 +239,7 @@ class TradingAgent:
         self._phase9_decision_logger = DecisionLogger(log_path=log_path)
         self._phase9_last_context_time: dict[str, float] = {}
         self._phase9_context: dict[str, Any] = {}
+        self._btc_swing_bias: str = "neutral"  # Phase 9: BTC dominance gate for SOL
         self._last_df_ind: dict[str, Any] = {}
         _log.info("Phase 9 Context+Trigger pipeline active (primary execution).")
 
@@ -698,6 +699,9 @@ class TradingAgent:
                     price_change_pct=price_change_pct,
                 )
                 self._phase9_context[symbol] = ctx
+                # Track BTC swing bias for SOL dominance gate
+                if symbol == "BTC/USDT":
+                    self._btc_swing_bias = ctx.swing_bias
                 self._phase9_last_context_time[symbol] = now
                 _log.debug(
                     "Phase 9 context [%s]: bias=%s tradeable=%s confidence=%.2f",
@@ -743,6 +747,19 @@ class TradingAgent:
             _log.debug("Phase 9 orderflow trigger failed for %s: %s", symbol, e)
 
         triggers = trigger_eng.valid_signals()
+
+        # BTC dominance gate — block SOL counter-trend entries
+        if symbol == "SOL/USDT" and triggers:
+            sol_direction = triggers[0].direction
+            if (self._btc_swing_bias == "bearish" and sol_direction == "long") or (
+                self._btc_swing_bias == "bullish" and sol_direction == "short"
+            ):
+                _log.info(
+                    "[Phase9] SOL entry blocked by BTC dominance (btc_bias=%s, sol=%s)",
+                    self._btc_swing_bias,
+                    sol_direction,
+                )
+                return
 
         # ── 4. Evaluate + log ───────────────────────────────────────────
         try:
@@ -846,6 +863,16 @@ class TradingAgent:
         self._last_df_ind[pair] = df_ind
 
         # 3. (Phase 8 retrain removed — model is no longer called in the agent loop)
+
+        # Phase 9: Partial TP at structural key levels (fires before full TP check)
+        _p9_ctx = self._phase9_context.get(pair)
+        if _p9_ctx is not None and hasattr(self.executor, "partial_close"):
+            for _pos in list(self.risk.positions):
+                if _pos.symbol != pair:
+                    continue
+                _frac = self.risk.check_partial_tp(_pos, current_price, _p9_ctx.key_levels)
+                if _frac is not None:
+                    self.executor.partial_close(_pos, _frac, current_price, reason="partial_tp")
 
         # 4. Check positions for THIS pair only (prevents cross-pair price contamination)
         # v9.1: Pass atr_pct for ATR-adaptive trailing stop
@@ -1153,6 +1180,29 @@ class TradingAgent:
                 take_profit,
                 strategy_name=strat_sig.strategy_name,
             )
+            # Phase 9: Populate partial TP levels from context key_levels
+            if pair in self._phase9_context and hasattr(pos, "partial_tp_levels"):
+                _kl = self._phase9_context[pair].key_levels
+                _risk = abs(pos.entry_price - pos.stop_loss)
+                _candidates: list[float] = []
+                if pos.side == "long":
+                    for _k in ("resistance", "pdh"):
+                        _lvl = _kl.get(_k)
+                        if _lvl and _lvl > pos.entry_price + _risk:
+                            _candidates.append(float(_lvl))
+                    _candidates.sort()
+                else:
+                    for _k in ("support", "pdl"):
+                        _lvl = _kl.get(_k)
+                        if _lvl and _lvl < pos.entry_price - _risk:
+                            _candidates.append(float(_lvl))
+                    _candidates.sort(reverse=True)
+                pos.partial_tp_levels = _candidates[:2]
+                if pos.partial_tp_levels:
+                    _log.info(
+                        "[Phase9] Partial TP levels for %s %s: %s",
+                        pair, pos.side, pos.partial_tp_levels,
+                    )
             self.log.log_trade_open(
                 pair,
                 side,
