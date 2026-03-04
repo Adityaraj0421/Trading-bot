@@ -77,10 +77,22 @@ class SwingAnalyzer:
             bias = "bearish"
             allowed = ["short"]
             confidence = 0.5 + (bearish_count / 3) * 0.4
+        elif bullish_count > bearish_count:
+            # Weak bullish structure — 1-of-3 EMA conditions met (e.g. close > EMA21)
+            bias = "bullish"
+            allowed = ["long"]
+            confidence = 0.60
+        elif bearish_count > bullish_count:
+            # Weak bearish structure — 1-of-3 EMA conditions met
+            bias = "bearish"
+            allowed = ["short"]
+            confidence = 0.60
         else:
+            # Truly neutral — EMA counts tied (0-0 or 1-1); allow both directions
+            # with reduced confidence so quality signals still have to clear threshold
             bias = "neutral"
-            allowed = []
-            confidence = 0.3
+            allowed = ["long", "short"]
+            confidence = 0.45
 
         # Key levels: recent 20-bar swing high/low as resistance/support
         window = min(20, len(df))

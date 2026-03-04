@@ -163,7 +163,12 @@ class Decision:
 
 
 # --- Score threshold (module-level constant, not buried in evaluate()) ---
-SCORE_THRESHOLD: float = 0.50
+# Lowered from 0.50 → 0.40 (Phase 9 tuning):
+# With ENABLE_ORDERBOOK=false, only MomentumTrigger fires (1 signal/bar).
+# Weak-bias context confidence sits at 0.60×session_mult (EU≈0.54, US≈0.60).
+# Threshold of 0.40 lets strong momentum signals through while still requiring
+# meaningful structural + indicator alignment to avoid low-quality trades.
+SCORE_THRESHOLD: float = 0.40
 
 
 def evaluate(context: ContextState, triggers: list[TriggerSignal]) -> Decision:
@@ -207,7 +212,11 @@ def evaluate(context: ContextState, triggers: list[TriggerSignal]) -> Decision:
     if not valid:
         return Decision(action="reject", reason="no_valid_triggers")
 
-    # Step 3: Directional consensus — 2+ triggers must agree on same direction
+    # Step 3: Directional consensus — prefer 2+ triggers; allow 1 high-strength trigger.
+    # Single-trigger path: strength ≥ 0.75 signals a high-confidence momentum reading
+    # and may trade without a confirming second source.  This matters when the orderbook
+    # intelligence provider is disabled (no OrderFlowTrigger signals) so MomentumTrigger
+    # is the only active source.
     by_dir: dict[str, list[TriggerSignal]] = {}
     for t in valid:
         by_dir.setdefault(t.direction, []).append(t)
@@ -216,7 +225,8 @@ def evaluate(context: ContextState, triggers: list[TriggerSignal]) -> Decision:
         by_dir.items(),
         key=lambda g: (len(g[1]), sum(t.strength for t in g[1])),
     )
-    if len(agreeing) < 2:
+    single_high_strength = len(agreeing) == 1 and agreeing[0].strength >= 0.75
+    if len(agreeing) < 2 and not single_high_strength:
         return Decision(action="reject", reason="insufficient_directional_agreement")
 
     # Step 4: Score

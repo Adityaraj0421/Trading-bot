@@ -74,15 +74,19 @@ class TestContextEngine:
         )
         assert ctx.valid_until > datetime.now(UTC)
 
-    def test_tradeable_false_when_no_allowed_directions(self):
+    def test_neutral_bias_allows_both_directions(self):
         engine = ContextEngine()
         snap = make_sideways_snapshot()
         ctx = engine.build(
             snap, funding_rate=None, net_whale_flow=None, oi_change_pct=None, price_change_pct=None
         )
-        # neutral → allowed_directions=[] → tradeable=False
+        # Phase 9 tuning: neutral EMA structure allows both directions with reduced
+        # confidence (0.45) rather than blocking all trading with allowed_directions=[].
+        # The score threshold (0.40) still filters low-quality signals.
         if ctx.swing_bias == "neutral":
-            assert ctx.tradeable is False
+            assert "long" in ctx.allowed_directions
+            assert "short" in ctx.allowed_directions
+            assert ctx.tradeable is True
 
     def test_risk_mode_defaults_to_normal(self):
         engine = ContextEngine()
