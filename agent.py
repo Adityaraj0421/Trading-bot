@@ -25,6 +25,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime
@@ -41,7 +42,7 @@ from decision import evaluate as phase9_evaluate
 from decision_engine import DecisionEngine
 from decision_logger import DecisionLogger
 from drift_detector import DriftDetector
-from executor import LiveExecutor, PaperExecutor
+from executor import LiveExecutor, PaperExecutor, PerpLiveExecutor, PerpPaperExecutor
 
 # v7.0: Production modules
 from graceful_shutdown import GracefulShutdown, RateLimiter
@@ -143,6 +144,19 @@ class TradingAgent:
             self.executor = PaperExecutor()
         else:
             self.executor = LiveExecutor(self.fetcher.exchange)
+
+        # Phase 10: Perp executor (paper or live based on TRADING_MODE)
+        self._use_perp: bool = os.getenv("USE_PERP", "false").lower() == "true"
+        if self._use_perp:
+            _perp_leverage = int(os.getenv("PERP_LEVERAGE", "3"))
+            if Config.is_paper_mode():
+                self.perp_executor: Any = PerpPaperExecutor(leverage=_perp_leverage)
+            else:
+                self.perp_executor = PerpLiveExecutor(
+                    self.fetcher.exchange, leverage=_perp_leverage
+                )
+        else:
+            self.perp_executor = self.executor  # safe degradation: route perp to spot
 
         self.cycle_count = 0
         self.last_train_time = None
@@ -644,6 +658,20 @@ class TradingAgent:
     # Phase 9: Context + Trigger pipeline
     # ------------------------------------------------------------------
 
+    def _resolve_executor(self, route: str) -> Any:
+        """Return the appropriate executor for the given decision route.
+
+        Args:
+            route: ``"spot"`` or ``"perp"`` from ``Decision.route``.
+
+        Returns:
+            ``self.perp_executor`` when ``route=="perp"`` and ``self._use_perp``
+            is ``True``, otherwise ``self.executor`` (spot executor).
+        """
+        if route == "perp" and self._use_perp:
+            return self.perp_executor
+        return self.executor
+
     def _run_phase9_cycle(self, symbol: str) -> None:
         """Run one Phase 9 context+trigger evaluation cycle for a symbol.
 
@@ -796,6 +824,7 @@ class TradingAgent:
                     suggested_sl_pct=Config.STOP_LOSS_PCT,
                     suggested_tp_pct=Config.TAKE_PROFIT_PCT,
                 )
+                active_executor = self._resolve_executor(decision.route or "spot")
                 try:
                     self._execute_trade(
                         trade_signal,
@@ -804,6 +833,7 @@ class TradingAgent:
                         df_ind,
                         strat_sig,
                         pair=symbol,
+                        executor=active_executor,
                     )
                 except Exception as e:
                     _log.error("Phase 9 trade execution failed for %s: %s", symbol, e)
@@ -1064,6 +1094,7 @@ class TradingAgent:
         position_mult: float = 1.0,
         intel_adjustment: float = 1.0,
         pair: str | None = None,
+        executor: Any = None,
     ) -> None:
         """Size, optionally confirm via Telegram, and place a trade.
 
@@ -1088,6 +1119,7 @@ class TradingAgent:
             pair: Trading pair symbol. Falls back to ``Config.TRADING_PAIR``.
         """
         pair = pair or Config.TRADING_PAIR
+        _exec = executor or self.executor
         allowed, reason = self.risk.can_open_position(signal, confidence, symbol=pair)
         if not allowed:
             print(f"  [!] Blocked: {reason}")
@@ -1168,7 +1200,7 @@ class TradingAgent:
                 return
             print("  [TG] Trade APPROVED")
 
-        order = self.executor.place_order(pair, side, quantity, price)
+        order = _exec.place_order(pair, side, quantity, price)
         if "error" not in order:
             self.rate_limiter.record_order()
             pos = self.risk.open_position(
