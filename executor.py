@@ -215,6 +215,8 @@ class LiveExecutor:
             Order dict with keys: id, symbol, side, quantity, price, pnl,
             reason, status, timestamp, mode.
         """
+        if not 0.0 < fraction < 1.0:
+            raise ValueError(f"fraction must be in (0, 1), got {fraction}")
         closed_qty = position.quantity * fraction
         # For a long: sell to reduce; for a short: buy to reduce
         order_side = "sell" if position.side == "long" else "buy"
