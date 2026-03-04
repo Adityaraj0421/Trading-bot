@@ -1170,6 +1170,11 @@ class RiskManager:
                     "strategy_name": p.strategy_name,
                     "entry_bar": p.entry_bar,
                     "breakeven_triggered": p.breakeven_triggered,
+                    # Perp fields (default 1/0.0 for spot positions)
+                    "leverage": p.leverage,
+                    "margin_used": p.margin_used,
+                    "liquidation_price": p.liquidation_price,
+                    "funding_pnl": p.funding_pnl,
                 }
                 for p in self.positions
             ],
@@ -1208,5 +1213,9 @@ class RiskManager:
                 lowest_price=p.get("lowest_price", p["entry_price"]),
                 entry_bar=p.get("entry_bar", 0),
                 breakeven_triggered=p.get("breakeven_triggered", False),
+                leverage=p.get("leverage", 1),
+                margin_used=p.get("margin_used", 0.0),
+                liquidation_price=p.get("liquidation_price", 0.0),
+                funding_pnl=p.get("funding_pnl", 0.0),
             )
             self.positions.append(pos)

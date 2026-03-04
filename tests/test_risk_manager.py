@@ -660,3 +660,21 @@ class TestPerpPositionFields:
         pos = self._make_position()
         assert pos.symbol == "BTC/USDT"
         assert pos.entry_price == 50_000.0
+
+    def test_perp_fields_survive_to_dict_from_dict_round_trip(self):
+        """leverage/margin_used/liquidation_price/funding_pnl survive serialization."""
+        import pytest
+
+        from risk_manager import RiskManager
+        rm = RiskManager(symbol="BTC/USDT")
+        pos = self._make_position(leverage=5, margin_used=1_000.0,
+                                   liquidation_price=40_000.0, funding_pnl=-2.5)
+        rm.positions = [pos]
+        state = rm.to_dict()
+        rm2 = RiskManager(symbol="BTC/USDT")
+        rm2.from_dict(state)
+        restored = rm2.positions[0]
+        assert restored.leverage == 5
+        assert restored.margin_used == pytest.approx(1_000.0)
+        assert restored.liquidation_price == pytest.approx(40_000.0)
+        assert restored.funding_pnl == pytest.approx(-2.5)
