@@ -313,8 +313,10 @@ class PerpLiveExecutor:
         Returns:
             ``True`` on success, ``False`` on error.
         """
+        if symbol is None:
+            _log.warning("[PerpLive] cancel_order called without symbol — Binance futures requires it")
         try:
-            self.exchange.cancel_order(order_id, symbol or "")
+            self.exchange.cancel_order(order_id, symbol or Config.TRADING_PAIR)
             return True
         except Exception as e:
             _log.error("[PerpLive] Cancel error: %s", e)

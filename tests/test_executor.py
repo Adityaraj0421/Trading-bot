@@ -400,3 +400,33 @@ class TestPerpLiveExecutor:
         ex = PerpLiveExecutor(mock_ex, leverage=3)
         result = ex.place_order("BTC/USDT", "long", 0.1, 50_000.0)
         assert "error" in result
+
+    def test_place_order_sell_side_for_short(self):
+        """place_order() maps 'short' to CCXT 'sell'."""
+        import ccxt
+
+        from executor import PerpLiveExecutor
+        mock_ex = MagicMock(spec=ccxt.Exchange)
+        mock_ex.create_market_order.return_value = {"id": "p2", "status": "closed", "average": 50_000.0, "filled": 0.1}
+        ex = PerpLiveExecutor(mock_ex, leverage=3)
+        ex.place_order("BTC/USDT", "short", 0.1, 50_000.0)
+        call_side = mock_ex.create_market_order.call_args[0][1]
+        assert call_side == "sell"
+
+    def test_open_position_sets_leverage_and_liquidation(self):
+        """open_position() sets leverage and computes liquidation_price correctly."""
+        from datetime import UTC, datetime
+
+        import ccxt
+
+        from executor import PerpLiveExecutor
+        mock_ex = MagicMock(spec=ccxt.Exchange)
+        ex = PerpLiveExecutor(mock_ex, leverage=5)
+        pos = ex.open_position(
+            symbol="BTC/USDT", side="long", entry_price=50_000.0,
+            quantity=0.1, entry_time=datetime.now(UTC),
+            stop_loss=48_000.0, take_profit=53_000.0,
+        )
+        assert pos.leverage == 5
+        assert pos.margin_used == pytest.approx(50_000.0 * 0.1 / 5)
+        assert pos.liquidation_price == pytest.approx(50_000.0 * (1 - 1 / 5))
