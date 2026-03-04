@@ -34,17 +34,18 @@ export default function Home() {
   const { data: modules } = useSWR(
     "/system/modules", () => api.getSystemModules(), { refreshInterval: 60000 }
   );
-  const { data: events } = useSWR(
-    "/autonomous/events", () => api.getAutonomousEvents(), { refreshInterval: 15000 }
+  const { data: lastDecisionData } = useSWR(
+    "/phase9/decisions?limit=1",
+    () => api.getPhase9Decisions(1),
+    { refreshInterval: 15000 }
   );
 
   const s = (status as Record<string, any>) || {};
   const isWaiting = !s.cycle;
   const hasError = statusErr || equityErr || tradesErr;
 
-  // Last Phase 9 decision event
-  const eventList = (events?.events as any[]) || [];
-  const lastEvent = eventList.length > 0 ? eventList[eventList.length - 1] : null;
+  // Last Phase 9 decision — from JSONL audit log (newest first)
+  const lastDecision = lastDecisionData?.decisions?.[0] ?? null;
 
   return (
     <div className="space-y-6">
@@ -95,21 +96,55 @@ export default function Home() {
 
           {/* Phase 9 Last Decision panel */}
           <div className="bg-slate-900 rounded-xl border border-violet-900/50 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-sm">🤖</span>
-              <h2 className="text-sm font-semibold text-violet-300">Phase 9 — Last Decision</h2>
-            </div>
-            {lastEvent ? (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <span className="text-xs font-medium text-violet-400 bg-violet-950/50 border border-violet-800 px-2 py-0.5 rounded-full">
-                  {lastEvent.type}
-                </span>
-                <span className="text-slate-300">{lastEvent.description}</span>
-                <span className="text-slate-600 text-xs ml-auto">
-                  {lastEvent.timestamp ? timeAgo(lastEvent.timestamp) : ""}
-                </span>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🤖</span>
+                <h2 className="text-sm font-semibold text-violet-300">Phase 9 — Last Decision</h2>
               </div>
-            ) : (
+              {lastDecision && (
+                <span className="text-xs text-slate-600">
+                  {timeAgo(lastDecision.ts)}
+                </span>
+              )}
+            </div>
+            {lastDecision ? (() => {
+              const ctx = lastDecision.context ?? {};
+              const dec = lastDecision.decision ?? {};
+              const isTraded = dec.action === "trade";
+              return (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm">
+                  {/* Symbol */}
+                  <span className="text-xs font-medium text-slate-300">
+                    {lastDecision.symbol ?? "—"}
+                  </span>
+                  {/* Action badge */}
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                    isTraded
+                      ? "text-emerald-400 bg-emerald-950/50 border-emerald-800"
+                      : "text-slate-500 bg-slate-800 border-slate-700"
+                  }`}>
+                    {dec.action ?? "—"}
+                  </span>
+                  {/* Reason */}
+                  <span className="text-slate-400 text-xs">{dec.reason ?? "—"}</span>
+                  {/* Context summary */}
+                  <span className={`text-xs ${
+                    ctx.swing_bias === "bullish" ? "text-emerald-400" :
+                    ctx.swing_bias === "bearish" ? "text-red-400" : "text-slate-500"
+                  }`}>
+                    {ctx.swing_bias ?? "—"}
+                  </span>
+                  <span className="text-slate-600 text-xs">
+                    conf {(ctx.confidence ?? 0).toFixed(3)}
+                  </span>
+                  {dec.score != null && (
+                    <span className="text-violet-400 text-xs ml-auto">
+                      score {dec.score.toFixed(3)}
+                    </span>
+                  )}
+                </div>
+              );
+            })() : (
               <p className="text-slate-600 text-sm">No decisions yet — agent is initializing…</p>
             )}
           </div>

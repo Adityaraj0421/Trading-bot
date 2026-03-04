@@ -761,6 +761,14 @@ class TradingAgent:
             except Exception as e:
                 _log.warning("Phase 9 context build failed for %s: %s", symbol, e)
 
+            # Feed funding rate to FundingExtremeTrigger (no-op when USE_PHASE9_PERP=false).
+            # Called here because funding_rate is scoped to this context-refresh block.
+            if funding_rate is not None and symbol in self._phase9_trigger_engines:
+                try:
+                    self._phase9_trigger_engines[symbol].on_funding_update(funding_rate)
+                except Exception as e:
+                    _log.debug("Phase 9 funding trigger failed for %s: %s", symbol, e)
+
         context = self._phase9_context.get(symbol)
         if context is None:
             return  # no valid context yet — skip evaluation
