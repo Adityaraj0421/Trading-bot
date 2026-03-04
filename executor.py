@@ -260,6 +260,142 @@ class PerpPaperExecutor:
         return order
 
 
+class PerpLiveExecutor:
+    """Places real leveraged perpetual futures orders via CCXT.
+
+    Uses market orders for both entry and exit. Closes use
+    ``reduceOnly=True`` to prevent accidentally opening new positions.
+
+    Args:
+        exchange: Authenticated CCXT exchange (Binance futures market).
+        leverage: Integer leverage multiplier (must match exchange setting).
+    """
+
+    def __init__(self, exchange: ccxt.Exchange, leverage: int = 3) -> None:
+        self.exchange = exchange
+        self.leverage = leverage
+
+    def place_order(
+        self, symbol: str, side: str, quantity: float, price: float
+    ) -> dict[str, Any]:
+        """Place a market order to open or add to a position.
+
+        Args:
+            symbol: Trading pair, e.g. ``"BTC/USDT"``.
+            side: ``"long"`` (buy) or ``"short"`` (sell).
+            quantity: Asset quantity.
+            price: Reference price (not used — market order fills at best).
+
+        Returns:
+            CCXT order dict on success; dict with ``"error"`` key on failure.
+        """
+        if side not in ("long", "short"):
+            raise ValueError(f"Invalid side '{side}': must be 'long' or 'short'")
+        ccxt_side = "buy" if side == "long" else "sell"
+        try:
+            order = self.exchange.create_market_order(symbol, ccxt_side, quantity)
+            _log.info("[PerpLive] %s %.6f %s (order: %s)", side.upper(), quantity, symbol, order.get("id"))
+            return order
+        except ccxt.InsufficientFunds as e:
+            _log.error("[PerpLive] Insufficient margin: %s", e)
+            return {"error": str(e)}
+        except ccxt.ExchangeError as e:
+            _log.error("[PerpLive] Exchange error: %s", e)
+            return {"error": str(e)}
+
+    def cancel_order(self, order_id: str, symbol: str | None = None) -> bool:
+        """Cancel an open order.
+
+        Args:
+            order_id: Exchange-assigned order ID.
+            symbol: Required by Binance futures API.
+
+        Returns:
+            ``True`` on success, ``False`` on error.
+        """
+        try:
+            self.exchange.cancel_order(order_id, symbol or "")
+            return True
+        except Exception as e:
+            _log.error("[PerpLive] Cancel error: %s", e)
+            return False
+
+    def open_position(self, **kwargs: Any) -> Any:
+        """Create a Position with perp-specific fields computed.
+
+        Accepts the same keyword arguments as ``Position.__init__``.
+        Delegates field computation to the same formulas as
+        ``PerpPaperExecutor``.
+
+        Returns:
+            ``Position`` instance with perp fields populated.
+        """
+        from risk_manager import Position
+
+        pos = Position(**kwargs)
+        pos.leverage = self.leverage
+        pos.margin_used = pos.entry_price * pos.quantity / self.leverage
+        if pos.side == "long":
+            pos.liquidation_price = pos.entry_price * (1 - 1 / self.leverage)
+        else:
+            pos.liquidation_price = pos.entry_price * (1 + 1 / self.leverage)
+        return pos
+
+    def partial_close(
+        self,
+        position: Any,
+        fraction: float,
+        current_price: float,
+        reason: str = "partial_tp",
+    ) -> dict[str, Any]:
+        """Close a fraction of the position with ``reduceOnly=True``.
+
+        Args:
+            position: Open ``Position`` object (quantity mutated in-place).
+            fraction: Fraction to close (e.g. ``0.50``).
+            current_price: Reference price for PnL estimation.
+            reason: Audit tag.
+
+        Returns:
+            Order dict or error dict.
+
+        Raises:
+            ValueError: If ``fraction`` is not in ``(0, 1)``.
+        """
+        if not 0.0 < fraction < 1.0:
+            raise ValueError(f"fraction must be in (0, 1), got {fraction}")
+        closed_qty = position.quantity * fraction
+        ccxt_side = "sell" if position.side == "long" else "buy"
+        try:
+            raw = self.exchange.create_market_order(
+                position.symbol, ccxt_side, closed_qty,
+                params={"reduceOnly": True},
+            )
+            filled_price = float(raw.get("average") or current_price)
+        except Exception as e:
+            _log.error("[PerpLive] partial_close failed: %s", e)
+            return {"error": str(e)}
+
+        if position.side == "long":
+            pnl = (filled_price - position.entry_price) * closed_qty
+        else:
+            pnl = (position.entry_price - filled_price) * closed_qty
+
+        position.quantity -= closed_qty
+        return {
+            "id": raw.get("id", "unknown"),
+            "symbol": position.symbol,
+            "side": ccxt_side,
+            "quantity": closed_qty,
+            "price": filled_price,
+            "pnl": pnl,
+            "reason": reason,
+            "status": "filled",
+            "timestamp": datetime.now().isoformat(),
+            "mode": "PERP_LIVE",
+        }
+
+
 class LiveExecutor:
     """Places real orders on the exchange via CCXT."""
 

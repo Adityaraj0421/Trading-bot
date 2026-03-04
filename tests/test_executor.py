@@ -338,3 +338,65 @@ class TestPerpPaperExecutor:
         order = ex.partial_close(pos, 0.5, 51_000.0)
         assert pos.quantity == pytest.approx(0.05)
         assert order["mode"] == "PERP_PAPER"
+
+
+class TestPerpLiveExecutor:
+    """PerpLiveExecutor — real CCXT futures orders via mocked exchange."""
+
+    def _make_position(self, side: str = "long") -> Any:
+        from datetime import UTC, datetime
+
+        from risk_manager import Position
+        return Position(
+            symbol="BTC/USDT", side=side, entry_price=50_000.0,
+            quantity=0.1, entry_time=datetime.now(UTC),
+            stop_loss=48_000.0, take_profit=53_000.0,
+            leverage=3,
+        )
+
+    def test_place_order_calls_create_market_order(self):
+        import ccxt
+
+        from executor import PerpLiveExecutor
+        mock_ex = MagicMock(spec=ccxt.Exchange)
+        mock_ex.create_market_order.return_value = {"id": "perp_1", "status": "closed", "average": 50_000.0, "filled": 0.1}
+        ex = PerpLiveExecutor(mock_ex, leverage=3)
+        ex.place_order("BTC/USDT", "long", 0.1, 50_000.0)
+        mock_ex.create_market_order.assert_called_once()
+
+    def test_place_order_buy_side_for_long(self):
+        import ccxt
+
+        from executor import PerpLiveExecutor
+        mock_ex = MagicMock(spec=ccxt.Exchange)
+        mock_ex.create_market_order.return_value = {"id": "p1", "status": "closed", "average": 50_000.0, "filled": 0.1}
+        ex = PerpLiveExecutor(mock_ex, leverage=3)
+        ex.place_order("BTC/USDT", "long", 0.1, 50_000.0)
+        call_side = mock_ex.create_market_order.call_args[0][1]
+        assert call_side == "buy"
+
+    def test_partial_close_uses_reduce_only(self):
+        import ccxt
+
+        from executor import PerpLiveExecutor
+        mock_ex = MagicMock(spec=ccxt.Exchange)
+        mock_ex.create_market_order.return_value = {"id": "p1", "status": "closed", "average": 51_000.0, "filled": 0.05}
+        ex = PerpLiveExecutor(mock_ex, leverage=3)
+        pos = self._make_position()
+        ex.partial_close(pos, 0.5, 51_000.0)
+        call_args = mock_ex.create_market_order.call_args[0]
+        call_kwargs = mock_ex.create_market_order.call_args[1] or {}
+        # params dict should contain reduceOnly=True
+        # The call is: create_market_order(symbol, side, qty, None, params={"reduceOnly": True})
+        params = call_args[3] if len(call_args) > 3 else call_kwargs.get("params", {})
+        assert params.get("reduceOnly") is True
+
+    def test_insufficient_funds_returns_error_dict(self):
+        import ccxt
+
+        from executor import PerpLiveExecutor
+        mock_ex = MagicMock(spec=ccxt.Exchange)
+        mock_ex.create_market_order.side_effect = ccxt.InsufficientFunds("no margin")
+        ex = PerpLiveExecutor(mock_ex, leverage=3)
+        result = ex.place_order("BTC/USDT", "long", 0.1, 50_000.0)
+        assert "error" in result
