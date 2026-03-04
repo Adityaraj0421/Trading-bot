@@ -535,3 +535,77 @@ class TestRiskManager:
         assert rm2.positions[1].side == "short"
         assert rm2.total_pnl == rm.total_pnl
         assert rm2.total_fees == rm.total_fees
+
+
+class TestPartialTP:
+    def _make_long_position(self, entry=100_000.0, sl=98_000.0, qty=0.1):
+        from datetime import UTC, datetime
+
+        from risk_manager import Position
+        return Position(
+            symbol="BTC/USDT",
+            side="long",
+            entry_price=entry,
+            quantity=qty,
+            entry_time=datetime.now(UTC),
+            stop_loss=sl,
+            take_profit=105_000.0,
+            partial_tp_levels=[102_000.0, 104_000.0],
+        )
+
+    def _make_short_position(self, entry=100_000.0, sl=102_000.0, qty=0.1):
+        from datetime import UTC, datetime
+
+        from risk_manager import Position
+        return Position(
+            symbol="BTC/USDT",
+            side="short",
+            entry_price=entry,
+            quantity=qty,
+            entry_time=datetime.now(UTC),
+            stop_loss=sl,
+            take_profit=96_000.0,
+            partial_tp_levels=[98_000.0, 96_500.0],
+        )
+
+    def test_returns_fraction_when_long_price_reaches_level(self):
+        from risk_manager import RiskManager
+        rm = RiskManager(symbol="BTC/USDT")
+        pos = self._make_long_position()
+        fraction = rm.check_partial_tp(pos, 102_500.0, {})
+        assert fraction == 0.50
+
+    def test_returns_none_when_long_price_below_level(self):
+        from risk_manager import RiskManager
+        rm = RiskManager(symbol="BTC/USDT")
+        pos = self._make_long_position()
+        fraction = rm.check_partial_tp(pos, 101_000.0, {})
+        assert fraction is None
+
+    def test_marks_level_used_to_prevent_refire(self):
+        from risk_manager import RiskManager
+        rm = RiskManager(symbol="BTC/USDT")
+        pos = self._make_long_position()
+        rm.check_partial_tp(pos, 102_500.0, {})   # fires first level (102k)
+        fraction2 = rm.check_partial_tp(pos, 102_500.0, {})  # same price, level consumed
+        assert fraction2 is None   # first level consumed; second (104k) not reached
+
+    def test_short_triggers_on_price_below_level(self):
+        from risk_manager import RiskManager
+        rm = RiskManager(symbol="BTC/USDT")
+        pos = self._make_short_position()
+        fraction = rm.check_partial_tp(pos, 97_500.0, {})
+        assert fraction == 0.50
+
+    def test_empty_partial_tp_levels_returns_none(self):
+        from datetime import UTC, datetime
+
+        from risk_manager import Position, RiskManager
+        rm = RiskManager(symbol="BTC/USDT")
+        pos = Position(
+            symbol="BTC/USDT", side="long",
+            entry_price=100_000.0, quantity=0.1,
+            entry_time=datetime.now(UTC),
+            stop_loss=98_000.0, take_profit=105_000.0,
+        )
+        assert rm.check_partial_tp(pos, 105_000.0, {}) is None

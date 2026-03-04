@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
@@ -42,6 +42,9 @@ class Position:
     entry_bar: int = 0  # Bar count at entry (for max hold)
     # v9.1: Breakeven stop — set True once SL has been moved to entry
     breakeven_triggered: bool = False
+    # Partial TP tracking
+    partial_tp_levels: list[float] = field(default_factory=list)
+    partial_exits: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Finalize position initialization after the dataclass ``__init__``.
@@ -245,14 +248,20 @@ class RiskManager:
     DD_TIER2_PCT = 0.10  # -10%: reduce risk 50%, A-setups only
     DD_TIER3_PCT = 0.15  # -15%: halt trading 24h, review
 
-    def __init__(self) -> None:
+    def __init__(self, symbol: str = "") -> None:
         """Initialize the risk manager with capital set to ``Config.INITIAL_CAPITAL``.
 
         Sets up empty position and trade-history lists, resets daily/total PnL
         counters, initializes volatility-adaptive state (rolling returns, peak
         capital, halt timer), and creates the internal threading lock used for
         atomic check-and-open operations.
+
+        Args:
+            symbol: Optional trading pair symbol (e.g. ``"BTC/USDT"``). Unused
+                internally but accepted for compatibility with per-symbol
+                instantiation patterns in tests and future callers.
         """
+        self.symbol = symbol
         self.capital = Config.INITIAL_CAPITAL
         self.positions: list[Position] = []
         self.trade_history: list[TradeRecord] = []
@@ -791,6 +800,52 @@ class RiskManager:
                 take_profit = entry_price * 0.97
 
         return round(stop_loss, 2), round(take_profit, 2)
+
+    def check_partial_tp(
+        self,
+        position: Position,
+        current_price: float,
+        key_levels: dict,
+    ) -> float | None:
+        """Return 0.50 exit fraction if the next unused partial TP level is hit.
+
+        Args:
+            position: The open Position (mutated to record the exit).
+            current_price: Latest price for the symbol.
+            key_levels: ContextState key_levels dict (unused currently, reserved
+                for future structural-level refinements).
+
+        Returns:
+            0.50 if a partial TP fires, None otherwise.
+        """
+        if not position.partial_tp_levels:
+            return None
+
+        used_levels = {e["level"] for e in position.partial_exits}
+
+        for level in position.partial_tp_levels:
+            if level in used_levels:
+                continue
+            if position.side == "long" and current_price >= level:
+                position.partial_exits.append(
+                    {"level": level, "price": current_price}
+                )
+                _log.info(
+                    "[PartialTP] %s long hit %.2f @ %.2f",
+                    position.symbol, level, current_price,
+                )
+                return 0.50
+            if position.side == "short" and current_price <= level:
+                position.partial_exits.append(
+                    {"level": level, "price": current_price}
+                )
+                _log.info(
+                    "[PartialTP] %s short hit %.2f @ %.2f",
+                    position.symbol, level, current_price,
+                )
+                return 0.50
+
+        return None
 
     def _regime_sltp_multipliers(self, regime: str) -> tuple[float, float]:
         """Return ``(SL multiplier, TP multiplier)`` for the given market regime.
