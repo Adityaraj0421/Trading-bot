@@ -766,6 +766,12 @@ class TradingAgent:
             return  # no valid context yet — skip evaluation
 
         # ── 3. Collect triggers ─────────────────────────────────────────
+        if symbol not in self._phase9_trigger_engines:
+            _log.warning(
+                "Phase 9: no TriggerEngine for %s — pair not in TRADING_PAIRS at startup, skipping",
+                symbol,
+            )
+            return
         trigger_eng = self._phase9_trigger_engines[symbol]
         try:
             if snapshot.df_1h is not None:
