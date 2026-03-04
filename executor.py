@@ -194,3 +194,63 @@ class LiveExecutor:
         except Exception as e:
             _log.error("[Live] Cancel error: %s", e)
             return False
+
+    def partial_close(
+        self,
+        position: Any,
+        fraction: float,
+        current_price: float,
+        reason: str = "partial_tp",
+    ) -> dict[str, Any]:
+        """Place a market order to close a fraction of the position.
+
+        Args:
+            position: Open Position object (quantity is mutated in-place).
+            fraction: Fraction to close, e.g. ``0.50`` for 50%.
+            current_price: Reference price for PnL estimation (actual fill
+                may differ).
+            reason: Tag for the audit trail (e.g. ``"partial_tp"``).
+
+        Returns:
+            Order dict with keys: id, symbol, side, quantity, price, pnl,
+            reason, status, timestamp, mode.
+        """
+        closed_qty = position.quantity * fraction
+        # For a long: sell to reduce; for a short: buy to reduce
+        order_side = "sell" if position.side == "long" else "buy"
+        try:
+            raw = self.exchange.create_market_order(
+                position.symbol, order_side, closed_qty
+            )
+            filled_price = float(raw.get("average") or current_price)
+        except Exception as e:
+            _log.error("[Live] partial_close failed: %s", e)
+            return {"error": str(e)}
+
+        if position.side == "long":
+            pnl = (filled_price - position.entry_price) * closed_qty
+        else:
+            pnl = (position.entry_price - filled_price) * closed_qty
+
+        position.quantity -= closed_qty
+
+        order = {
+            "id": raw.get("id", "unknown"),
+            "symbol": position.symbol,
+            "side": order_side,
+            "quantity": closed_qty,
+            "price": filled_price,
+            "pnl": pnl,
+            "reason": reason,
+            "status": "filled",
+            "timestamp": datetime.now().isoformat(),
+            "mode": "LIVE",
+        }
+        _log.info(
+            "[Live] Partial close %.0f%% of %s @ $%,.2f (PnL: $%.2f)",
+            fraction * 100,
+            position.symbol,
+            filled_price,
+            pnl,
+        )
+        return order

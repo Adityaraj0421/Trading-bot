@@ -4,6 +4,7 @@ Covers order placement, cancellation, error handling, and edge cases.
 """
 
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import ccxt
@@ -191,3 +192,72 @@ class TestPartialClose:
         order = executor.partial_close(pos, fraction=0.5, current_price=102_000.0, reason="partial_tp")
         # PnL = (102000 - 100000) * 0.5 qty = 1000
         assert order["pnl"] == pytest.approx(1000.0)
+
+
+class TestLiveExecutorPartialClose:
+    """LiveExecutor.partial_close() — real order via mocked exchange."""
+
+    def _make_position(self, side: str = "long") -> Any:
+        from risk_manager import Position
+        from datetime import datetime, UTC
+        return Position(
+            symbol="BTC/USDT",
+            side=side,
+            entry_price=50_000.0,
+            quantity=0.1,
+            entry_time=datetime.now(UTC),
+            stop_loss=48_000.0,
+            take_profit=53_000.0,
+        )
+
+    def test_partial_close_places_market_order(self):
+        """partial_close() calls exchange.create_market_order with correct qty."""
+        import ccxt
+        from executor import LiveExecutor
+
+        mock_exchange = MagicMock(spec=ccxt.Exchange)
+        mock_exchange.create_market_order.return_value = {
+            "id": "live_partial_1",
+            "status": "closed",
+            "filled": 0.05,
+            "average": 51_000.0,
+        }
+        executor = LiveExecutor(mock_exchange)
+        pos = self._make_position()
+
+        order = executor.partial_close(pos, 0.5, 51_000.0)
+
+        mock_exchange.create_market_order.assert_called_once()
+        call_kwargs = mock_exchange.create_market_order.call_args
+        assert call_kwargs[0][0] == "BTC/USDT"   # symbol
+        assert call_kwargs[0][2] == pytest.approx(0.05)  # qty = 0.1 * 0.5
+
+    def test_partial_close_reduces_position_quantity(self):
+        """partial_close() mutates position.quantity by the closed fraction."""
+        import ccxt
+        from executor import LiveExecutor
+
+        mock_exchange = MagicMock(spec=ccxt.Exchange)
+        mock_exchange.create_market_order.return_value = {"id": "x", "status": "closed", "filled": 0.05, "average": 51_000.0}
+        executor = LiveExecutor(mock_exchange)
+        pos = self._make_position()
+
+        executor.partial_close(pos, 0.5, 51_000.0)
+
+        assert pos.quantity == pytest.approx(0.05)
+
+    def test_partial_close_returns_order_dict(self):
+        """partial_close() returns a dict with expected keys."""
+        import ccxt
+        from executor import LiveExecutor
+
+        mock_exchange = MagicMock(spec=ccxt.Exchange)
+        mock_exchange.create_market_order.return_value = {"id": "live_1", "status": "closed", "filled": 0.05, "average": 51_000.0}
+        executor = LiveExecutor(mock_exchange)
+        pos = self._make_position()
+
+        order = executor.partial_close(pos, 0.5, 51_000.0)
+
+        assert order["status"] == "filled"
+        assert order["quantity"] == pytest.approx(0.05)
+        assert order["mode"] == "LIVE"
