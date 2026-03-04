@@ -19,6 +19,7 @@ Autonomous crypto trading agent (Python 3.14 + Next.js 16) that trades BTC/USDT,
 | Phase 7 | RANGING made unconditional no-trade zone in `StrategyEngine.run()` — returns HOLD before any strategy runs. 3-yr walk-forward: BTC −0.53%, ETH −1.26%, SOL **−0.97%** (SOL +1.50pp vs baseline, trade counts halved: 670/578/429→255/199/185). New dominant loser: `Ensemble(EMACrossover, Momentum)` in TRENDING_DOWN (105 SOL trades/−$108; 47 ETH trades/−$57). 988 tests. |
 | Phase 8 | 10-cycle improvement loop using 3-yr walk-forward backtest (BTC/ETH/SOL). Baseline C1: −0.53%/−1.26%/−0.97%. Final C8: −0.12%/−0.54%/−0.47% (**+0.54pp avg vs baseline**). Cycles: C1 TRENDING_DOWN revamp, C2 HIGH_VOL Breakout gate, C3 direction gates + MIN_CONF 0.68, C4 ATR floor 0.6%, C5 EMA weight cut + ATR 0.8%, C6 TRENDING_DOWN no-trade zone, C7 regime-adaptive trailing stop (TRENDING_UP 2.5%/HIGH_VOL 2.0%), C8 EMACrossover removed from TRENDING_UP entirely. 963 tests. |
 | Phase 9 | Context + Trigger architecture — `ContextEngine` (SwingAnalyzer/FundingAnalyzer/WhaleAnalyzer/OITrendAnalyzer) → `TriggerEngine` (MomentumTrigger/OrderFlowTrigger + optional LiquidationTrigger/FundingExtremeTrigger) → `evaluate()` → `Decision`. **Phase 9 is now the primary execution pipeline**: `_run_pair_cycle()` stripped to exit management only; `_run_phase9_cycle()` drives all trade entry via `_execute_trade()`. Phase 8 code (strategies.py, decision_engine.py, ML, RL) kept for backtest scripts, never called from agent loop. Phase 9 backtest (1yr BTC/ETH/SOL): avg −0.03% (7/9/6 trades). Decision log: `data/phase9_decisions.jsonl`. |
+| Phase 9 Enhancements | Funding extreme gate in `evaluate()` (`effective_allowed` list blocks crowded-side trading); `LiquiditySweepTrigger` — equal-highs/lows cluster sweep detection (strength 0.65, 75min TTL), wired into `TriggerEngine.on_1h_close()`; Partial TP system — `Position.partial_tp_levels/partial_exits` + `RiskManager.check_partial_tp()` + `PaperExecutor.partial_close()`; BTC dominance gate blocks SOL counter-trend entries when `_btc_swing_bias` conflicts. 1168 tests. |
 
 ## Architecture
 
@@ -39,6 +40,7 @@ agent.py (main loop, runs in background thread)
     ├── trigger_engine.py         → Manages TriggerSignal TTL + consensus
     ├── triggers/momentum.py      → 1h RSI + MACD zero-cross + volume
     ├── triggers/orderflow.py     → CVD divergence + order imbalance
+    ├── triggers/liquidity_sweep.py → Equal-highs/lows sweep detection (strength 0.65, 75min TTL)
     ├── decision.py               → evaluate() → Decision(action, direction, score)
     ├── decision_logger.py        → JSONL audit log (data/phase9_decisions.jsonl)
     ├── multi_timeframe_fetcher.py→ Fetches 1h/4h/15m DataSnapshot per symbol
@@ -105,7 +107,7 @@ make help         # Show all available commands
 
 ## Testing
 
-- **Framework**: pytest (tests/ directory, 46 test files, 988 tests)
+- **Framework**: pytest (tests/ directory, ~50 test files, 1168 tests)
 - **Run**: `make test` or `./venv/bin/python -m pytest tests/ -v`
 - **Linting**: `make lint` (ruff) — should report 0 errors
 - **API tests**: `tests/test_api.py` — uses TestClient with auth header injection
@@ -209,3 +211,10 @@ All domain exceptions inherit from `TradingError` (in `exceptions.py`):
 - **Phase 9 context.build() signature**: `ContextEngine.build(snapshot, funding_rate, net_whale_flow, oi_change_pct, price_change_pct)` — all four market-data args are required (pass `None` when unavailable). SwingAnalyzer uses `snapshot.df_4h`; other analyzers use the scalar args.
 - **USE_PHASE9_PIPELINE flag**: Config default changed to `"true"`. The `.env` line `USE_PHASE9_PIPELINE=true` was removed (redundant). To disable Phase 9 for debugging, add `USE_PHASE9_PIPELINE=false` to `.env`.
 - **Phase 9 1yr backtest**: `scripts/backtest_phase9_1yr.py` — fetches 1yr 1h+4h OHLCV, bar-by-bar simulation with 75min trigger TTL carry. Results: BTC −0.25% (7 trades), ETH −0.45% (9 trades), SOL +0.62% (6 trades), avg −0.03%. Trade counts will increase as more trigger types fire with live perp data.
+- **Funding extreme gate reason string**: `evaluate()` returns `reason="funding_extreme_blocks_direction"` (exact). Test assertions must use `==` not `in` — project convention is exact string matching for all Decision reason codes.
+- **`LiquiditySweepTrigger` window exclusion**: Cluster window MUST use `df.iloc[:-1].tail(20)`, NOT `df.tail(20)`. Excluding the current bar is required — otherwise `current["low"] < zone_low` is structurally impossible because the current bar's low IS the minimum in the window, making sweep detection never fire.
+- **`field(default_factory=list)` for mutable Position fields**: `Position.partial_tp_levels` and `partial_exits` use `field(default_factory=list)` — never `default=[]` in a dataclass. A bare `[]` default is shared across all instances (Python gotcha), causing cross-position contamination.
+- **`partial_close()` only on PaperExecutor**: `LiveExecutor` does not implement `partial_close()`. Always guard with `hasattr(self.executor, "partial_close")` before calling in agent code — omitting the guard causes `AttributeError` in live mode at runtime.
+- **Partial TP loop order in `_run_pair_cycle()`**: The partial TP loop (`check_partial_tp` → `partial_close`) must execute BEFORE `self.risk.check_positions()`. If `check_positions()` runs first and triggers a full-TP exit, the position is closed and the partial TP loop has nothing to act on. Always: partial TP → full position check.
+- **`_btc_swing_bias` on TradingAgent**: `self._btc_swing_bias: str = "neutral"` is updated every BTC/USDT context refresh in `_run_phase9_cycle()`. SOL entries are gated: if `btc_swing_bias == "bearish"` and trigger is `"long"` (or vice-versa), `_run_phase9_cycle()` returns early before `evaluate()`. ETH has no gate — ETH can diverge from BTC. Initialised to `"neutral"` so first SOL cycle before any BTC context is never blocked.
+- **`tradeable` numpy bool in ContextState**: `ContextEngine.build()` computes `tradeable` from pandas comparisons which yield `numpy.bool_`. Always wrap: `tradeable = bool(expr)`. Without the wrap, `assert ctx.tradeable is True` fails even when the value is truthy, because `numpy.bool_(True) is True` is `False` in Python's identity check.
