@@ -282,14 +282,21 @@ class TradingAgent:
         """Register cleanup callbacks with the graceful-shutdown handler.
 
         Callbacks are invoked in registration order when the agent receives a
-        shutdown signal. Registered in order: WebSocket streamer stop, state
-        save, trade DB close, and shutdown notification.
+        shutdown signal. Registered in order: WebSocket streamer stop, WsFeed
+        kline thread stop, state save, trade DB close, and shutdown notification.
         """
         # Stop WebSocket streamer
         if self.ws_streamer:
             self.shutdown_handler.register_callback(
                 "websocket_streamer",
                 lambda: self.ws_streamer.stop(),
+            )
+
+        # Stop WsFeed kline thread (Phase 10)
+        if self._ws_feed is not None:
+            self.shutdown_handler.register_callback(
+                "ws_feed",
+                lambda: self._ws_feed.stop(),
             )
 
         # Save state

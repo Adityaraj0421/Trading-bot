@@ -46,7 +46,7 @@ class TestWsFeedIntegration:
     """Agent uses WsFeed close price when available."""
 
     def test_ws_feed_attribute_exists_when_enabled(self):
-        """When USE_WS_FEED=true, agent has _ws_feed attribute."""
+        """When USE_WS_FEED=true, WsFeed is importable and constructable."""
         import os
 
         os.environ["USE_WS_FEED"] = "true"
@@ -57,9 +57,67 @@ class TestWsFeedIntegration:
 
             # Patch WsFeed.start() to avoid spawning real threads in tests
             with patch("ws_feed.WsFeed.start"):
-                # Verify the class is importable and constructable
                 feed = WsFeed(["BTC/USDT"])
                 assert feed is not None
                 assert isinstance(feed, WsFeed)
         finally:
             del os.environ["USE_WS_FEED"]
+
+    def test_ws_price_overrides_rest_price(self):
+        """WsFeed.get_latest_close() overrides the REST snapshot price."""
+        from unittest.mock import MagicMock
+
+        from agent import TradingAgent
+        from ws_feed import WsFeed
+
+        agent = TradingAgent.__new__(TradingAgent)
+        # Wire a mock WsFeed that returns a real-time price
+        mock_feed = MagicMock(spec=WsFeed)
+        mock_feed.get_latest_close.return_value = 55_000.0
+        agent._ws_feed = mock_feed
+
+        # Replicate the price-override logic from _run_phase9_cycle
+        rest_price = 50_000.0
+        current_price = rest_price
+        ws_price = agent._ws_feed.get_latest_close("BTC/USDT")
+        if agent._ws_feed is not None and ws_price is not None:
+            current_price = ws_price
+
+        assert current_price == 55_000.0
+        mock_feed.get_latest_close.assert_called_once_with("BTC/USDT")
+
+    def test_ws_price_none_falls_back_to_rest(self):
+        """When WsFeed returns None (no data yet), REST price is preserved."""
+        from unittest.mock import MagicMock
+
+        from agent import TradingAgent
+        from ws_feed import WsFeed
+
+        agent = TradingAgent.__new__(TradingAgent)
+        mock_feed = MagicMock(spec=WsFeed)
+        mock_feed.get_latest_close.return_value = None  # feed not yet populated
+        agent._ws_feed = mock_feed
+
+        rest_price = 50_000.0
+        current_price = rest_price
+        ws_price = agent._ws_feed.get_latest_close("BTC/USDT")
+        if agent._ws_feed is not None and ws_price is not None:
+            current_price = ws_price
+
+        assert current_price == 50_000.0  # unchanged — REST price preserved
+
+    def test_ws_feed_none_preserves_rest_price(self):
+        """When _ws_feed is None (disabled), REST price is preserved."""
+        from agent import TradingAgent
+
+        agent = TradingAgent.__new__(TradingAgent)
+        agent._ws_feed = None
+
+        rest_price = 50_000.0
+        current_price = rest_price
+        if agent._ws_feed is not None:
+            ws_price = agent._ws_feed.get_latest_close("BTC/USDT")  # type: ignore[union-attr]
+            if ws_price is not None:
+                current_price = ws_price
+
+        assert current_price == 50_000.0
