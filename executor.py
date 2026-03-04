@@ -84,6 +84,8 @@ class PaperExecutor:
             Order dict with keys: id, symbol, side, quantity, price, pnl,
             reason, status, timestamp, mode.
         """
+        if not 0.0 < fraction < 1.0:
+            raise ValueError(f"fraction must be in (0, 1), got {fraction}")
         closed_qty = position.quantity * fraction
         if position.side == "long":
             pnl = (current_price - position.entry_price) * closed_qty
@@ -159,6 +161,7 @@ class PerpPaperExecutor:
             "timestamp": datetime.now().isoformat(),
         }
         self.orders.append(order)
+        _log.info("[PerpPaper] %s %.6f %s @ $%,.2f", side.upper(), quantity, symbol, price)
         return order
 
     def open_position(self, **kwargs: Any) -> Any:
