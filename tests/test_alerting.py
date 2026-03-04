@@ -44,3 +44,20 @@ class TestAlerting:
         al = Alerting(notifier=notifier)
         al.liquidation_proximity("BTC/USDT", mark_price=60_000.0, liquidation_price=50_000.0)
         notifier.notify_error.assert_not_called()
+
+    def test_liquidation_proximity_alert_at_exact_threshold(self):
+        """liquidation_proximity() fires when exactly at 10% threshold."""
+        from alerting import Alerting
+        notifier = MagicMock()
+        al = Alerting(notifier=notifier)
+        # mark price exactly 10% above liquidation — inside the danger zone
+        al.liquidation_proximity("BTC/USDT", mark_price=55_000.0, liquidation_price=50_000.0)
+        notifier.notify_error.assert_called_once()
+
+    def test_liquidation_proximity_zero_liq_price_no_raise(self):
+        """liquidation_price=0 returns silently without dividing by zero."""
+        from alerting import Alerting
+        notifier = MagicMock()
+        al = Alerting(notifier=notifier)
+        al.liquidation_proximity("BTC/USDT", mark_price=50_000.0, liquidation_price=0.0)
+        notifier.notify_error.assert_not_called()

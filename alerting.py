@@ -62,7 +62,7 @@ class Alerting:
         if liquidation_price <= 0:
             return
         proximity = abs(mark_price - liquidation_price) / liquidation_price
-        if proximity < _LIQUIDATION_PROXIMITY_THRESHOLD:
+        if proximity <= _LIQUIDATION_PROXIMITY_THRESHOLD:
             self.alert(
                 f"{symbol} liquidation proximity {proximity:.1%} "
                 f"(mark={mark_price:,.0f}, liq={liquidation_price:,.0f})",
