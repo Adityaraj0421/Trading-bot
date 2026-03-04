@@ -1,13 +1,6 @@
 // ============================================================
 // page.tsx - Home / Overview page (the main dashboard)
 // ============================================================
-// This is the first page users see. It shows:
-//   - Key metrics (capital, PnL, win rate, regime)
-//   - Equity curve chart
-//   - Recent trades table
-//
-// Data refreshes every 5 seconds using the SWR library.
-// "use client" is required because we use React hooks (useSWR).
 
 "use client";
 
@@ -20,9 +13,15 @@ import ErrorBanner from "@/components/ErrorBanner";
 import PageSkeleton from "@/components/PageSkeleton";
 import api from "@/lib/api";
 
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  return `${Math.floor(m / 60)}h ago`;
+}
+
 export default function Home() {
-  // SWR handles initial load + fallback polling (30s).
-  // WebSocket pushes inject data into these same cache keys for real-time updates.
   const { data: status, error: statusErr, isLoading: statusLoading } = useSWR(
     "/status", () => api.getStatus(), { refreshInterval: 30000 }
   );
@@ -35,15 +34,21 @@ export default function Home() {
   const { data: modules } = useSWR(
     "/system/modules", () => api.getSystemModules(), { refreshInterval: 60000 }
   );
+  const { data: events } = useSWR(
+    "/autonomous/events", () => api.getAutonomousEvents(), { refreshInterval: 15000 }
+  );
 
-  // "s" is a shortcut for the status data (or empty object if loading)
   const s = (status as Record<string, any>) || {};
   const isWaiting = !s.cycle;
   const hasError = statusErr || equityErr || tradesErr;
 
+  // Last Phase 9 decision event
+  const eventList = (events?.events as any[]) || [];
+  const lastEvent = eventList.length > 0 ? eventList[eventList.length - 1] : null;
+
   return (
     <div className="space-y-6">
-      {/* Page header with status badge */}
+      {/* Page header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Dashboard</h1>
         {s.autonomous && <StatusBadge state={s.autonomous.state} />}
@@ -51,15 +56,14 @@ export default function Home() {
 
       <ErrorBanner error={hasError || undefined} />
 
-      {/* Loading skeleton */}
       {statusLoading && !s.cycle && !hasError ? (
         <PageSkeleton />
       ) : isWaiting ? (
-        // Show a "waiting" message if the agent hasn't started yet
-        <div className="text-center py-20 text-gray-500">
-          <p className="text-lg">Waiting for agent to start...</p>
-          <p className="text-sm mt-2">
-            Start the agent with: python -m api.server
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-10 h-10 rounded-full border-2 border-cyan-500/30 border-t-cyan-400 animate-spin mb-4" />
+          <p className="text-slate-400 font-medium">Waiting for agent to start…</p>
+          <p className="text-slate-600 text-sm mt-2">
+            Run: <code className="text-cyan-500 font-mono">python -m api.server</code>
           </p>
         </div>
       ) : (
@@ -78,8 +82,8 @@ export default function Home() {
             />
             <MetricCard
               label="Win Rate"
-              value={`${((s.win_rate || 0) * 100).toFixed(1)}%`}
-              subtext={`${s.total_trades || 0} trades`}
+              value={s.total_trades ? `${((s.win_rate || 0) * 100).toFixed(1)}%` : "—"}
+              subtext={s.total_trades ? `${s.total_trades} trades` : "no trades yet"}
             />
             <MetricCard
               label="Regime"
@@ -89,130 +93,195 @@ export default function Home() {
             />
           </div>
 
-          {/* v7.0 System Modules status */}
+          {/* Phase 9 Last Decision panel */}
+          <div className="bg-slate-900 rounded-xl border border-violet-900/50 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm">🤖</span>
+              <h2 className="text-sm font-semibold text-violet-300">Phase 9 — Last Decision</h2>
+            </div>
+            {lastEvent ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span className="text-xs font-medium text-violet-400 bg-violet-950/50 border border-violet-800 px-2 py-0.5 rounded-full">
+                  {lastEvent.type}
+                </span>
+                <span className="text-slate-300">{lastEvent.description}</span>
+                <span className="text-slate-600 text-xs ml-auto">
+                  {lastEvent.timestamp ? timeAgo(lastEvent.timestamp) : ""}
+                </span>
+              </div>
+            ) : (
+              <p className="text-slate-600 text-sm">No decisions yet — agent is initializing…</p>
+            )}
+          </div>
+
+          {/* System Modules */}
           {modules && (
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
-              <h2 className="text-sm font-semibold text-gray-300 mb-3">System Modules</h2>
-              <div className="flex gap-3 flex-wrap">
-                {/* WebSocket */}
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  modules.websocket?.enabled
-                    ? "bg-green-900/50 text-green-400 border border-green-700"
-                    : "bg-gray-700 text-gray-500 border border-gray-600"
-                }`}>
-                  WebSocket: {modules.websocket?.enabled ? "ON" : "OFF"}
-                </span>
-                {/* Notifications */}
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  modules.notifications?.enabled
-                    ? "bg-green-900/50 text-green-400 border border-green-700"
-                    : "bg-gray-700 text-gray-500 border border-gray-600"
-                }`}>
-                  Alerts: {modules.notifications?.enabled
-                    ? [
-                        modules.notifications.channels?.telegram && "TG",
-                        modules.notifications.channels?.discord && "DC",
-                        modules.notifications.channels?.email && "EM",
-                      ].filter(Boolean).join("+") || "ON"
-                    : "OFF"}
-                </span>
-                {/* Trade DB */}
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  modules.trade_db?.enabled
-                    ? "bg-green-900/50 text-green-400 border border-green-700"
-                    : "bg-gray-700 text-gray-500 border border-gray-600"
-                }`}>
-                  Trade DB: {modules.trade_db?.enabled ? "ON" : "OFF"}
-                </span>
-                {/* Intelligence */}
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  modules.intelligence?.enabled
-                    ? "bg-green-900/50 text-green-400 border border-green-700"
-                    : "bg-gray-700 text-gray-500 border border-gray-600"
-                }`}>
-                  Intel: {modules.intelligence?.enabled
-                    ? `${modules.intelligence.providers_enabled}/5`
-                    : "OFF"}
-                </span>
-                {/* Rate Limiter */}
-                <span className="px-3 py-1 rounded-full text-xs font-medium bg-blue-900/50 text-blue-400 border border-blue-700">
-                  Rate: {modules.rate_limiter?.max_orders_per_minute || 10} ord/min
+            <div className="bg-slate-900 rounded-xl border border-white/5 p-4">
+              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                System Modules
+              </h2>
+              <div className="flex gap-2 flex-wrap">
+                <ModuleChip
+                  label={`WS Feed: ${modules.websocket?.enabled ? "ON" : "OFF"}`}
+                  active={modules.websocket?.enabled}
+                  color="cyan"
+                />
+                <ModuleChip
+                  label={`Alerts: ${
+                    modules.notifications?.enabled
+                      ? [
+                          modules.notifications.channels?.telegram && "TG",
+                          modules.notifications.channels?.discord && "DC",
+                          modules.notifications.channels?.email && "EM",
+                        ]
+                          .filter(Boolean)
+                          .join("+") || "ON"
+                      : "OFF"
+                  }`}
+                  active={modules.notifications?.enabled}
+                  color="cyan"
+                />
+                <ModuleChip
+                  label={`Trade DB: ${modules.trade_db?.enabled ? "ON" : "OFF"}`}
+                  active={modules.trade_db?.enabled}
+                  color="cyan"
+                />
+                <ModuleChip
+                  label={`Intel ${modules.intelligence?.enabled ? `${modules.intelligence.providers_enabled}/10` : "OFF"}`}
+                  active={modules.intelligence?.enabled}
+                  color="cyan"
+                />
+                <ModuleChip
+                  label="Phase 9: ON"
+                  active={true}
+                  color="violet"
+                />
+                <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-white/5">
+                  {modules.rate_limiter?.max_orders_per_minute || 10} ord/min
                 </span>
               </div>
             </div>
           )}
 
-          {/* Multi-pair portfolio overview */}
+          {/* Multi-pair portfolio */}
           {s.multi_pair && s.portfolio && (
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
+            <div className="bg-slate-900 rounded-xl border border-white/5 p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-gray-300">Portfolio</h2>
-                <span className="text-xs text-gray-500">
+                <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Portfolio
+                </h2>
+                <span className="text-xs text-slate-600">
                   {(s.trading_pairs || []).join(", ")}
                 </span>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <div>
-                  <div className="text-gray-400">Exposure</div>
-                  <div className="font-mono text-white">
+                  <div className="text-slate-500 text-xs">Exposure</div>
+                  <div className="font-mono text-slate-200">
                     ${(s.portfolio.total_exposure || 0).toLocaleString()}
                   </div>
                 </div>
                 <div>
-                  <div className="text-gray-400">Concentration</div>
-                  <div className="font-mono text-white">
+                  <div className="text-slate-500 text-xs">Concentration</div>
+                  <div className="font-mono text-slate-200">
                     {(s.portfolio.concentration || 0).toFixed(2)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-gray-400">Correlation Risk</div>
-                  <div className={`font-mono ${
-                    s.portfolio.corr_risk === "high" ? "text-red-400" :
-                    s.portfolio.corr_risk === "medium" ? "text-yellow-400" : "text-green-400"
-                  }`}>
+                  <div className="text-slate-500 text-xs">Corr. Risk</div>
+                  <div
+                    className={`font-mono ${
+                      s.portfolio.corr_risk === "high"
+                        ? "text-rose-400"
+                        : s.portfolio.corr_risk === "medium"
+                        ? "text-amber-400"
+                        : "text-emerald-400"
+                    }`}
+                  >
                     {s.portfolio.corr_risk || "low"}
                   </div>
                 </div>
                 <div>
-                  <div className="text-gray-400">Weights</div>
-                  <div className="font-mono text-xs text-gray-300">
+                  <div className="text-slate-500 text-xs">Weights</div>
+                  <div className="font-mono text-xs text-slate-400">
                     {s.portfolio_weights
-                      ? Object.entries(s.portfolio_weights as Record<string, number>)
-                          .map(([p, w]) => `${p.split("/")[0]}: ${(w * 100).toFixed(0)}%`)
+                      ? Object.entries(
+                          s.portfolio_weights as Record<string, number>
+                        )
+                          .map(
+                            ([p, w]) =>
+                              `${p.split("/")[0]}: ${(w * 100).toFixed(0)}%`
+                          )
                           .join(", ")
-                      : "equal"
-                    }
+                      : "equal"}
                   </div>
                 </div>
               </div>
-              {/* Per-pair exposure breakdown */}
-              {s.portfolio.pair_exposure && Object.keys(s.portfolio.pair_exposure).length > 0 && (
-                <div className="mt-3 flex gap-2 flex-wrap">
-                  {Object.entries(s.portfolio.pair_exposure as Record<string, number>).map(([pair, exp]) => (
-                    <span key={pair} className="px-2 py-1 bg-gray-700 rounded text-xs">
-                      {pair}: ${exp.toLocaleString()}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {s.portfolio.pair_exposure &&
+                Object.keys(s.portfolio.pair_exposure).length > 0 && (
+                  <div className="mt-3 flex gap-2 flex-wrap">
+                    {Object.entries(
+                      s.portfolio.pair_exposure as Record<string, number>
+                    ).map(([pair, exp]) => (
+                      <span
+                        key={pair}
+                        className="px-2 py-1 bg-slate-800 border border-white/5 rounded text-xs text-slate-400"
+                      >
+                        {pair}: ${exp.toLocaleString()}
+                      </span>
+                    ))}
+                  </div>
+                )}
             </div>
           )}
 
-          {/* Equity curve chart */}
+          {/* Equity curve */}
           <div>
-            <h2 className="text-lg font-semibold mb-3">Equity Curve</h2>
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
+              Equity Curve
+            </h2>
             <EquityChart data={equity?.equity || []} height={250} />
           </div>
 
-          {/* Recent trades table */}
+          {/* Recent trades */}
           <div>
-            <h2 className="text-lg font-semibold mb-3">Recent Trades</h2>
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4">
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
+              Recent Trades
+            </h2>
+            <div className="bg-slate-900 rounded-xl border border-white/5 p-4">
               <TradeTable trades={(trades?.trades || []) as any[]} />
             </div>
           </div>
         </>
       )}
     </div>
+  );
+}
+
+// ── Small helper component ────────────────────────────────────────────────────
+function ModuleChip({
+  label,
+  active,
+  color = "cyan",
+}: {
+  label: string;
+  active?: boolean;
+  color?: "cyan" | "violet";
+}) {
+  if (!active) {
+    return (
+      <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-500 border border-white/5">
+        {label}
+      </span>
+    );
+  }
+  const styles =
+    color === "violet"
+      ? "bg-violet-950/50 text-violet-400 border-violet-800"
+      : "bg-cyan-950/50 text-cyan-400 border-cyan-800";
+  return (
+    <span className={`px-3 py-1 rounded-full text-xs font-medium border ${styles}`}>
+      {label}
+    </span>
   );
 }

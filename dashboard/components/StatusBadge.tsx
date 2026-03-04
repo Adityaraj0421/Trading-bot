@@ -1,28 +1,21 @@
 // ============================================================
 // StatusBadge.tsx - Shows the autonomous system state as a pill
 // ============================================================
-// The autonomous trading system has states like:
-//   "normal"    -> green  (everything fine)
-//   "cautious"  -> yellow (reducing risk)
-//   "defensive" -> orange (high alert)
-//   "halted"    -> red    (trading stopped)
 
 interface StatusBadgeProps {
   state: string;
 }
 
-// Map each state to background, text, and border colors
 const stateStyles: Record<string, string> = {
-  normal: "bg-green-900 text-green-300 border-green-700",
-  cautious: "bg-yellow-900 text-yellow-300 border-yellow-700",
-  defensive: "bg-orange-900 text-orange-300 border-orange-700",
-  halted: "bg-red-900 text-red-300 border-red-700",
+  normal: "bg-emerald-950 text-emerald-300 border-emerald-800",
+  cautious: "bg-amber-950 text-amber-300 border-amber-800",
+  defensive: "bg-orange-950 text-orange-300 border-orange-800",
+  halted: "bg-rose-950 text-rose-300 border-rose-800",
 };
 
 export default function StatusBadge({ state }: StatusBadgeProps) {
-  // Fall back to gray if the state is unknown
   const style =
-    stateStyles[state] || "bg-gray-700 text-gray-300 border-gray-600";
+    stateStyles[state] || "bg-slate-800 text-slate-300 border-slate-700";
 
   return (
     <span

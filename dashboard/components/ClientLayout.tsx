@@ -21,9 +21,9 @@ export default function ClientLayout({
 
   return (
     <div className="flex">
-      <aside className="w-56 bg-gray-900 border-r border-gray-800 min-h-screen flex flex-col">
+      <aside className="w-56 bg-slate-900 border-r border-white/5 min-h-screen flex flex-col">
         <Sidebar />
-        <div className="mt-auto border-t border-gray-800">
+        <div className="border-t border-white/5">
           <ConnectionStatus state={connectionState} />
         </div>
       </aside>
