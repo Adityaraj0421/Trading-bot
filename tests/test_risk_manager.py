@@ -8,6 +8,7 @@ Covers:
 """
 
 from datetime import date, datetime
+from typing import Any
 
 import pytest
 
@@ -609,3 +610,53 @@ class TestPartialTP:
             stop_loss=98_000.0, take_profit=105_000.0,
         )
         assert rm.check_partial_tp(pos, 105_000.0, {}) is None
+
+
+# ---------------------------------------------------------------------------
+# Perp fields on Position
+# ---------------------------------------------------------------------------
+
+
+class TestPerpPositionFields:
+    """Perp-specific fields on Position — backward-compatible defaults."""
+
+    def _make_position(self, **kwargs) -> Any:
+        from datetime import UTC, datetime
+
+        from risk_manager import Position
+
+        defaults = dict(
+            symbol="BTC/USDT",
+            side="long",
+            entry_price=50_000.0,
+            quantity=0.1,
+            entry_time=datetime.now(UTC),
+            stop_loss=48_000.0,
+            take_profit=53_000.0,
+        )
+        defaults.update(kwargs)
+        return Position(**defaults)
+
+    def test_default_leverage_is_one(self):
+        pos = self._make_position()
+        assert pos.leverage == 1
+
+    def test_default_perp_fields_are_zero(self):
+        pos = self._make_position()
+        assert pos.margin_used == 0.0
+        assert pos.liquidation_price == 0.0
+        assert pos.funding_pnl == 0.0
+
+    def test_perp_fields_settable(self):
+        pos = self._make_position(
+            leverage=3, margin_used=1666.67, liquidation_price=34_000.0
+        )
+        assert pos.leverage == 3
+        assert pos.margin_used == pytest.approx(1666.67)
+        assert pos.liquidation_price == 34_000.0
+
+    def test_spot_position_unchanged(self):
+        """Existing Position construction with no perp kwargs still works."""
+        pos = self._make_position()
+        assert pos.symbol == "BTC/USDT"
+        assert pos.entry_price == 50_000.0

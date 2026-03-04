@@ -45,6 +45,11 @@ class Position:
     # Partial TP tracking
     partial_tp_levels: list[float] = field(default_factory=list)
     partial_exits: list[dict] = field(default_factory=list)
+    # Perp fields — default values keep spot positions fully backward-compatible
+    leverage: int = 1  # 1 = spot (no leverage); 2+ = leveraged perp
+    margin_used: float = 0.0  # notional / leverage
+    liquidation_price: float = 0.0  # 0.0 = not set (spot or not yet computed)
+    funding_pnl: float = 0.0  # accrued funding cost (negative = paid)
 
     def __post_init__(self) -> None:
         """Finalize position initialization after the dataclass ``__init__``.
