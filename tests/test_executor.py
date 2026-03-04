@@ -154,3 +154,40 @@ class TestLiveExecutor:
     def test_executor_stores_exchange_ref(self):
         """LiveExecutor should maintain exchange reference."""
         assert self.executor.exchange is self.mock_exchange
+
+
+class TestPartialClose:
+    def _make_position(self):
+        from datetime import UTC, datetime
+
+        from risk_manager import Position
+        return Position(
+            symbol="BTC/USDT", side="long",
+            entry_price=100_000.0, quantity=1.0,
+            entry_time=datetime.now(UTC),
+            stop_loss=98_000.0, take_profit=105_000.0,
+        )
+
+    def test_partial_close_reduces_quantity(self):
+        from executor import PaperExecutor
+        pos = self._make_position()
+        executor = PaperExecutor()
+        executor.partial_close(pos, fraction=0.5, current_price=102_000.0, reason="partial_tp")
+        assert abs(pos.quantity - 0.5) < 1e-9
+
+    def test_partial_close_records_order(self):
+        from executor import PaperExecutor
+        pos = self._make_position()
+        executor = PaperExecutor()
+        order = executor.partial_close(pos, fraction=0.5, current_price=102_000.0, reason="partial_tp")
+        assert order["status"] == "filled"
+        assert abs(order["quantity"] - 0.5) < 1e-9
+        assert order["reason"] == "partial_tp"
+
+    def test_partial_close_pnl_positive_for_long_above_entry(self):
+        from executor import PaperExecutor
+        pos = self._make_position()
+        executor = PaperExecutor()
+        order = executor.partial_close(pos, fraction=0.5, current_price=102_000.0, reason="partial_tp")
+        # PnL = (102000 - 100000) * 0.5 qty = 1000
+        assert order["pnl"] == pytest.approx(1000.0)

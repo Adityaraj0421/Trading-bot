@@ -61,6 +61,59 @@ class PaperExecutor:
         """
         return True
 
+    def partial_close(
+        self,
+        position: Any,
+        fraction: float,
+        current_price: float,
+        reason: str = "partial_tp",
+    ) -> dict[str, Any]:
+        """Simulate a partial position close.
+
+        Reduces ``position.quantity`` by ``fraction`` and records the
+        closed portion as a filled order. PnL is calculated for the
+        closed quantity only.
+
+        Args:
+            position: Open Position object (quantity is mutated in-place).
+            fraction: Fraction to close, e.g. ``0.50`` for 50%.
+            current_price: Simulated fill price.
+            reason: Tag for the audit trail (e.g. ``"partial_tp"``).
+
+        Returns:
+            Order dict with keys: id, symbol, side, quantity, price, pnl,
+            reason, status, timestamp, mode.
+        """
+        closed_qty = position.quantity * fraction
+        if position.side == "long":
+            pnl = (current_price - position.entry_price) * closed_qty
+        else:
+            pnl = (position.entry_price - current_price) * closed_qty
+
+        position.quantity -= closed_qty
+
+        order = {
+            "id": f"paper_partial_{len(self.orders) + 1}",
+            "symbol": position.symbol,
+            "side": "sell" if position.side == "long" else "buy",
+            "quantity": closed_qty,
+            "price": current_price,
+            "pnl": pnl,
+            "reason": reason,
+            "status": "filled",
+            "timestamp": datetime.now().isoformat(),
+            "mode": "PAPER",
+        }
+        self.orders.append(order)
+        _log.info(
+            "[Paper] Partial close %.0f%% of %s @ $%,.2f (PnL: $%.2f)",
+            fraction * 100,
+            position.symbol,
+            current_price,
+            pnl,
+        )
+        return order
+
 
 class LiveExecutor:
     """Places real orders on the exchange via CCXT."""
