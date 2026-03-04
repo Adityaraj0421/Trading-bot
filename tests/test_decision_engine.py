@@ -62,8 +62,11 @@ class TestSafetyChecks:
     def test_defensive_on_daily_loss(self, engine):
         """Daily PnL exceeds max_daily_loss_pct → DEFENSIVE."""
         # Simulate big daily loss via _daily_pnl
+        # Must use UTC-aware datetime to match _check_safety's datetime.now(UTC) —
+        # naive datetime.now() uses local time (e.g. IST) and can differ by date
+        # when crossing UTC midnight, which would reset _daily_pnl to 0 and mask the test.
         engine._daily_pnl = -600  # 6% of 10000 > 5% limit
-        engine._daily_reset_date = datetime.now()
+        engine._daily_reset_date = datetime.now(UTC)
         instructions = engine.orchestrate(cycle_count=1, current_capital=9400)
         assert engine.state == DecisionState.DEFENSIVE
         assert instructions["position_multiplier"] == engine.config.defensive_position_mult
