@@ -338,6 +338,10 @@ class TradingAgent:
                 self.executor = PaperExecutor()
             else:
                 self.executor = LiveExecutor(self.fetcher.exchange)
+            # When USE_PERP=false, perp_executor is aliased to spot executor.
+            # Re-sync the alias so _resolve_executor("perp") doesn't use a stale ref.
+            if not self._use_perp:
+                self.perp_executor = self.executor
 
         healer.register_recovery_action("executor", recover_executor)
 
@@ -896,13 +900,18 @@ class TradingAgent:
 
         # Phase 9: Partial TP at structural key levels (fires before full TP check)
         _p9_ctx = self._phase9_context.get(pair)
-        if _p9_ctx is not None and hasattr(self.executor, "partial_close"):
+        if _p9_ctx is not None:
             for _pos in list(self.risk.positions):
                 if _pos.symbol != pair:
                     continue
                 _frac = self.risk.check_partial_tp(_pos, current_price, _p9_ctx.key_levels)
                 if _frac is not None:
-                    self.executor.partial_close(_pos, _frac, current_price, reason="partial_tp")
+                    # Route partial close to the executor that opened the position.
+                    # Perp positions carry leverage > 1; spot positions use default 1.
+                    _pos_route = "perp" if getattr(_pos, "leverage", 1) > 1 else "spot"
+                    _pos_exec = self._resolve_executor(_pos_route)
+                    if hasattr(_pos_exec, "partial_close"):
+                        _pos_exec.partial_close(_pos, _frac, current_price, reason="partial_tp")
 
         # 4. Check positions for THIS pair only (prevents cross-pair price contamination)
         # v9.1: Pass atr_pct for ATR-adaptive trailing stop
@@ -1117,6 +1126,10 @@ class TradingAgent:
             intel_adjustment: Intelligence confidence factor used to scale
                 position size (default ``1.0``).
             pair: Trading pair symbol. Falls back to ``Config.TRADING_PAIR``.
+            executor: Executor instance to use for order placement. When
+                ``None``, falls back to ``self.executor`` (spot). Passed by
+                ``_run_phase9_cycle`` via ``_resolve_executor()`` to route
+                perp decisions to ``self.perp_executor``.
         """
         pair = pair or Config.TRADING_PAIR
         _exec = executor or self.executor
