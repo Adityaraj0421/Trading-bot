@@ -41,6 +41,8 @@ class WsFeed:
     """
 
     def __init__(self, symbols: list[str]) -> None:
+        if not symbols:
+            raise ValueError("WsFeed requires at least one symbol")
         self._symbols = symbols
         self._cache: dict[str, float] = {}  # "BTCUSDT" -> latest close
         self._running = False
@@ -90,14 +92,18 @@ class WsFeed:
     def _handle(self, data: dict[str, Any]) -> None:
         """Parse a raw WebSocket message and update the cache.
 
+        Only closed candles (``kline["x"] is True``) update ``self._cache``.
+        Malformed messages (missing ``"c"`` key) are silently skipped.
+
         Args:
             data: Parsed JSON dict from the Binance combined stream.
         """
         stream: str = data.get("stream", "")
         symbol_raw = stream.split("@")[0].upper()  # "btcusdt" -> "BTCUSDT"
         kline: dict = data.get("data", {}).get("k", {})
-        if kline.get("x"):  # only closed candles
-            self._cache[symbol_raw] = float(kline["c"])
+        close_str = kline.get("c")
+        if kline.get("x") and close_str is not None:  # only closed candles
+            self._cache[symbol_raw] = float(close_str)
             _log.debug("WsFeed cached %s close=%.2f", symbol_raw, self._cache[symbol_raw])
 
     def _run_loop(self) -> None:
