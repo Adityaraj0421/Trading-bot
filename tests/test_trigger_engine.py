@@ -246,3 +246,36 @@ class TestTriggerEngine:
         df = make_1h_df_with_signals()
         signals = engine.on_1h_close(df)
         assert all(s.symbol_scope == "SOL" for s in signals)
+
+
+# ---------------------------------------------------------------------------
+# TestTriggerEngineSweep
+# ---------------------------------------------------------------------------
+
+
+def make_sweep_df_for_engine() -> pd.DataFrame:
+    """21-bar DataFrame with a bullish sweep on the last bar."""
+    n = 21
+    closes = [89500.0] * 10 + [89000.0] * 10 + [89500.0]
+    lows   = [88100.0] * 10 + [88050.0] * 10 + [87500.0]  # sweep bar
+    highs  = [91000.0] * 10 + [90000.0] * 10 + [90000.0]
+    opens  = [c * 0.999 for c in closes]
+    return pd.DataFrame({
+        "open": opens, "high": highs, "low": lows,
+        "close": closes, "volume": [1000.0] * n,
+    })
+
+
+class TestTriggerEngineSweep:
+    def test_sweep_signals_buffered_from_on_1h_close(self):
+        engine = TriggerEngine(symbol="BTC/USDT")
+        new = engine.on_1h_close(make_sweep_df_for_engine())
+        sweep_signals = [s for s in new if s.source == "liquidity_sweep"]
+        assert len(sweep_signals) >= 1
+
+    def test_sweep_trigger_instantiated_per_symbol(self):
+        from triggers.liquidity_sweep import LiquiditySweepTrigger
+        engine = TriggerEngine(symbol="ETH/USDT")
+        assert hasattr(engine, "_sweep")
+        assert isinstance(engine._sweep, LiquiditySweepTrigger)
+        assert engine._sweep.symbol == "ETH/USDT"

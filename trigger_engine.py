@@ -22,6 +22,7 @@ from typing import Any
 import pandas as pd
 
 from decision import TriggerSignal
+from triggers.liquidity_sweep import LiquiditySweepTrigger
 from triggers.momentum import MomentumTrigger
 from triggers.orderflow import OrderFlowTrigger
 
@@ -46,6 +47,7 @@ class TriggerEngine:
         self.symbol = symbol
         self._momentum = MomentumTrigger(symbol=symbol)
         self._orderflow = OrderFlowTrigger(symbol=symbol)
+        self._sweep = LiquiditySweepTrigger(symbol=symbol)
         self._buffer: deque[TriggerSignal] = deque(maxlen=max_buffer)
 
         # Phase 9 perp triggers — enabled via USE_PHASE9_PERP=true
@@ -66,7 +68,7 @@ class TriggerEngine:
         Returns:
             Newly generated TriggerSignals from this candle (may be empty).
         """
-        new_signals = self._momentum.evaluate(df)
+        new_signals = self._momentum.evaluate(df) + self._sweep.evaluate(df)
         self._extend(new_signals)
         if new_signals:
             _log.info(
