@@ -66,6 +66,7 @@ from strategies import StrategyEngine, StrategySignal
 from trade_db import TradeDB
 from trigger_engine import TriggerEngine
 from websocket_streamer import WebSocketStreamer
+from ws_feed import WsFeed
 
 _log = logging.getLogger(__name__)
 
@@ -157,6 +158,14 @@ class TradingAgent:
                 )
         else:
             self.perp_executor = self.executor  # safe degradation: route perp to spot
+
+        # Phase 10: WebSocket real-time feed (opt-in via USE_WS_FEED=true)
+        self._use_ws_feed: bool = os.getenv("USE_WS_FEED", "false").lower() == "true"
+        self._ws_feed: WsFeed | None = None
+        if self._use_ws_feed:
+            self._ws_feed = WsFeed(Config.TRADING_PAIRS)
+            self._ws_feed.start()
+            _log.info("WsFeed started for real-time kline data")
 
         self.cycle_count = 0
         self.last_train_time = None
@@ -817,6 +826,12 @@ class TradingAgent:
         # ── 5. Execute if Decision says trade ──────────────────────────
         if decision.action == "trade" and snapshot.df_1h is not None:
             current_price = float(snapshot.df_1h.iloc[-1]["close"])
+            # Phase 10: Override with real-time WsFeed price if available
+            if self._ws_feed is not None:
+                ws_price = self._ws_feed.get_latest_close(symbol)
+                if ws_price is not None:
+                    current_price = ws_price
+                    _log.debug("WsFeed price override for %s: %.2f", symbol, current_price)
             df_ind = self._last_df_ind.get(symbol)
             if df_ind is not None and current_price > 0:
                 trade_signal = "BUY" if decision.direction == "long" else "SELL"

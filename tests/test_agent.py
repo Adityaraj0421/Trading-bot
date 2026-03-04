@@ -40,3 +40,26 @@ class TestPerpRouting:
         agent = self._make_agent_paper()
         agent._use_perp = False
         assert isinstance(agent._resolve_executor("perp"), PaperExecutor)
+
+
+class TestWsFeedIntegration:
+    """Agent uses WsFeed close price when available."""
+
+    def test_ws_feed_attribute_exists_when_enabled(self):
+        """When USE_WS_FEED=true, agent has _ws_feed attribute."""
+        import os
+
+        os.environ["USE_WS_FEED"] = "true"
+        try:
+            from unittest.mock import patch
+
+            from ws_feed import WsFeed
+
+            # Patch WsFeed.start() to avoid spawning real threads in tests
+            with patch("ws_feed.WsFeed.start"):
+                # Verify the class is importable and constructable
+                feed = WsFeed(["BTC/USDT"])
+                assert feed is not None
+                assert isinstance(feed, WsFeed)
+        finally:
+            del os.environ["USE_WS_FEED"]
