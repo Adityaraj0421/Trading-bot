@@ -16,6 +16,7 @@ const navItems = [
   { href: "/arbitrage", label: "Arbitrage", icon: "⚡" },
   { href: "/risk", label: "Risk Sim", icon: "🛡️" },
   { href: "/model", label: "Model", icon: "🧩" },
+  { href: "/decisions", label: "Decisions", icon: "🔍" },
 ];
 
 export default function Sidebar() {

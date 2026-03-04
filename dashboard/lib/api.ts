@@ -177,6 +177,12 @@ const api = {
       feature_importance?: Record<string, number>;
       top_features?: string[];
     }>("/model/feature-importance"),
+
+  // Phase 9 — decision audit log
+  getPhase9Decisions: (limit = 50) =>
+    fetchAPI<{ decisions: any[]; count: number; log_path: string | null }>(
+      `/phase9/decisions?limit=${limit}`
+    ),
 };
 
 export default api;
