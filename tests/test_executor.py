@@ -265,3 +265,76 @@ class TestLiveExecutorPartialClose:
         assert order["status"] == "filled"
         assert order["quantity"] == pytest.approx(0.05)
         assert order["mode"] == "LIVE"
+
+
+class TestPerpPaperExecutor:
+    """PerpPaperExecutor — simulated leveraged futures."""
+
+    def _make_pos_kwargs(self):
+        from datetime import UTC, datetime
+
+        return dict(
+            symbol="BTC/USDT",
+            side="long",
+            entry_price=50_000.0,
+            quantity=0.1,
+            entry_time=datetime.now(UTC),
+            stop_loss=48_000.0,
+            take_profit=53_000.0,
+        )
+
+    def test_place_order_returns_filled(self):
+        from executor import PerpPaperExecutor
+
+        ex = PerpPaperExecutor(leverage=3)
+        order = ex.place_order("BTC/USDT", "long", 0.1, 50_000.0)
+        assert order["status"] == "filled"
+        assert order["mode"] == "PERP_PAPER"
+
+    def test_open_position_sets_leverage_fields(self):
+        """open_position() creates a Position with leverage and liquidation_price."""
+        from executor import PerpPaperExecutor
+
+        ex = PerpPaperExecutor(leverage=3)
+        pos = ex.open_position(**self._make_pos_kwargs())
+        assert pos.leverage == 3
+        assert pos.margin_used == pytest.approx(50_000.0 * 0.1 / 3)
+        # Long liq price = entry * (1 - 1/leverage)
+        assert pos.liquidation_price == pytest.approx(50_000.0 * (1 - 1 / 3))
+
+    def test_liquidation_price_short(self):
+        from datetime import UTC, datetime
+
+        from executor import PerpPaperExecutor
+
+        ex = PerpPaperExecutor(leverage=5)
+        kwargs = dict(
+            symbol="BTC/USDT",
+            side="short",
+            entry_price=50_000.0,
+            quantity=0.1,
+            entry_time=datetime.now(UTC),
+            stop_loss=52_000.0,
+            take_profit=47_000.0,
+        )
+        pos = ex.open_position(**kwargs)
+        assert pos.liquidation_price == pytest.approx(50_000.0 * (1 + 1 / 5))
+
+    def test_apply_funding_accrues_funding_pnl(self):
+        """apply_funding() reduces funding_pnl by rate * notional."""
+        from executor import PerpPaperExecutor
+
+        ex = PerpPaperExecutor(leverage=3)
+        pos = ex.open_position(**self._make_pos_kwargs())
+        ex.apply_funding(pos, funding_rate=0.0001)  # 0.01% per 8h
+        # notional = 50_000 * 0.1 = 5000; cost = 5000 * 0.0001 = 0.50
+        assert pos.funding_pnl == pytest.approx(-0.50)
+
+    def test_partial_close_works(self):
+        from executor import PerpPaperExecutor
+
+        ex = PerpPaperExecutor(leverage=3)
+        pos = ex.open_position(**self._make_pos_kwargs())
+        order = ex.partial_close(pos, 0.5, 51_000.0)
+        assert pos.quantity == pytest.approx(0.05)
+        assert order["mode"] == "PERP_PAPER"
