@@ -23,6 +23,8 @@ from typing import Any
 
 import requests
 
+from config import Config
+
 _log = logging.getLogger(__name__)
 
 _HEADERS = {
@@ -75,6 +77,9 @@ class LiquidationAnalyzer:
             (0.0–1.0), ``data`` containing ``bullish_score``,
             ``bearish_score``, ``net_score``, and ``per_symbol`` details.
         """
+        if not Config.ENABLE_LIQUIDATION:
+            return {"source": "liquidation", "signal": "neutral", "strength": 0.0, "data": {}}
+
         now = time.time()
         if self._cache and now - self._cache_ts < self._cache_ttl:
             return self._cache
