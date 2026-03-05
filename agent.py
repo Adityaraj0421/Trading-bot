@@ -783,7 +783,10 @@ class TradingAgent:
         trigger_eng = self._phase9_trigger_engines[symbol]
         try:
             if snapshot.df_1h is not None:
-                trigger_eng.on_1h_close(snapshot.df_1h)
+                trigger_eng.on_1h_close(
+                    snapshot.df_1h,
+                    swing_bias=context.swing_bias if context else "neutral",
+                )
         except Exception as e:
             _log.warning("Phase 9 momentum trigger failed for %s: %s", symbol, e)
 

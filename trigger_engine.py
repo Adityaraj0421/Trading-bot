@@ -1,7 +1,8 @@
 """TriggerEngine — orchestrates all per-candle and realtime triggers.
 
 Maintains a TTL-aware signal buffer. Callers:
-  1. Call on_1h_close() after each 1h candle close → runs MomentumTrigger.
+  1. Call on_1h_close() after each 1h candle close → runs MomentumTrigger,
+     LiquiditySweepTrigger, PullbackTrigger (when swing_bias is non-neutral).
   2. Call on_orderflow_update() on each orderbook snapshot → runs OrderFlowTrigger.
   3. Optionally: on_liquidation_event() / on_funding_update() when
      ``USE_PHASE9_PERP=true`` — runs LiquidationTrigger / FundingExtremeTrigger.
@@ -25,6 +26,7 @@ from decision import TriggerSignal
 from triggers.liquidity_sweep import LiquiditySweepTrigger
 from triggers.momentum import MomentumTrigger
 from triggers.orderflow import OrderFlowTrigger
+from triggers.pullback import PullbackTrigger
 
 _log = logging.getLogger(__name__)
 
@@ -48,6 +50,7 @@ class TriggerEngine:
         self._momentum = MomentumTrigger(symbol=symbol)
         self._orderflow = OrderFlowTrigger(symbol=symbol)
         self._sweep = LiquiditySweepTrigger(symbol=symbol)
+        self._pullback = PullbackTrigger(symbol=symbol)
         self._buffer: deque[TriggerSignal] = deque(maxlen=max_buffer)
 
         # Phase 9 perp triggers — enabled via USE_PHASE9_PERP=true
@@ -59,16 +62,22 @@ class TriggerEngine:
             self._liquidation: Any = LiquidationTrigger(symbol=symbol)
             self._funding_extreme: Any = FundingExtremeTrigger(symbol=symbol)
 
-    def on_1h_close(self, df: pd.DataFrame) -> list[TriggerSignal]:
+    def on_1h_close(self, df: pd.DataFrame, swing_bias: str = "neutral") -> list[TriggerSignal]:
         """Run per-candle triggers on 1h OHLCV data.
 
         Args:
             df: 1h OHLCV DataFrame with columns: open, high, low, close, volume.
+            swing_bias: Context swing bias passed from ContextEngine — "bullish",
+                        "bearish", or "neutral". Forwarded to PullbackTrigger.
 
         Returns:
             Newly generated TriggerSignals from this candle (may be empty).
         """
-        new_signals = self._momentum.evaluate(df) + self._sweep.evaluate(df)
+        new_signals = (
+            self._momentum.evaluate(df)
+            + self._sweep.evaluate(df)
+            + self._pullback.evaluate(df, swing_bias=swing_bias)
+        )
         self._extend(new_signals)
         if new_signals:
             _log.info(

@@ -279,3 +279,196 @@ class TestLiquiditySweepTrigger:
         signals = trigger.evaluate(make_sweep_long_df())
         assert len(signals) == 1
         assert signals[0].expires_at > datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# PullbackTrigger fixtures + tests
+# ---------------------------------------------------------------------------
+
+
+def make_pullback_long_df(n: int = 39) -> pd.DataFrame:
+    """Uptrend then shallow pullback then two-bar recovery — RSI ≈ 49.5 in [42,52] and rising.
+
+    Phase 1 (30 bars, 88000→95000): sustained rally drives RSI to ~72.
+    Phase 2 (6 bars, 95000→93200): shallow pullback drops RSI toward mid-zone.
+    Phase 3 (2 bars, 93200→93666): gradual recovery lifts RSI into [42,52] range.
+    Final bar (93666→93760): one more uptick — RSI 49.5, window_min 48.4 → recovering=True.
+
+    Total full-length: 39 bars. When n=10, returns 10 bars (< _MIN_BARS=26) — used for
+    the insufficient-data test.
+    """
+    phase1 = np.linspace(88000.0, 95000.0, 30)
+    phase2 = np.linspace(95000.0, 93200.0, 6)
+    phase3 = np.linspace(93200.0, 93200.0 * 1.005, 2)
+    final = np.array([phase3[-1] * 1.001])
+    full = np.concatenate([phase1, phase2, phase3, final])
+    closes = full[:n]
+    return pd.DataFrame(
+        {
+            "open": closes * 0.999,
+            "high": closes * 1.002,
+            "low": closes * 0.998,
+            "close": closes,
+            "volume": [1000.0] * len(closes),
+        }
+    )
+
+
+def make_pullback_short_df(n: int = 41) -> pd.DataFrame:
+    """Downtrend then shallow bounce then two-bar rejection — RSI ≈ 52.6 in [48,58] and declining.
+
+    Phase 1 (30 bars, 95000→88000): sustained decline drives RSI to ~28.
+    Phase 2 (8 bars, 88000→89400): shallow bounce lifts RSI toward mid-zone.
+    Phase 3 (2 bars, 89400→88953): gradual fade pulls RSI into [48,58] range.
+    Final bar (88953→88864): one more downtick — RSI 52.6, window_max 53.7 → declining=True.
+
+    Total full-length: 41 bars. When n=10, returns 10 bars (< _MIN_BARS=26) — used for
+    the insufficient-data test.
+    """
+    phase1 = np.linspace(95000.0, 88000.0, 30)
+    phase2 = np.linspace(88000.0, 89400.0, 8)
+    phase3 = np.linspace(89400.0, 89400.0 * 0.995, 2)
+    final = np.array([phase3[-1] * 0.999])
+    full = np.concatenate([phase1, phase2, phase3, final])
+    closes = full[:n]
+    return pd.DataFrame(
+        {
+            "open": closes * 1.001,
+            "high": closes * 1.002,
+            "low": closes * 0.998,
+            "close": closes,
+            "volume": [1000.0] * len(closes),
+        }
+    )
+
+
+class TestPullbackTrigger:
+    def test_insufficient_bars_returns_empty(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(n=10), swing_bias="bullish")
+        assert signals == []
+
+    def test_neutral_bias_returns_empty(self):
+        """swing_bias='neutral' must suppress all signals regardless of RSI."""
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(), swing_bias="neutral")
+        assert signals == []
+
+    def test_long_fires_on_bullish_pullback(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(), swing_bias="bullish")
+        assert any(s.direction == "long" for s in signals)
+
+    def test_long_not_fired_on_bearish_bias(self):
+        """Bullish pullback conditions with bearish bias → no long signal."""
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(), swing_bias="bearish")
+        assert not any(s.direction == "long" for s in signals)
+
+    def test_short_fires_on_bearish_pullback(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_short_df(), swing_bias="bearish")
+        assert any(s.direction == "short" for s in signals)
+
+    def test_short_not_fired_on_bullish_bias(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_short_df(), swing_bias="bullish")
+        assert not any(s.direction == "short" for s in signals)
+
+    def test_source_is_pullback_1h(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(), swing_bias="bullish")
+        assert signals, "Expected at least one signal from pullback fixture"
+        assert all(s.source == "pullback_1h" for s in signals)
+
+    def test_urgency_is_normal(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(), swing_bias="bullish")
+        assert signals, "Expected at least one signal from pullback fixture"
+        assert all(s.urgency == "normal" for s in signals)
+
+    def test_signal_not_expired(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(), swing_bias="bullish")
+        assert signals, "Expected at least one signal from pullback fixture"
+        assert all(s.expires_at > datetime.now(UTC) for s in signals)
+
+    def test_strength_in_valid_range(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(), swing_bias="bullish")
+        assert signals, "Expected at least one signal from pullback fixture"
+        for s in signals:
+            assert 0.0 < s.strength <= 0.72
+
+    def test_symbol_scope_extracted(self):
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="ETH/USDT")
+        signals = trigger.evaluate(make_pullback_long_df(), swing_bias="bullish")
+        assert signals, "Expected at least one signal from pullback fixture"
+        assert all(s.symbol_scope == "ETH" for s in signals)
+
+    def test_flat_market_no_signal(self):
+        """Flat prices → RSI is NaN → trigger returns no signals."""
+        from triggers.pullback import PullbackTrigger
+
+        trigger = PullbackTrigger(symbol="BTC/USDT")
+        signals = trigger.evaluate(make_flat_df(n=55), swing_bias="bullish")
+        assert signals == []
+
+
+class TestTriggerEngineSwingBias:
+    def test_on_1h_close_accepts_swing_bias_kwarg(self):
+        """on_1h_close must accept swing_bias without raising."""
+        from trigger_engine import TriggerEngine
+
+        eng = TriggerEngine(symbol="BTC/USDT")
+        result = eng.on_1h_close(make_pullback_long_df(), swing_bias="bullish")
+        assert isinstance(result, list)
+
+    def test_on_1h_close_default_swing_bias_neutral(self):
+        """Existing call sites (no swing_bias) must continue to work."""
+        from trigger_engine import TriggerEngine
+
+        eng = TriggerEngine(symbol="BTC/USDT")
+        result = eng.on_1h_close(make_pullback_long_df())
+        assert isinstance(result, list)
+
+    def test_pullback_signal_in_buffer_after_bullish_close(self):
+        """After on_1h_close with bullish bias, valid_signals includes pullback."""
+        from trigger_engine import TriggerEngine
+
+        eng = TriggerEngine(symbol="BTC/USDT")
+        eng.on_1h_close(make_pullback_long_df(), swing_bias="bullish")
+        sigs = eng.valid_signals()
+        pullback_sigs = [s for s in sigs if s.source == "pullback_1h"]
+        assert len(pullback_sigs) >= 1
+
+    def test_no_pullback_signal_with_neutral_bias(self):
+        """Neutral bias must not produce pullback signals in buffer."""
+        from trigger_engine import TriggerEngine
+
+        eng = TriggerEngine(symbol="BTC/USDT")
+        eng.on_1h_close(make_pullback_long_df(), swing_bias="neutral")
+        sigs = eng.valid_signals()
+        assert not any(s.source == "pullback_1h" for s in sigs)
