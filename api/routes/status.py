@@ -135,11 +135,20 @@ def create_router(store: DataStore) -> APIRouter:
                     "enabled": Config.any_intelligence_enabled(),
                     "providers_enabled": sum(
                         [
+                            # Flagged providers (gated by Config flag in get_signal())
                             Config.ENABLE_ONCHAIN,
                             Config.ENABLE_ORDERBOOK,
                             Config.ENABLE_CORRELATION,
                             Config.ENABLE_WHALE_TRACKING,
                             Config.ENABLE_NEWS_NLP,
+                            # Flagged providers that always run (no gate in get_signal)
+                            Config.ENABLE_FUNDING_OI,
+                            Config.ENABLE_LIQUIDATION,
+                            # Always-on providers (no ENABLE_ flag, public APIs or
+                            # keyword fallback — run regardless of config)
+                            True,  # LLMSentimentProvider
+                            True,  # CascadePredictor
+                            True,  # FearGreedProvider
                         ]
                     ),
                 },
